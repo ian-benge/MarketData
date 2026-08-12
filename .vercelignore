@@ -1,0 +1,23 @@
+# Local build / deps — never upload to Vercel (platform installs & builds remotely)
+node_modules
+.next
+.next-e2e
+.next-build
+.next-*
+out
+build
+coverage
+playwright-report
+test-results
+tmp
+.git
+.vercel
+*.tsbuildinfo
+.env*
+!.env.example
+
+# Local tooling / docs assets not needed for the Next build
+e2e
+docs
+*.md
+!README.md

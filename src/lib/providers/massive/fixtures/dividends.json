@@ -1,0 +1,17 @@
+{
+  "status": "OK",
+  "results": [
+    {
+      "cash_amount": 0.26,
+      "currency": "USD",
+      "declaration_date": "2025-07-31",
+      "distribution_type": "recurring",
+      "ex_dividend_date": "2025-08-11",
+      "frequency": 4,
+      "id": "fixture-div-aapl-1",
+      "pay_date": "2025-08-14",
+      "record_date": "2025-08-11",
+      "ticker": "AAPL"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "afterHours": true,
+  "currencies": {
+    "crypto": "open",
+    "fx": "open"
+  },
+  "earlyHours": false,
+  "exchanges": {
+    "nasdaq": "extended-hours",
+    "nyse": "extended-hours",
+    "otc": "closed"
+  },
+  "market": "extended-hours",
+  "serverTime": "2026-08-10T17:37:37-05:00"
+}
