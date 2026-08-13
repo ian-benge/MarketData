@@ -1,6 +1,7 @@
 import { nanoid } from "nanoid";
 import { AiOrchestration } from "@/lib/ai/orchestration";
 import { fixturesEnabled } from "@/lib/api/http";
+import { loadFirmRecipients } from "@/lib/email/recipients";
 import { getEnv, type Env } from "@/lib/env";
 import { createProviders } from "@/lib/providers/registry";
 import { persistArchivedReport } from "@/lib/reports/archive-store";
@@ -11,7 +12,8 @@ import { SupabaseReportJobStore } from "@/lib/reports/supabase-job-store";
 import { chicagoDateString } from "@/lib/scheduling/chicago-schedule";
 import { canCreateAdminClient, createAdminClient } from "@/lib/supabase/admin";
 
-export type FirmRecipient = { userId: string; email: string; name?: string };
+export type { FirmRecipient } from "@/lib/email/recipients";
+export { loadFirmRecipients } from "@/lib/email/recipients";
 
 export function resolveFirmId(): string {
   return getEnv().FIRM_ID ?? DEFAULT_FIRM_UUID;
@@ -22,37 +24,6 @@ export function createReportJobStore(): ReportJobStore {
     return new SupabaseReportJobStore(createAdminClient());
   }
   return new MemoryReportJobStore();
-}
-
-export async function loadFirmRecipients(firmId: string): Promise<FirmRecipient[]> {
-  if (!canCreateAdminClient()) return [];
-  const client = createAdminClient();
-  const { data, error } = await client
-    .from("team_memberships")
-    .select("user_id, profiles(email, display_name)")
-    .eq("firm_id", firmId)
-    .eq("is_active", true);
-  if (error || !data) return [];
-
-  const recipients: FirmRecipient[] = [];
-  for (const row of data) {
-    const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
-    const email =
-      profile && typeof profile === "object" && "email" in profile
-        ? String((profile as { email?: string }).email ?? "")
-        : "";
-    if (!email) continue;
-    const name =
-      profile && typeof profile === "object" && "display_name" in profile
-        ? (profile as { display_name?: string | null }).display_name
-        : undefined;
-    recipients.push({
-      userId: String(row.user_id),
-      email,
-      name: name ?? undefined,
-    });
-  }
-  return recipients;
 }
 
 export function hasLiveAiKeys(env: Env = getEnv()): boolean {

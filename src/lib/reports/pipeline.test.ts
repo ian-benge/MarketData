@@ -62,7 +62,18 @@ describe("ReportPipeline", () => {
         errors: [],
       }),
     );
-    const email: EmailProvider = { sendReport };
+    const email: EmailProvider = {
+      sendReport,
+      sendTransactional: async () => ({
+        ok: true,
+        providerName: "test-email",
+        messageIds: [],
+        attempted: 0,
+        succeeded: 0,
+        failed: 0,
+        errors: [],
+      }),
+    };
     const pipeline = new ReportPipeline({
       store,
       providers: {

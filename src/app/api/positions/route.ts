@@ -20,6 +20,10 @@ import {
   insertStoredPosition,
   resolvePersistenceMode,
 } from "@/lib/positions/store";
+import {
+  preparePositionAlert,
+  schedulePositionAlert,
+} from "@/lib/positions/alerts";
 
 export async function GET(request: Request) {
   try {
@@ -95,6 +99,12 @@ export async function POST(request: Request) {
       ownerId,
       bookId: position.bookId,
     });
+    schedulePositionAlert(
+      preparePositionAlert(user, "opened", position, {
+        bookTitle: snapshot.books.find((book) => book.id === position.bookId)
+          ?.title,
+      }),
+    );
     return jsonOk({ position, snapshot, demo: false });
   } catch (error) {
     return handleRouteError(error);

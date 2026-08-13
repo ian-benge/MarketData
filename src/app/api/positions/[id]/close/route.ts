@@ -13,6 +13,10 @@ import {
   closeStoredPosition,
   resolvePersistenceMode,
 } from "@/lib/positions/store";
+import {
+  preparePositionAlert,
+  schedulePositionAlert,
+} from "@/lib/positions/alerts";
 
 export async function POST(
   request: Request,
@@ -74,6 +78,14 @@ export async function POST(
       ownerId: result.closed.createdBy,
       bookId: result.closed.bookId,
     });
+    schedulePositionAlert(
+      preparePositionAlert(user, "closed", result.closed, {
+        partial: Boolean(result.remaining),
+        bookTitle: snapshot.books.find(
+          (book) => book.id === result.closed.bookId,
+        )?.title,
+      }),
+    );
     return jsonOk({
       position: result.remaining ?? result.closed,
       remaining: result.remaining,

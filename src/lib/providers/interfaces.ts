@@ -19,6 +19,7 @@ import type {
   NormalizedNewsItem,
   NormalizedQuote,
   ReportEmailRequest,
+  TransactionalEmailRequest,
   TimeSeriesRequest,
 } from "./types";
 
@@ -51,6 +52,9 @@ export interface AiProvider {
 
 export interface EmailProvider {
   sendReport(request: ReportEmailRequest): Promise<DeliveryResult>;
+  sendTransactional(
+    request: TransactionalEmailRequest,
+  ): Promise<DeliveryResult>;
 }
 
 export interface SchedulerAdapter {

@@ -32,6 +32,7 @@ import type {
   NormalizedQuote,
   ReportEmailRequest,
   TimeSeriesRequest,
+  TransactionalEmailRequest,
 } from "@/lib/providers/types";
 
 function notConfigured(slot: string): Error {
@@ -97,19 +98,38 @@ export class UnconfiguredAiProvider implements AiProvider {
   }
 }
 
+function unconfiguredDelivery(
+  recipientCount: number,
+  emails: string[],
+): DeliveryResult {
+  return {
+    ok: false,
+    providerName: "email-unconfigured",
+    messageIds: [],
+    attempted: recipientCount,
+    succeeded: 0,
+    failed: recipientCount,
+    errors: emails.map((email) => ({
+      recipient: email,
+      message: "Email provider is not configured (RESEND_API_KEY missing).",
+    })),
+  };
+}
+
 export class UnconfiguredEmailProvider implements EmailProvider {
   async sendReport(request: ReportEmailRequest): Promise<DeliveryResult> {
-    return {
-      ok: false,
-      providerName: "email-unconfigured",
-      messageIds: [],
-      attempted: request.recipients.length,
-      succeeded: 0,
-      failed: request.recipients.length,
-      errors: request.recipients.map((recipient) => ({
-        recipient: recipient.email,
-        message: "Email provider is not configured (RESEND_API_KEY missing).",
-      })),
-    };
+    return unconfiguredDelivery(
+      request.recipients.length,
+      request.recipients.map((recipient) => recipient.email),
+    );
+  }
+
+  async sendTransactional(
+    request: TransactionalEmailRequest,
+  ): Promise<DeliveryResult> {
+    return unconfiguredDelivery(
+      request.recipients.length,
+      request.recipients.map((recipient) => recipient.email),
+    );
   }
 }

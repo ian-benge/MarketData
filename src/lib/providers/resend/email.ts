@@ -2,7 +2,9 @@ import { Resend } from "resend";
 import type { EmailProvider } from "@/lib/providers/interfaces";
 import type {
   DeliveryResult,
+  EmailRecipient,
   ReportEmailRequest,
+  TransactionalEmailRequest,
 } from "@/lib/providers/types";
 import { reportPdfFilename } from "@/lib/reports/filenames";
 
@@ -10,6 +12,14 @@ export type ResendEmailOptions = {
   apiKey: string;
   from: string;
   client?: Resend;
+};
+
+type HtmlMail = {
+  subject: string;
+  html: string;
+  text?: string;
+  recipients: EmailRecipient[];
+  attachments?: Array<{ filename: string; content: Buffer }>;
 };
 
 export class ResendEmailProvider implements EmailProvider {
@@ -28,11 +38,6 @@ export class ResendEmailProvider implements EmailProvider {
   }
 
   async sendReport(request: ReportEmailRequest): Promise<DeliveryResult> {
-    const messageIds: string[] = [];
-    const errors: DeliveryResult["errors"] = [];
-    let succeeded = 0;
-    let failed = 0;
-
     const statusLabel =
       request.status === "partial" ? "PARTIAL" : "COMPLETED";
     const html = [
@@ -47,42 +52,78 @@ export class ResendEmailProvider implements EmailProvider {
       `<p style="color:#666;font-size:12px">IB Market Data</p>`,
     ].join("\n");
 
-    for (const recipient of request.recipients) {
-      try {
-        const attachments =
-          request.pdfBytesBase64 != null
-            ? [
-                {
-                  filename: reportPdfFilename(request.tradingDate, request.edition),
-                  content: Buffer.from(request.pdfBytesBase64, "base64"),
-                },
-              ]
-            : undefined;
+    return this.sendHtmlMail({
+      subject: request.subject,
+      html,
+      recipients: request.recipients,
+      attachments:
+        request.pdfBytesBase64 != null
+          ? [
+              {
+                filename: reportPdfFilename(
+                  request.tradingDate,
+                  request.edition,
+                ),
+                content: Buffer.from(request.pdfBytesBase64, "base64"),
+              },
+            ]
+          : undefined,
+    });
+  }
 
-        const result = await this.client.emails.send({
-          from: this.from,
-          to: recipient.email,
-          subject: request.subject,
-          html,
-          attachments,
-        });
+  async sendTransactional(
+    request: TransactionalEmailRequest,
+  ): Promise<DeliveryResult> {
+    return this.sendHtmlMail(request);
+  }
 
-        if (result.error) {
-          failed += 1;
-          errors.push({
-            recipient: recipient.email,
-            message: result.error.message,
+  private async sendHtmlMail(mail: HtmlMail): Promise<DeliveryResult> {
+    const outcomes = await Promise.all(
+      mail.recipients.map(async (recipient) => {
+        try {
+          const result = await this.client.emails.send({
+            from: this.from,
+            to: recipient.email,
+            subject: mail.subject,
+            html: mail.html,
+            text: mail.text,
+            attachments: mail.attachments,
           });
-          continue;
+          if (result.error) {
+            return {
+              ok: false as const,
+              recipient: recipient.email,
+              message: result.error.message,
+            };
+          }
+          return {
+            ok: true as const,
+            recipient: recipient.email,
+            messageId: result.data?.id,
+          };
+        } catch (err) {
+          return {
+            ok: false as const,
+            recipient: recipient.email,
+            message: err instanceof Error ? err.message : String(err),
+          };
         }
+      }),
+    );
 
-        if (result.data?.id) messageIds.push(result.data.id);
+    const messageIds: string[] = [];
+    const errors: DeliveryResult["errors"] = [];
+    let succeeded = 0;
+    let failed = 0;
+    for (const outcome of outcomes) {
+      if (outcome.ok) {
         succeeded += 1;
-      } catch (err) {
+        if (outcome.messageId) messageIds.push(outcome.messageId);
+      } else {
         failed += 1;
         errors.push({
-          recipient: recipient.email,
-          message: err instanceof Error ? err.message : String(err),
+          recipient: outcome.recipient,
+          message: outcome.message,
         });
       }
     }
@@ -91,7 +132,7 @@ export class ResendEmailProvider implements EmailProvider {
       ok: failed === 0,
       providerName: "resend",
       messageIds,
-      attempted: request.recipients.length,
+      attempted: mail.recipients.length,
       succeeded,
       failed,
       errors,

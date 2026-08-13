@@ -3,7 +3,9 @@ import path from "node:path";
 import type { EmailProvider } from "@/lib/providers/interfaces";
 import type {
   DeliveryResult,
+  EmailRecipient,
   ReportEmailRequest,
+  TransactionalEmailRequest,
 } from "@/lib/providers/types";
 import { assertMockProvidersAllowed } from "./assert-mock";
 
@@ -19,34 +21,56 @@ export class MockEmailProvider implements EmailProvider {
   }
 
   async sendReport(request: ReportEmailRequest): Promise<DeliveryResult> {
+    return this.writeMessages(request.recipients, {
+      subject: request.subject,
+      edition: request.edition,
+      tradingDate: request.tradingDate,
+      archiveUrl: request.archiveUrl,
+      headlineSummary: request.headlineSummary,
+      status: request.status,
+      dataCutoff: request.dataCutoff,
+      hasPdf: Boolean(request.pdfPath || request.pdfBytesBase64),
+      reportId: request.reportId,
+    });
+  }
+
+  async sendTransactional(
+    request: TransactionalEmailRequest,
+  ): Promise<DeliveryResult> {
+    return this.writeMessages(request.recipients, {
+      subject: request.subject,
+      html: request.html,
+      text: request.text,
+    });
+  }
+
+  private async writeMessages(
+    recipients: EmailRecipient[],
+    payload: Record<string, unknown>,
+  ): Promise<DeliveryResult> {
     await mkdir(this.outboxDir, { recursive: true });
     const messageIds: string[] = [];
     const errors: DeliveryResult["errors"] = [];
     let succeeded = 0;
     let failed = 0;
 
-    for (const recipient of request.recipients) {
-      const messageId = `mock-email-${request.reportId}-${recipient.userId}-${Date.now()}`;
+    for (const recipient of recipients) {
+      const messageId = `mock-email-${String(payload.reportId ?? "note")}-${recipient.userId}-${Date.now()}`;
       const fileName = `${messageId}.json`;
-      const payload = {
-        messageId,
-        to: recipient.email,
-        subject: request.subject,
-        edition: request.edition,
-        tradingDate: request.tradingDate,
-        archiveUrl: request.archiveUrl,
-        headlineSummary: request.headlineSummary,
-        status: request.status,
-        dataCutoff: request.dataCutoff,
-        hasPdf: Boolean(request.pdfPath || request.pdfBytesBase64),
-        sourceQuality: "mock" as const,
-        coverageNotes: "DEMO email outbox — not delivered externally.",
-      };
-
       try {
         await writeFile(
           path.join(this.outboxDir, fileName),
-          JSON.stringify(payload, null, 2),
+          JSON.stringify(
+            {
+              messageId,
+              to: recipient.email,
+              sourceQuality: "mock",
+              coverageNotes: "DEMO email outbox — not delivered externally.",
+              ...payload,
+            },
+            null,
+            2,
+          ),
           "utf8",
         );
         messageIds.push(messageId);
@@ -67,7 +91,7 @@ export class MockEmailProvider implements EmailProvider {
       ok: failed === 0,
       providerName: "mock-email",
       messageIds,
-      attempted: request.recipients.length,
+      attempted: recipients.length,
       succeeded,
       failed,
       errors,

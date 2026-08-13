@@ -294,19 +294,20 @@ export type AiResult<T> = {
   latencyMs: number;
 };
 
+export const EmailRecipientSchema = z.object({
+  userId: z.string(),
+  email: z.string().email(),
+  name: z.string().optional(),
+});
+export type EmailRecipient = z.infer<typeof EmailRecipientSchema>;
+
 export const ReportEmailRequestSchema = z.object({
   reportId: z.string(),
   edition: ReportEditionSchema,
   tradingDate: z.string(),
   subject: z.string(),
   headlineSummary: z.string().optional(),
-  recipients: z.array(
-    z.object({
-      userId: z.string(),
-      email: z.string().email(),
-      name: z.string().optional(),
-    }),
-  ),
+  recipients: z.array(EmailRecipientSchema),
   archiveUrl: z.string(),
   pdfPath: z.string().optional(),
   pdfBytesBase64: z.string().optional(),
@@ -314,6 +315,16 @@ export const ReportEmailRequestSchema = z.object({
   dataCutoff: z.string().optional(),
 });
 export type ReportEmailRequest = z.infer<typeof ReportEmailRequestSchema>;
+
+export const TransactionalEmailRequestSchema = z.object({
+  subject: z.string().min(1).max(200),
+  html: z.string().min(1),
+  text: z.string().optional(),
+  recipients: z.array(EmailRecipientSchema).min(1),
+});
+export type TransactionalEmailRequest = z.infer<
+  typeof TransactionalEmailRequestSchema
+>;
 
 export const DeliveryResultSchema = z.object({
   ok: z.boolean(),
