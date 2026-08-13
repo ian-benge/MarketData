@@ -1,0 +1,33 @@
+---
+description: Apply Supabase schema via MCP or CLI instead of asking the user to paste SQL.
+globs: supabase/**,src/lib/supabase/**
+alwaysApply: true
+---
+
+# Supabase for this repo
+
+The hosted project is `grelplmmgywqoliqzrfi` (`grelplmmgywqoliqzrfi.supabase.co`). Schema lives in `supabase/migrations/`. Do not ask the user to paste SQL in the dashboard when you can apply it yourself.
+
+## Preferred: Supabase MCP
+
+If the `supabase` MCP server is connected (see `.cursor/mcp.json`):
+
+1. Write or update the migration file under `supabase/migrations/`.
+2. Call MCP `apply_migration` (or `execute_sql` for one-off repair) against this project.
+3. Confirm with `list_migrations` / `list_tables` / a targeted `execute_sql` read.
+
+If MCP status is `needsAuth`, authenticate once via Cursor Settings → Tools & MCP (browser OAuth). Do not put access tokens in the repo.
+
+## Fallback: CLI
+
+```bash
+npx supabase db push
+```
+
+Requires a prior `npx supabase login` and `npm run db:link` on this machine. Never run `db reset` against the hosted project.
+
+## Rules
+
+- Keep DDL in versioned migration files; do not apply schema only through the dashboard.
+- Do not commit `.env*`, service role keys, or personal access tokens.
+- Seed (`supabase/seed.sql`) is intentional bootstrap only — never apply it as a casual follow-up to a feature migration.

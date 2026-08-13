@@ -112,7 +112,18 @@ export async function GET(request?: Request) {
     }));
 
     if (cached) {
-      const providers = createProviders(env);
+      let providers: DashboardSnapshot["providers"] = [];
+      try {
+        providers = createProviders(env).registry.list().map((p) => ({
+          id: p.id,
+          name: p.name,
+          category: p.category,
+          health: p.health,
+          lastSuccessAt: p.lastSuccessAt ?? null,
+        }));
+      } catch (error) {
+        console.error("createProviders failed for dashboard health list", error);
+      }
       const watchlist = await getWatchlistSnapshot(env, cached.tape);
       const payload: DashboardSnapshot = {
         asOf: cached.asOf,
@@ -123,13 +134,7 @@ export async function GET(request?: Request) {
         watchlist,
         headlines: research.headlines,
         calendar: research.calendar,
-        providers: providers.registry.list().map((p) => ({
-          id: p.id,
-          name: p.name,
-          category: p.category,
-          health: p.health,
-          lastSuccessAt: p.lastSuccessAt ?? null,
-        })),
+        providers,
         latestReport: null,
         latencyCoverageLabel: cached.latencyCoverageLabel,
         feedCoverage: cached.feedCoverage,
@@ -143,18 +148,23 @@ export async function GET(request?: Request) {
     }
 
     // No cache yet: return an unavailable payload without substituting fixtures.
-    const providers = createProviders(env);
+    let providers: DashboardSnapshot["providers"] = [];
+    try {
+      providers = createProviders(env).registry.list().map((p) => ({
+        id: p.id,
+        name: p.name,
+        category: p.category,
+        health: p.health,
+        lastSuccessAt: p.lastSuccessAt ?? null,
+      }));
+    } catch (error) {
+      console.error("createProviders failed for dashboard health list", error);
+    }
     return jsonOk(
       unavailableDashboard(licenseWarning, {
         headlines: research.headlines,
         calendar: research.calendar,
-        providers: providers.registry.list().map((p) => ({
-          id: p.id,
-          name: p.name,
-          category: p.category,
-          health: p.health,
-          lastSuccessAt: p.lastSuccessAt ?? null,
-        })),
+        providers,
       }),
     );
   } catch (error) {

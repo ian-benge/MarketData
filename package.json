@@ -16,6 +16,9 @@
     "seed": "tsx scripts/seed-local.ts",
     "check:env": "tsx scripts/check-env.ts",
     "check:supabase": "tsx scripts/check-supabase.ts",
+    "db:link": "supabase link --project-ref grelplmmgywqoliqzrfi",
+    "db:push": "supabase db push",
+    "db:migration:list": "supabase migration list",
     "bootstrap:admin": "tsx scripts/bootstrap-admin.ts",
     "format": "prettier --write ."
   },
@@ -55,6 +58,7 @@
     "eslint-config-next": "16.3.0",
     "jsdom": "^30.0.1",
     "prettier": "^3.9.6",
+    "supabase": "^2.114.0",
     "tailwindcss": "^4",
     "tsx": "^4.23.12",
     "typescript": "^5",

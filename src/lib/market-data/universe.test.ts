@@ -23,6 +23,7 @@ describe("buildUniverse", () => {
     expect(result.sources.sector_etfs).toEqual(expect.arrayContaining([...SECTOR_ETFS]));
     expect(result.sources.ai_infrastructure.length).toBeGreaterThan(0);
     expect(result.sources.watchlist).toContain("CUSTOM1");
+    expect(result.sources.positions).toEqual([]);
     expect(result.sources.report_in_progress).toContain("RPT1");
     expect(result.symbols).toContain("CUSTOM1");
     expect(result.symbols).toContain("TLT");
@@ -36,6 +37,19 @@ describe("buildUniverse", () => {
     const result = buildUniverse({ maxSize: 4 });
     expect(result.symbols).toHaveLength(4);
     expect(result.symbols).toEqual([...MAJOR_INDEX_ETFS]);
+  });
+
+  it("includes open position symbols ahead of watchlist overflow", () => {
+    const result = buildUniverse({
+      maxSize: 80,
+      positionSymbols: ["BOOK1", "SPY"],
+      watchlistSymbols: ["CUSTOM1"],
+    });
+    expect(result.sources.positions).toEqual(["BOOK1", "SPY"]);
+    expect(result.symbols).toContain("BOOK1");
+    expect(result.symbols.indexOf("BOOK1")).toBeLessThan(
+      result.symbols.indexOf("CUSTOM1"),
+    );
   });
 
   it("dedupes symbols across sources", () => {

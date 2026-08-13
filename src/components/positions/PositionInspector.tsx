@@ -1,0 +1,309 @@
+"use client";
+
+import { useEffect, useId, useState } from "react";
+import { Button } from "@/components/ui/Button";
+import { PositionPriceChart } from "@/components/positions/PositionPriceChart";
+import {
+  ASSET_TYPE_LABELS,
+  SignedValue,
+  chicagoDateInput,
+  formatEntryDate,
+} from "@/components/positions/display";
+import {
+  formatCurrency,
+  formatMarketDateTime,
+  formatPrice,
+  formatQuantity,
+} from "@/lib/utils/format";
+import type { DailyClose, EnrichedPosition } from "@/lib/positions/types";
+
+function Metric({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="min-w-0">
+      <p className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
+        {label}
+      </p>
+      <div className="mt-0.5 font-mono text-[12px] tabular-nums">{children}</div>
+    </div>
+  );
+}
+
+export function PositionInspector({
+  row,
+  history,
+  onClose,
+  onEdit,
+  onClosePosition,
+  closing,
+  canEdit = true,
+}: {
+  row: EnrichedPosition;
+  history: DailyClose[];
+  onClose: () => void;
+  onEdit: () => void;
+  onClosePosition: (input: {
+    closePrice: number;
+    closeDate: string;
+    quantity: number;
+  }) => void;
+  closing: boolean;
+  canEdit?: boolean;
+}) {
+  const headingId = useId();
+  const [confirmClose, setConfirmClose] = useState(false);
+  const [closePrice, setClosePrice] = useState(row.last ?? row.entryPrice);
+  const [closeDate, setCloseDate] = useState(chicagoDateInput());
+  const [closeQuantity, setCloseQuantity] = useState(row.quantity);
+
+  useEffect(() => {
+    setConfirmClose(false);
+    setClosePrice(row.last ?? row.entryPrice);
+    setCloseDate(chicagoDateInput());
+    setCloseQuantity(row.quantity);
+  }, [row.id, row.last, row.entryPrice, row.quantity]);
+
+  const closes = history.filter((bar) => Number.isFinite(bar.close));
+
+  return (
+    <section
+      aria-label={`${row.ticker} lot blotter`}
+      className="bg-[var(--ib-surface-inset)] px-3 py-3"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--ib-maroon-300)]">
+            Lot blotter
+          </p>
+          <h3 id={headingId} className="mt-0.5 text-[13px] font-semibold">
+            {row.ticker}{" "}
+            <span className="font-normal text-[var(--ib-text-muted)]">
+              {ASSET_TYPE_LABELS[row.assetType]}
+              {row.strategy ? ` · ${row.strategy}` : ""}
+              {row.holdingDays != null ? ` · ${row.holdingDays}d held` : ""}
+            </span>
+          </h3>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {row.status === "open" && canEdit ? (
+            <>
+              <Button type="button" variant="secondary" size="sm" onClick={onEdit}>
+                Edit
+              </Button>
+              <Button
+                type="button"
+                variant="danger"
+                size="sm"
+                onClick={() => setConfirmClose(true)}
+                disabled={confirmClose}
+              >
+                Close position
+              </Button>
+            </>
+          ) : null}
+          <button
+            type="button"
+            onClick={onClose}
+            className="min-h-8 rounded-[3px] border border-[var(--ib-border-subtle)] px-2 font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)] hover:text-[var(--ib-text-primary)]"
+            aria-label="Collapse row"
+          >
+            Collapse
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+        <div className="min-w-0">
+          {closes.length >= 2 ? (
+            <PositionPriceChart
+              ticker={row.ticker}
+              closes={closes}
+              entryPrice={row.entryPrice}
+              side={row.side}
+              className="h-[168px]"
+            />
+          ) : (
+            <div className="grid h-[168px] place-items-center rounded-[4px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-1)] text-[12px] text-[var(--ib-text-muted)]">
+              Daily series unavailable for {row.ticker}.
+            </div>
+          )}
+        </div>
+        <div className="min-w-0">
+          <div className="grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3">
+            <Metric label="Last">{formatPrice(row.last, row.ticker)}</Metric>
+            <Metric label="Entry">{formatPrice(row.entryPrice, row.ticker)}</Metric>
+            <Metric label="Qty">
+              {formatQuantity(row.quantity)}
+              {row.multiplier !== 1 ? ` × ${formatQuantity(row.multiplier)}` : ""}
+            </Metric>
+            <Metric label="Market value">
+              {formatCurrency(row.marketValue, { compact: true })}
+            </Metric>
+            <Metric label="Cost basis">
+              {formatCurrency(row.costBasis, { compact: true })}
+            </Metric>
+            <Metric label="Weight">
+              {row.weight == null ? "—" : `${row.weight.toFixed(1)}%`}
+            </Metric>
+            <Metric label="Day P&L">
+              <SignedValue value={row.dayPnl} compact />
+              <span className="ml-1 text-[11px]">
+                <SignedValue value={row.dayPercent} kind="percent" />
+              </span>
+            </Metric>
+            <Metric label="Total P&L">
+              <SignedValue value={row.totalPnl} compact />
+            </Metric>
+            {row.status === "open" && row.relatedRealizedPnl != null ? (
+              <Metric label="Realized">
+                <SignedValue value={row.relatedRealizedPnl} compact />
+                <span className="ml-1 text-[11px]">
+                  <SignedValue value={row.relatedRealizedPercent} kind="percent" />
+                </span>
+              </Metric>
+            ) : null}
+            {row.status === "closed" ? (
+              <Metric label="Realized">
+                <SignedValue value={row.realizedPnl} compact />
+              </Metric>
+            ) : null}
+            <Metric label="Since entry">
+              <SignedValue value={row.sinceEntry.percent} kind="percent" />
+            </Metric>
+            <Metric label="1D">
+              <SignedValue value={row.change1d.percent} kind="percent" />
+            </Metric>
+            <Metric label="1W">
+              <SignedValue value={row.change1w.percent} kind="percent" />
+            </Metric>
+            <Metric label="1M">
+              <SignedValue value={row.change1m.percent} kind="percent" />
+            </Metric>
+          </div>
+          <dl className="mt-3 space-y-1 text-[12px]">
+            <div className="flex justify-between gap-3">
+              <dt className="text-[var(--ib-text-muted)]">Opened</dt>
+              <dd className="font-mono">{formatEntryDate(row.entryDate)}</dd>
+            </div>
+            {row.status === "closed" ? (
+              <div className="flex justify-between gap-3">
+                <dt className="text-[var(--ib-text-muted)]">Closed</dt>
+                <dd className="font-mono">
+                  {formatEntryDate(row.closeDate)} @ {formatPrice(row.closePrice, row.ticker)}
+                </dd>
+              </div>
+            ) : null}
+            <div className="flex justify-between gap-3">
+              <dt className="text-[var(--ib-text-muted)]">Updated</dt>
+              <dd className="font-mono">{formatMarketDateTime(row.updatedAt)}</dd>
+            </div>
+          </dl>
+        </div>
+      </div>
+
+      {row.notes ? (
+        <p className="mt-3 rounded-[4px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-2)] p-2.5 text-[12px] leading-5 text-[var(--ib-text-secondary)]">
+          {row.notes}
+        </p>
+      ) : null}
+
+      {row.missing.length ? (
+        <p className="mt-2 text-[11px] text-[var(--state-warning)]">
+          Missing fields: {row.missing.join(", ")}.
+        </p>
+      ) : null}
+
+      {row.status === "open" && confirmClose && canEdit ? (
+        <form
+          className="mt-3 space-y-3 rounded-[4px] border border-[var(--ib-border-control)] p-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!Number.isFinite(closeQuantity) || closeQuantity <= 0) return;
+            if (closeQuantity > row.quantity) return;
+            onClosePosition({ closePrice, closeDate, quantity: closeQuantity });
+          }}
+        >
+          <p className="text-[13px] font-medium">Close {row.ticker}</p>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div>
+              <label htmlFor="close-qty" className="mb-1 block text-xs text-[var(--ib-text-secondary)]">
+                Quantity to close
+              </label>
+              <input
+                id="close-qty"
+                className="field-control font-mono"
+                type="number"
+                min="0"
+                max={row.quantity}
+                step={Number.isInteger(row.quantity) ? 1 : "any"}
+                value={closeQuantity}
+                onChange={(event) => setCloseQuantity(Number(event.target.value))}
+                required
+              />
+            </div>
+            <div>
+              <label htmlFor="close-price" className="mb-1 block text-xs text-[var(--ib-text-secondary)]">
+                Close price
+              </label>
+              <input
+                id="close-price"
+                className="field-control font-mono"
+                type="number"
+                min="0"
+                step="any"
+                value={closePrice}
+                onChange={(event) => setClosePrice(Number(event.target.value))}
+                required
+              />
+            </div>
+            <div>
+              <label htmlFor="close-date" className="mb-1 block text-xs text-[var(--ib-text-secondary)]">
+                Close date
+              </label>
+              <input
+                id="close-date"
+                className="field-control font-mono"
+                type="date"
+                value={closeDate}
+                onChange={(event) => setCloseDate(event.target.value)}
+                required
+              />
+            </div>
+          </div>
+          <p className="text-[11px] text-[var(--ib-text-muted)]">
+            {closeQuantity > 0 && closeQuantity < row.quantity
+              ? `Closes ${formatQuantity(closeQuantity)} of ${formatQuantity(row.quantity)}. ${formatQuantity(row.quantity - closeQuantity)} stays on the book.`
+              : `Closes the full ${formatQuantity(row.quantity)} lot.`}
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => setConfirmClose(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="danger"
+              disabled={
+                closing ||
+                !Number.isFinite(closeQuantity) ||
+                closeQuantity <= 0 ||
+                closeQuantity > row.quantity
+              }
+              aria-busy={closing}
+            >
+              {closing
+                ? "Closing…"
+                : closeQuantity > 0 && closeQuantity < row.quantity
+                  ? "Confirm partial close"
+                  : "Confirm close"}
+            </Button>
+          </div>
+        </form>
+      ) : null}
+    </section>
+  );
+}

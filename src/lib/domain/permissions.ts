@@ -7,6 +7,7 @@ export type Permission =
   | "generateOnDemandReport"
   | "emailOnDemandReport"
   | "editWatchlists"
+  | "editPositions"
   | "editSectors"
   | "submitProposals"
   | "approveProposals"
@@ -30,6 +31,7 @@ const MEMBER_PERMISSIONS: ReadonlySet<Permission> = new Set([
   "downloadReports",
   "generateOnDemandReport",
   "editWatchlists",
+  "editPositions",
   "editSectors",
   "submitProposals",
 ]);
@@ -97,6 +99,10 @@ export function canGenerateOnDemandReport(role: UserRole): boolean {
 
 export function canEditWatchlists(role: UserRole): boolean {
   return hasPermission(role, "editWatchlists");
+}
+
+export function canEditPositions(role: UserRole): boolean {
+  return hasPermission(role, "editPositions");
 }
 
 export function canEditSectors(role: UserRole): boolean {

@@ -147,6 +147,105 @@ test.describe("research workspace interactions", () => {
     ).toBeVisible();
   });
 
+  test("member can inspect and add a session position", async ({ page }) => {
+    await demoLogin(page, "member");
+    await page.goto("/positions");
+
+    await expect(page.getByRole("heading", { name: "Positions", exact: true })).toBeVisible();
+    await expect(page.getByText("Book snapshot")).toBeVisible();
+    await expect(page.getByLabel("Account value (incl. cash)")).toHaveValue(
+      "175000",
+    );
+    await expect(
+      page.getByRole("tab", { name: /Demo Member/ }),
+    ).toHaveAttribute("aria-selected", "true");
+    await expect(
+      page.getByRole("region", { name: "Positions table", exact: true }),
+    ).toContainText("AAPL");
+    await expect(
+      page.getByRole("region", { name: "Positions table", exact: true }),
+    ).toContainText("−$122.00");
+    await expect(
+      page.getByRole("heading", { name: "Past positions" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "Past positions table" }),
+    ).toContainText("AAPL");
+    await expect(
+      page.getByRole("region", { name: "Past positions table" }),
+    ).toContainText("−$122.00");
+    await expect(
+      page.getByRole("heading", { name: "Entries & exits" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "Entries and exits" }),
+    ).toContainText("AAPL");
+    await expect(
+      page.getByRole("region", { name: "Entries and exits" }),
+    ).toContainText("Exit");
+    await expect(page.getByText(/Mock data/i).first()).toBeVisible();
+
+    await page.getByRole("button", { name: "Add position" }).click();
+    const dialog = page.getByRole("dialog", { name: "Add position" });
+    await expect(dialog).toBeVisible();
+    await dialog.getByLabel("Ticker").fill("IEF");
+    await dialog.getByLabel("Shares / contracts").fill("40");
+    await dialog.getByLabel("Entry price").fill("95.4");
+    await dialog.getByLabel("Strategy (optional)").fill("Rates overlay");
+    await dialog.getByRole("button", { name: "Add to book" }).click();
+    await expect(
+      page.getByText("Position added to this session", { exact: false }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "Positions table", exact: true }),
+    ).toContainText("IEF");
+
+    await page.getByRole("button", { name: /IEF/ }).first().click();
+    const iefInspector = page.getByRole("region", { name: /IEF lot blotter/i });
+    await expect(iefInspector).toBeVisible();
+    await iefInspector.getByRole("button", { name: "Close position" }).click();
+    await iefInspector.getByLabel("Quantity to close").fill("10");
+    await iefInspector.getByRole("button", { name: "Confirm partial close" }).click();
+    await expect(page.getByText(/Closed 10 of 40/)).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "Positions table", exact: true }),
+    ).toContainText("IEF");
+    await expect(
+      page.getByRole("region", { name: "Past positions table" }),
+    ).toContainText("IEF");
+
+    await page.getByRole("button", { name: /AAPL/ }).first().click();
+    const inspector = page.getByRole("region", { name: /AAPL lot blotter/i });
+    await expect(inspector).toBeVisible();
+    await expect(inspector.getByText("Since entry")).toBeVisible();
+    await expect(inspector.getByText("Realized")).toBeVisible();
+    await expect(inspector.getByText("Daily series unavailable")).toHaveCount(0);
+    await expect(inspector.getByText(/AAPL daily/i)).toBeVisible();
+    await inspector.getByRole("button", { name: "Collapse row" }).click();
+    await expect(inspector).toBeHidden();
+
+    await page.getByRole("tab", { name: /Demo Admin/ }).click();
+    await expect(
+      page.getByRole("region", { name: "Positions table", exact: true }),
+    ).toContainText("NVDA");
+    await expect(
+      page.getByRole("region", { name: "Positions table", exact: true }),
+    ).toContainText("+$456.00");
+    await expect(
+      page.getByRole("region", { name: "Past positions table" }),
+    ).toContainText("QQQ");
+    await expect(
+      page.getByRole("region", { name: "Past positions table" }),
+    ).toContainText("NVDA");
+    await expect(
+      page.getByRole("region", { name: "Entries and exits" }),
+    ).toContainText("QQQ");
+    await expect(
+      page.getByRole("region", { name: "Entries and exits" }),
+    ).toContainText("NVDA");
+    await expect(page.getByText("View only").first()).toBeVisible();
+  });
+
   test("member can submit a proposal for admin review", async ({ page }) => {
     await demoLogin(page, "member");
     await page.goto("/proposals");
@@ -219,13 +318,14 @@ test.describe("mobile workspace layout", () => {
       { path: "/archive", heading: "Research Archive" },
       { path: "/reports/rpt-demo-001", heading: "Midday market brief" },
       { path: "/watchlists", heading: "Watchlists & Sectors" },
+      { path: "/positions", heading: "Positions" },
       { path: "/proposals", heading: "Proposals" },
     ];
 
     for (const route of routes) {
       await page.goto(route.path);
       await expect(
-        page.getByRole("heading", { name: route.heading }),
+        page.getByRole("heading", { name: route.heading, exact: true }),
       ).toBeVisible();
       await expectNoPageHorizontalOverflow(page);
     }

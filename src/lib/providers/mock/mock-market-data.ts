@@ -152,16 +152,16 @@ export class MockMarketDataProvider implements MarketDataProvider {
     const interval = request.interval ?? "1d";
     const limit = request.limit ?? 30;
     const starts = mockBarStarts(interval, limit);
-    let close = seed.priorClose;
+    const startPx =
+      seed.last >= seed.priorClose ? seed.last * 0.94 : seed.last * 1.06;
     return starts.map((barStart, i) => {
-      const open = close * (1 - 0.002 * ((i % 5) - 2));
-      const high = Math.max(open, close) * 1.008;
-      const low = Math.min(open, close) * 0.992;
-      const barClose =
-        i === starts.length - 1
-          ? seed.last
-          : open * (1 + 0.001 * ((i % 3) - 1));
-      close = barClose;
+      const t = starts.length <= 1 ? 1 : i / (starts.length - 1);
+      const drifted = startPx + (seed.last - startPx) * t;
+      const noise = 1 + 0.006 * Math.sin(i * 1.35) + 0.003 * ((i % 7) - 3);
+      const open = drifted * (1 - 0.004 * ((i % 5) - 2));
+      const barClose = i === starts.length - 1 ? seed.last : drifted * noise;
+      const high = Math.max(open, barClose) * 1.008;
+      const low = Math.min(open, barClose) * 0.992;
       return {
         instrumentId: `mock:${key}`,
         ticker: key,

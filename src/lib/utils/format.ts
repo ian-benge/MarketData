@@ -75,13 +75,49 @@ export function formatSignedNumber(
   return `${sign}${Math.abs(value).toFixed(digits)}`;
 }
 
-export function formatCompactCurrency(value: number | null | undefined): string {
+export function formatCurrency(
+  value: number | null | undefined,
+  options: { compact?: boolean; digits?: number } = {},
+): string {
   if (value == null || !Number.isFinite(value)) return "—";
+  if (options.compact && Math.abs(value) >= 10_000) {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      notation: "compact",
+      maximumFractionDigits: 1,
+    }).format(value);
+  }
+  const digits = options.digits ?? 2;
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
-    notation: "compact",
-    maximumFractionDigits: 1,
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  }).format(value);
+}
+
+export function formatSignedCurrency(
+  value: number | null | undefined,
+  options: { compact?: boolean } = {},
+): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  const sign = value > 0 ? "+" : value < 0 ? "−" : "";
+  const formatted = formatCurrency(Math.abs(value), options);
+  if (formatted === "—") return "—";
+  return `${sign}${formatted}`;
+}
+
+export function formatCompactCurrency(value: number | null | undefined): string {
+  return formatCurrency(value, { compact: true });
+}
+
+export function formatQuantity(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  const digits = Number.isInteger(value) ? 0 : Math.abs(value) < 1 ? 4 : 2;
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
   }).format(value);
 }
 

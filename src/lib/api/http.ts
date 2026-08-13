@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { AuthError } from "@/lib/auth/session";
 import { getEnv } from "@/lib/env";
 import { isDemoAuthEnabled } from "@/lib/auth/demo";
+import { PositionBookError } from "@/lib/positions/books";
 
 export function jsonOk<T>(data: T, init?: ResponseInit) {
   return NextResponse.json(data, { status: 200, ...init });
@@ -13,6 +14,9 @@ export function jsonError(message: string, status: number, extra?: Record<string
 
 export function handleRouteError(error: unknown) {
   if (error instanceof AuthError) {
+    return jsonError(error.message, error.status);
+  }
+  if (error instanceof PositionBookError) {
     return jsonError(error.message, error.status);
   }
   console.error(error);

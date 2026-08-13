@@ -50,3 +50,8 @@ next-env.d.ts
 
 .vercel
 .env*
+
+# supabase CLI
+supabase/.temp
+supabase/.branches
+

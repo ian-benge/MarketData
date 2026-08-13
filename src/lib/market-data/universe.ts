@@ -56,11 +56,13 @@ export type UniverseSourceKey =
   | "sector_etfs"
   | "ai_infrastructure"
   | "watchlist"
+  | "positions"
   | "report_in_progress";
 
 export type UniverseBuildInput = {
   maxSize: number;
   watchlistSymbols?: readonly string[];
+  positionSymbols?: readonly string[];
   reportInProgressSymbols?: readonly string[];
   /** Override default AI infrastructure seed. */
   aiInfrastructureSymbols?: readonly string[];
@@ -96,7 +98,7 @@ function uniqueNormalize(list: readonly string[]): string[] {
 }
 
 /**
- * Priority order: major indices → sector ETFs → AI infra → watchlist → report-in-progress.
+ * Priority order: major indices → sector ETFs → AI infra → positions → watchlist → report-in-progress.
  * Within each source, order is preserved. Cap truncates lower-priority symbols first.
  */
 export function buildUniverse(input: UniverseBuildInput): UniverseBuildResult {
@@ -115,6 +117,7 @@ export function buildUniverse(input: UniverseBuildInput): UniverseBuildResult {
       input.aiInfrastructureSymbols ?? [...AI_INFRASTRUCTURE_TICKERS],
     ),
     watchlist: uniqueNormalize(input.watchlistSymbols ?? []),
+    positions: uniqueNormalize(input.positionSymbols ?? []),
     report_in_progress: uniqueNormalize(input.reportInProgressSymbols ?? []),
   };
 
@@ -123,6 +126,7 @@ export function buildUniverse(input: UniverseBuildInput): UniverseBuildResult {
     "cross_asset_proxies",
     "sector_etfs",
     "ai_infrastructure",
+    "positions",
     "watchlist",
     "report_in_progress",
   ];

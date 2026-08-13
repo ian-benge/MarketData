@@ -4,6 +4,7 @@ import {
   Activity,
   Archive,
   BarChart3,
+  Briefcase,
   Clock3,
   Command,
   FilePlus2,
@@ -41,6 +42,13 @@ const WORKBENCH_NAV: NavItem[] = [
     shortLabel: "Market",
     description: "Session, chart, watchlist, and catalysts",
     icon: BarChart3,
+  },
+  {
+    href: "/positions",
+    label: "Positions",
+    shortLabel: "Positions",
+    description: "Live book, exposure, and P&L",
+    icon: Briefcase,
   },
   {
     href: "/archive",
@@ -301,7 +309,7 @@ export function AppShell({
   }
 
   const primaryMobileItems = items.filter((item) =>
-    ["/dashboard", "/archive", "/watchlists"].includes(item.href),
+    ["/dashboard", "/positions", "/watchlists"].includes(item.href),
   );
 
   return (

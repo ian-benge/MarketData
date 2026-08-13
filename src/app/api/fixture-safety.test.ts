@@ -91,6 +91,11 @@ import {
   GET as getWatchlists,
   POST as createWatchlist,
 } from "@/app/api/watchlists/route";
+import {
+  GET as getPositions,
+  POST as createPosition,
+} from "@/app/api/positions/route";
+import { POST as snapshotPositions } from "@/app/api/positions/snapshot/route";
 
 const request = (path: string, method = "GET") =>
   new Request(`http://localhost${path}`, { method });
@@ -220,11 +225,26 @@ describe("fixture-backed API safety", () => {
     await expect(reports.json()).resolves.toEqual({ reports: [] });
     await expect(sectors.json()).resolves.toEqual({ sectors: [] });
     await expect(invitations.json()).resolves.toEqual({ invitations: [] });
+
+    const positions = await getPositions(request("/api/positions"));
+    const positionsBody = (await positions.json()) as {
+      usingFixtures: boolean;
+      positions: unknown[];
+      persistence: string;
+    };
+    expect(positions.status).toBe(200);
+    expect(positionsBody.usingFixtures).toBe(false);
+    expect(positionsBody.positions).toEqual([]);
+    expect(positionsBody.persistence).toBe("unavailable");
+    expect((positionsBody as { owners?: unknown[] }).owners).toEqual([]);
+    expect(JSON.stringify(positionsBody)).not.toContain("pos-nvda-core");
   });
 
   it("refuses synthetic mutation success when demo mode is disabled", async () => {
     const responses = await Promise.all([
       createWatchlist(request("/api/watchlists", "POST")),
+      createPosition(request("/api/positions", "POST")),
+      snapshotPositions(request("/api/positions/snapshot", "POST")),
       createProposal(request("/api/proposals", "POST")),
       createReport(request("/api/reports", "POST")),
       createInvitation(request("/api/admin/invitations", "POST")),

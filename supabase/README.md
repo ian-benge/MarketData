@@ -2,46 +2,42 @@
 
 Postgres schema, RLS policies, full-text search, and seed data for IB Market Data.
 
+Hosted project: `grelplmmgywqoliqzrfi` (`grelplmmgywqoliqzrfi.supabase.co`).
+
 ## Layout
 
 | Path | Purpose |
 | --- | --- |
-| `migrations/20260810000000_init.sql` | Enums, tables, indexes, auth helpers, RLS |
-| `migrations/20260810000001_rls_and_search.sql` | Report FTS triggers + GIN / trigram indexes |
-| `migrations/20260811000000_market_data_realtime.sql` | License configs, observations, refresh runs, report freezes |
-| `migrations/20260812000000_close_postmarket_edition.sql` | Adds enum value `close_postmarket` (own transaction; required before use) |
-| `migrations/20260812000001_close_postmarket_data.sql` | Migrates `close` rows; thesis/calendar enums; run timing columns; `canonical_json` |
+| `config.toml` | Local CLI config (`supabase start`) |
+| `migrations/*.sql` | Versioned schema — source of truth for remote `db push` |
 | `seed.sql` | Research Desk firm, instruments, sectors, Core watchlist, Chicago report config, provider configs |
 
 Secrets (API keys) are **not** stored in `provider_configs`. Keep keys in environment variables / Vercel secrets.
 
-## Prerequisites
+## Apply migrations (preferred)
 
-- [Supabase CLI](https://supabase.com/docs/guides/cli)
-- Docker (for local `supabase start`)
-- Linked project for remote deploys (`supabase link`)
+Cursor is configured to talk to this project via [Supabase MCP](https://supabase.com/docs/guides/getting-started/mcp) (`.cursor/mcp.json`). After a one-time OAuth login in **Cursor Settings → Tools & MCP**, the agent can `apply_migration` / `execute_sql` without the SQL editor.
 
-## Local apply
+CLI fallback (needs `npx supabase login` once, then `npm run db:link`):
+
+```bash
+npm run db:push
+```
+
+Do not `db reset` the hosted project.
+
+## Local apply (Docker)
 
 ```bash
 # From repo root
-supabase start
-supabase db reset   # applies migrations + seed.sql
+npx supabase start
+npx supabase db reset   # applies migrations + seed.sql
 ```
 
 Or apply migrations without resetting:
 
 ```bash
-supabase migration up
-psql "$DATABASE_URL" -f supabase/seed.sql
-```
-
-## Remote apply
-
-```bash
-supabase link --project-ref <project-ref>
-supabase db push
-# seed only when intentionally bootstrapping a new environment
+npx supabase migration up
 psql "$DATABASE_URL" -f supabase/seed.sql
 ```
 

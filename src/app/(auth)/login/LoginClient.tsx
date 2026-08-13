@@ -18,6 +18,7 @@ const ALLOWED_DESTINATIONS = [
   "/archive",
   "/reports",
   "/watchlists",
+  "/positions",
   "/proposals",
   "/admin",
 ] as const;

@@ -21,3 +21,4 @@ export {
   type FixtureSector,
   type FixtureWatchlist,
 } from "./watchlists";
+export { fixturePositions, fixtureAccountValue } from "./positions";

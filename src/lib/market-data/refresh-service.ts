@@ -33,6 +33,7 @@ import {
 } from "@/lib/market-data/usage";
 import { fixtureWatchlists } from "@/lib/fixtures/watchlists";
 import { inferUsEquitySession } from "@/lib/market-data/us-session";
+import { loadOpenPositionTickers } from "@/lib/positions/store";
 
 export { inferUsEquitySession };
 
@@ -208,6 +209,7 @@ export type RefreshServiceOptions = {
   usage?: UsageStore;
   lock?: RefreshLeaseClaim;
   watchlistSymbols?: string[];
+  positionSymbols?: string[];
   reportInProgressSymbols?: string[];
   /** Force refresh even if cadence not due. */
   force?: boolean;
@@ -369,10 +371,13 @@ async function executeRefresh(args: {
     args;
   const cache = options.cache ?? getMarketDataCache(env);
   const usage = options.usage ?? getUsageStore();
+  const positionSymbols =
+    options.positionSymbols ?? (await loadOpenPositionTickers());
 
   const universe = buildUniverse({
     maxSize: env.MARKET_DATA_MAX_UNIVERSE_SIZE,
     watchlistSymbols: options.watchlistSymbols ?? defaultWatchlistSymbols(),
+    positionSymbols,
     reportInProgressSymbols: options.reportInProgressSymbols ?? [],
     now,
   });

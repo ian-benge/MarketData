@@ -87,6 +87,7 @@ test("critical public and member routes expose baseline accessible semantics", a
     "/archive",
     "/reports/rpt-demo-001",
     "/watchlists",
+    "/positions",
     "/proposals",
   ]) {
     await page.goto(path);

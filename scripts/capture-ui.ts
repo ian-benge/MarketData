@@ -34,6 +34,7 @@ const memberRoutes = [
   ["archive", "/archive"],
   ["report", "/reports/rpt-demo-001"],
   ["watchlists", "/watchlists"],
+  ["positions", "/positions"],
   ["proposals", "/proposals"],
 ] as const;
 

@@ -28,6 +28,15 @@ import {
 import { ResendEmailProvider } from "@/lib/providers/resend/email";
 import { RssNewsProvider } from "@/lib/providers/rss/news";
 import { CompositeNewsProvider } from "@/lib/providers/rss/composite-news";
+import { resolveNewsRssFeeds } from "@/lib/providers/rss/default-feeds";
+import {
+  UnconfiguredAiProvider,
+  UnconfiguredCorporateEventsProvider,
+  UnconfiguredEmailProvider,
+  UnconfiguredMacroDataProvider,
+  UnconfiguredMarketDataProvider,
+  UnconfiguredNewsProvider,
+} from "@/lib/providers/unconfigured";
 import { InProcessSchedulerAdapter } from "@/lib/scheduling/in-process-scheduler";
 import { createAiOrchestration } from "@/lib/ai/orchestration";
 import { createRoutedMarketDataProvider } from "@/lib/market-data/router";
@@ -316,12 +325,17 @@ function resolveSlot<T>(args: {
   hasCredential: boolean;
   createReal?: (env: Env) => T;
   createMock: () => T;
+  /** Production-safe stub when credentials are missing (no fabricated data). */
+  createUnavailable?: () => T;
 }): { provider: T; usedMock: boolean } {
   if (args.hasCredential && args.createReal) {
     return { provider: args.createReal(args.env), usedMock: false };
   }
   if (mocksAllowed(args.env)) {
     return { provider: args.createMock(), usedMock: true };
+  }
+  if (args.createUnavailable) {
+    return { provider: args.createUnavailable(), usedMock: false };
   }
   throw new Error(
     `No provider for ${args.label}: missing live adapter/credentials and mocks are not allowed (production fail-closed or ALLOW_MOCK_PROVIDERS≠true).`,
@@ -333,14 +347,10 @@ export function createNewsProvider(env: Env): NewsProvider {
   if (env.FINNHUB_API_KEY) {
     providers.push(new FinnhubNewsProvider({ apiKey: env.FINNHUB_API_KEY }));
   }
-  if (env.NEWS_RSS_FEEDS?.trim()) {
-    providers.push(RssNewsProvider.fromCsv(env.NEWS_RSS_FEEDS));
-  }
-  if (providers.length === 0) {
-    throw new Error(
-      "createNewsProvider requires FINNHUB_API_KEY or NEWS_RSS_FEEDS",
-    );
-  }
+  // Default public feeds apply when NEWS_RSS_FEEDS is unset.
+  providers.push(
+    new RssNewsProvider({ feedUrls: resolveNewsRssFeeds(env.NEWS_RSS_FEEDS) }),
+  );
   if (providers.length === 1) return providers[0]!;
   return new CompositeNewsProvider(providers);
 }
@@ -389,7 +399,8 @@ export function createProviders(
   const hasMassive = Boolean(env.MASSIVE_API_KEY);
   const hasMarketData = hasAlpaca || hasMassive || hasFinnhub;
   const hasFred = Boolean(env.FRED_API_KEY);
-  const hasRss = Boolean(env.NEWS_RSS_FEEDS?.trim());
+  // Default RSS feeds always resolve — optional NEWS_RSS_FEEDS overrides them.
+  const hasRss = true;
   const hasOpenAi = Boolean(env.OPENAI_API_KEY);
   const hasAnthropic = Boolean(env.ANTHROPIC_API_KEY);
   const hasGemini = Boolean(env.GOOGLE_GENERATIVE_AI_API_KEY);
@@ -404,6 +415,7 @@ export function createProviders(
     hasCredential: hasMarketData,
     createReal: real.marketData,
     createMock: () => new MockMarketDataProvider(),
+    createUnavailable: () => new UnconfiguredMarketDataProvider(),
   });
   const news = resolveSlot({
     env,
@@ -411,6 +423,7 @@ export function createProviders(
     hasCredential: hasFinnhub || hasRss,
     createReal: real.news,
     createMock: () => new MockNewsProvider(),
+    createUnavailable: () => new UnconfiguredNewsProvider(),
   });
   const macro = resolveSlot({
     env,
@@ -418,6 +431,7 @@ export function createProviders(
     hasCredential: hasFred,
     createReal: real.macro,
     createMock: () => new MockMacroDataProvider(),
+    createUnavailable: () => new UnconfiguredMacroDataProvider(),
   });
   const corporate = resolveSlot({
     env,
@@ -425,6 +439,7 @@ export function createProviders(
     hasCredential: hasEdgar || hasFinnhub,
     createReal: real.corporate,
     createMock: () => new MockCorporateEventsProvider(),
+    createUnavailable: () => new UnconfiguredCorporateEventsProvider(),
   });
   const ai = resolveSlot({
     env,
@@ -432,6 +447,7 @@ export function createProviders(
     hasCredential: hasAi,
     createReal: real.ai,
     createMock: () => new MockAiProvider(),
+    createUnavailable: () => new UnconfiguredAiProvider(),
   });
   const email = resolveSlot({
     env,
@@ -439,6 +455,7 @@ export function createProviders(
     hasCredential: hasResend,
     createReal: real.email,
     createMock: () => new MockEmailProvider(),
+    createUnavailable: () => new UnconfiguredEmailProvider(),
   });
   const scheduler = real.scheduler
     ? { provider: real.scheduler(env), usedMock: false }
@@ -486,8 +503,9 @@ export function createProviders(
     if (e) e.health = "disabled";
   }
 
-  if (hasRss && !news.usedMock) registry.recordSuccess("rss");
-  else if (!hasRss) {
+  // Default public RSS feeds are always available when not using mock news.
+  if (!news.usedMock) registry.recordSuccess("rss");
+  else {
     const e = registry.get("rss");
     if (e) e.health = "disabled";
   }
