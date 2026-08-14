@@ -5,6 +5,7 @@ import {
   canEditPositionBook,
   ownerKey,
   resolveOwnerId,
+  snapshotBelongsToView,
 } from "./owners";
 import type { PositionRecord } from "./types";
 
@@ -100,5 +101,14 @@ describe("position owners", () => {
     );
     expect(resolveOwnerId("missing", "demo-member", owners)).toBe("demo-member");
     expect(ownerKey(null)).toBe(UNASSIGNED_OWNER_ID);
+  });
+
+  it("rejects a snapshot from a book the viewer already left", () => {
+    expect(
+      snapshotBelongsToView({ ownerId: "user-1" }, "user-1"),
+    ).toBe(true);
+    expect(
+      snapshotBelongsToView({ ownerId: "user-1" }, "user-2"),
+    ).toBe(false);
   });
 });

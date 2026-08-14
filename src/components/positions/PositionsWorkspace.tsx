@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -26,12 +26,13 @@ import {
 } from "@/lib/positions/assemble";
 import { applyCloseToBook, PositionCloseError } from "@/lib/positions/close";
 import { buildPositionActivity } from "@/lib/positions/math";
-import { UNASSIGNED_OWNER_ID } from "@/lib/positions/owners";
+import { UNASSIGNED_OWNER_ID, snapshotBelongsToView } from "@/lib/positions/owners";
 import type {
   PositionBook,
   PositionRecord,
   PositionsSnapshot,
 } from "@/lib/positions/types";
+import type { BrokerageSnapshot } from "@/lib/brokerage/types";
 import { formatMarketDateTime, formatQuantity } from "@/lib/utils/format";
 
 const POLL_MS = 15_000;
@@ -93,6 +94,12 @@ export function PositionsWorkspace({
     message: string;
   } | null>(null);
 
+  const viewedOwnerRef = useRef(initial.ownerId);
+  const [viewerBrokerage, setViewerBrokerage] = useState<
+    BrokerageSnapshot | undefined
+  >(() =>
+    initial.ownerId === initial.viewerId ? initial.brokerage : undefined,
+  );
   const demo = snapshot.usingFixtures || snapshot.persistence === "fixtures";
   const activeOwner =
     snapshot.owners.find((owner) => owner.id === snapshot.ownerId) ?? null;
@@ -117,6 +124,12 @@ export function PositionsWorkspace({
     sessionAccountValues[bookKey] !== undefined
       ? sessionAccountValues[bookKey]!
       : snapshot.accountValue;
+
+  useEffect(() => {
+    if (snapshot.ownerId === snapshot.viewerId && snapshot.brokerage) {
+      setViewerBrokerage(snapshot.brokerage);
+    }
+  }, [snapshot.brokerage, snapshot.ownerId, snapshot.viewerId]);
 
   /** Metrics/weights always reflect the session account value, even if DB save fails. */
   const displaySnapshot = useMemo(
@@ -166,6 +179,7 @@ export function PositionsWorkspace({
       books: nextBooks,
       bookId: next.bookId || bookId,
     };
+    if (!snapshotBelongsToView(resolved, viewedOwnerRef.current)) return;
     setSnapshot(resolved);
     rememberLots(resolved.bookId || bookId, recordsFromSnapshot(resolved));
     rememberAccountValue(resolved.bookId || bookId, resolved.accountValue);
@@ -197,6 +211,7 @@ export function PositionsWorkspace({
   );
 
   async function loadNamedBook(ownerId: string, requestedBookId?: string) {
+    viewedOwnerRef.current = ownerId;
     setSelectedId(null);
     const preferred =
       requestedBookId || lastBookByOwner[ownerId] || undefined;
@@ -240,6 +255,7 @@ export function PositionsWorkspace({
     }
     const nextLots = recordsFromSnapshot(next);
     const resolved = { ...next, books: nextBooks, bookId: resolvedBookId };
+    if (!snapshotBelongsToView(resolved, viewedOwnerRef.current)) return;
     setSnapshot(resolved);
     rememberOwnerBooks(resolved.ownerId || ownerId, nextBooks);
     setLastBookByOwner((current) => ({
@@ -348,7 +364,10 @@ export function PositionsWorkspace({
         });
         if (!response.ok || cancelled) return;
         const next = (await response.json()) as PositionsSnapshot;
-        if (!cancelled) {
+        if (
+          !cancelled &&
+          snapshotBelongsToView(next, viewedOwnerRef.current)
+        ) {
           setSnapshot({
             ...next,
             books: mergeOwnerBooks(next.books, next.ownerId || snapshot.ownerId),
@@ -376,10 +395,12 @@ export function PositionsWorkspace({
     let cancelled = false;
     async function pull() {
       if (document.visibilityState === "hidden") return;
+      const ownerId = viewedOwnerRef.current;
+      if (ownerId !== snapshot.ownerId) return;
       try {
         const params = new URLSearchParams({
           includeClosed: "1",
-          owner: snapshot.ownerId,
+          owner: ownerId,
         });
         if (snapshot.bookId) params.set("book", snapshot.bookId);
         const response = await fetch(`/api/positions?${params}`, {
@@ -387,11 +408,12 @@ export function PositionsWorkspace({
         });
         if (!response.ok || cancelled) return;
         const next = (await response.json()) as PositionsSnapshot;
-        if (!cancelled) {
-          setSnapshot(next);
-          if (!next.ownerLocked) {
-            rememberLots(next.bookId || next.ownerId, recordsFromSnapshot(next));
-          }
+        if (cancelled || !snapshotBelongsToView(next, viewedOwnerRef.current)) {
+          return;
+        }
+        setSnapshot(next);
+        if (!next.ownerLocked) {
+          rememberLots(next.bookId || next.ownerId, recordsFromSnapshot(next));
         }
       } catch {
         /* keep last valid snapshot */
@@ -798,9 +820,8 @@ export function PositionsWorkspace({
       const payload = (await response.json()) as PositionsSnapshot & {
         error?: string;
       };
-      if (!response.ok) {
-        throw new Error(payload.error ?? "Unable to unlock that blotter.");
-      }
+      if (!response.ok) throw new Error(payload.error ?? "Unable to unlock that blotter.");
+      if (!snapshotBelongsToView(payload, viewedOwnerRef.current)) return;
       setSnapshot(payload);
       if (payload.ownerLocked) return;
       rememberLots(
@@ -845,45 +866,57 @@ export function PositionsWorkspace({
         title="Positions"
         description="Per-user blotters with live marks, exposure, and P&L. Add lots by hand or connect a brokerage."
         actions={
-          unassignedLocked ? undefined : snapshot.ownerLocked ? (
-            <Badge tone="neutral">View only</Badge>
-          ) : (
+          unassignedLocked ? undefined : (
           <div className="flex flex-wrap items-center gap-2">
             <BrokerageConnect
-              brokerage={snapshot.brokerage}
+              brokerage={
+                viewerBrokerage ??
+                (snapshot.ownerId === snapshot.viewerId
+                  ? snapshot.brokerage
+                  : undefined)
+              }
               canManage={snapshot.canEdit && snapshot.ownerId === snapshot.viewerId}
+              headless={snapshot.ownerId !== snapshot.viewerId}
               busy={submitting || closing || bookBusy}
               usingFixtures={snapshot.usingFixtures}
-              bookId={snapshot.bookId}
+              bookId={
+                snapshot.ownerId === snapshot.viewerId
+                  ? snapshot.bookId
+                  : undefined
+              }
               onSnapshot={(next) => {
+                if (next.brokerage) setViewerBrokerage(next.brokerage);
+                rememberOwnerBooks(next.ownerId, next.books);
+                if (!next.ownerLocked) {
+                  rememberLots(
+                    next.bookId || next.ownerId,
+                    recordsFromSnapshot(next),
+                  );
+                  rememberAccountValue(
+                    next.bookId || next.ownerId,
+                    next.accountValue,
+                  );
+                }
+                setLastBookByOwner((current) => ({
+                  ...current,
+                  [next.ownerId]: next.bookId,
+                }));
+                if (!snapshotBelongsToView(next, viewedOwnerRef.current)) return;
                 const keepBookId =
                   snapshot.bookId &&
                   next.books.some((book) => book.id === snapshot.bookId)
                     ? snapshot.bookId
                     : next.bookId;
-                rememberOwnerBooks(next.ownerId, next.books);
-                setLastBookByOwner((current) => ({
-                  ...current,
-                  [next.ownerId]: keepBookId,
-                }));
                 if (keepBookId && keepBookId !== next.bookId) {
                   void loadNamedBook(next.ownerId, keepBookId);
                   return;
                 }
                 const resolved = { ...next, bookId: keepBookId };
                 setSnapshot(resolved);
-                rememberLots(
-                  resolved.bookId || bookKey,
-                  recordsFromSnapshot(resolved),
-                );
-                rememberAccountValue(
-                  resolved.bookId || bookKey,
-                  resolved.accountValue,
-                );
               }}
               onFeedback={setFeedback}
             />
-            {snapshot.canEdit ? (
+            {snapshot.ownerId === snapshot.viewerId && snapshot.canEdit ? (
               <Button variant="primary" size="sm" onClick={() => setFormMode("add")}>
                 <Plus aria-hidden="true" className="size-3.5" />
                 Add position

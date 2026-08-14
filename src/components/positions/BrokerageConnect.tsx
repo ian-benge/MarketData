@@ -24,6 +24,7 @@ export function BrokerageConnect({
   busy,
   usingFixtures = false,
   bookId,
+  headless = false,
   onSnapshot,
   onFeedback,
 }: {
@@ -32,6 +33,7 @@ export function BrokerageConnect({
   busy: boolean;
   usingFixtures?: boolean;
   bookId?: string;
+  headless?: boolean;
   onSnapshot: (snapshot: PositionsSnapshot) => void;
   onFeedback: (message: { tone: "error" | "success"; message: string }) => void;
 }) {
@@ -56,6 +58,7 @@ export function BrokerageConnect({
     .at(-1);
   const onSnapshotRef = useRef(onSnapshot);
   const onFeedbackRef = useRef(onFeedback);
+  const mountedRef = useRef(true);
   const syncingRef = useRef(false);
   const pendingAnnounceRef = useRef(false);
   const pullHoldingsRef = useRef<
@@ -107,7 +110,9 @@ export function BrokerageConnect({
         }
         return;
       }
-      if (payload.snapshot) onSnapshotRef.current(payload.snapshot);
+      if (payload.snapshot && mountedRef.current) {
+        onSnapshotRef.current(payload.snapshot);
+      }
       const historyImported = payload.historyImported ?? 0;
       if (shouldAnnounce) {
         const warning = payload.warnings?.find(Boolean);
@@ -178,7 +183,9 @@ export function BrokerageConnect({
         });
         return;
       }
-      if (payload.snapshot) onSnapshotRef.current(payload.snapshot);
+      if (payload.snapshot && mountedRef.current) {
+        onSnapshotRef.current(payload.snapshot);
+      }
       const warning = payload.warnings?.find(Boolean);
       const imported = payload.imported ?? 0;
       const updated = payload.updated ?? 0;
@@ -214,6 +221,13 @@ export function BrokerageConnect({
       setLookbackBusy(null);
     }
   }
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     onSnapshotRef.current = onSnapshot;
@@ -380,7 +394,9 @@ export function BrokerageConnect({
         });
         return;
       }
-      if (payload.snapshot) onSnapshot(payload.snapshot);
+      if (payload.snapshot && mountedRef.current) {
+        onSnapshot(payload.snapshot);
+      }
       onFeedback({
         tone: "success",
         message: "Brokerage disconnected. Synced lots were closed; manual lots are unchanged.",
@@ -399,6 +415,7 @@ export function BrokerageConnect({
     }
   }
 
+  if (headless) return null;
   if (!canManage && !connected) return null;
 
   return (

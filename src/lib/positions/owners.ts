@@ -112,3 +112,11 @@ export function positionsForOwner(
 ): PositionRecord[] {
   return positions.filter((position) => ownerKey(position.createdBy) === ownerId);
 }
+
+/** Ignore a late poll/sync that belongs to a book the viewer already left. */
+export function snapshotBelongsToView(
+  snapshot: { ownerId: string },
+  viewedOwnerId: string,
+): boolean {
+  return snapshot.ownerId === viewedOwnerId;
+}
