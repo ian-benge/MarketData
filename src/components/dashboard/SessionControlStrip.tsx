@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import {
   Activity,
   CalendarClock,
@@ -10,6 +13,7 @@ import {
   type StatusKind,
 } from "@/components/ui/StatusIndicator";
 import { formatMarketDateTime } from "@/lib/utils/format";
+import { ProviderHealthBanner, type ProviderHealthRow } from "@/components/dashboard/ProviderHealthBanner";
 
 import { nextEditionLabel } from "@/lib/scheduling/chicago-schedule";
 
@@ -30,6 +34,7 @@ export function SessionControlStrip({
   providerCount,
   unhealthyCount,
   licenseWarning,
+  providers,
 }: {
   session?: string | null;
   asOf: string;
@@ -38,11 +43,13 @@ export function SessionControlStrip({
   providerCount: number;
   unhealthyCount: number;
   licenseWarning?: string | null;
+  providers?: ProviderHealthRow[];
 }) {
+  const [healthOpen, setHealthOpen] = useState(false);
   return (
     <section
       aria-label="Market session and data trust"
-      className="overflow-hidden rounded-[6px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-1)]"
+      className="rounded-[6px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-1)]"
     >
       <div className="grid divide-y divide-[var(--ib-border-subtle)] md:grid-cols-2 md:divide-x md:divide-y-0 xl:grid-cols-[1fr_1.45fr_1fr_1fr]">
         <div className="flex min-h-12 items-center gap-2.5 px-3 py-2">
@@ -79,7 +86,7 @@ export function SessionControlStrip({
           </div>
         </div>
 
-        <div className="flex min-h-12 items-center gap-2.5 px-3 py-2">
+        <div className="relative flex min-h-12 items-center gap-2.5 px-3 py-2">
           <span className="grid size-7 shrink-0 place-items-center rounded-[4px] bg-[var(--ib-surface-2)] text-[var(--ib-text-secondary)]">
             <Activity aria-hidden="true" className="size-3.5" />
           </span>
@@ -87,12 +94,28 @@ export function SessionControlStrip({
             <p className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
               Provider health
             </p>
-            <p className="mt-0.5 text-[12px] text-[var(--ib-text-primary)]">
+            <button
+              type="button"
+              aria-expanded={healthOpen}
+              onClick={() => setHealthOpen((open) => !open)}
+              className="mt-0.5 text-left text-[12px] text-[var(--ib-text-primary)] hover:text-[var(--ib-maroon-300)]"
+            >
               {unhealthyCount
                 ? `${unhealthyCount} of ${providerCount} need attention`
                 : `${providerCount} configured · no active fault`}
-            </p>
+            </button>
           </div>
+          {healthOpen && providers ? (
+            <div className="absolute left-0 top-full z-40 mt-1 w-[min(100vw-1.5rem,22rem)] shadow-[var(--shadow-float)]">
+              <ProviderHealthBanner
+                providers={providers}
+                latencyCoverageLabel={coverageLabel}
+                asOf={asOf}
+                marketSession={session}
+                licenseWarning={licenseWarning}
+              />
+            </div>
+          ) : null}
         </div>
 
         <div className="flex min-h-12 items-center gap-2.5 px-3 py-2">

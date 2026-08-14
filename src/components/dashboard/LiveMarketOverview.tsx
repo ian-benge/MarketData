@@ -1,17 +1,30 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { AttentionStrip } from "@/components/dashboard/AttentionStrip";
 import { CatalystCalendar } from "@/components/dashboard/CatalystCalendar";
+import { DivergenceNotes } from "@/components/dashboard/DivergenceNotes";
+import { DurationStack } from "@/components/dashboard/DurationStack";
 import { EarningsCalendar } from "@/components/dashboard/EarningsCalendar";
+import { FactorTape } from "@/components/dashboard/FactorTape";
 import { FedWatchPanel } from "@/components/dashboard/FedWatchPanel";
 import { DashboardMarketBoard } from "@/components/dashboard/DashboardMarketBoard";
 import { HeadlineFeed } from "@/components/dashboard/HeadlineFeed";
-import { LatestReportCard } from "@/components/dashboard/LatestReportCard";
+import { MaterialMoversPanel } from "@/components/dashboard/MaterialMoversPanel";
+import { SectorHeatmap } from "@/components/dashboard/SectorHeatmap";
 import { WatchlistTable } from "@/components/dashboard/WatchlistTable";
-import { ProviderHealthBanner } from "@/components/dashboard/ProviderHealthBanner";
 import { SessionControlStrip } from "@/components/dashboard/SessionControlStrip";
 import { StaleBanner } from "@/components/ui/StaleBanner";
 import type { DashboardSnapshot } from "@/lib/fixtures/dashboard";
+import { buildAttentionItems } from "@/lib/market-data/overview-attention";
+import {
+  buildFactorTiles,
+  buildSectorHeatmap,
+  buildSharedMarketAnalytics,
+  overviewDivergenceNotes,
+} from "@/lib/market-data/overview-analytics";
+import { joinMaterialMovers } from "@/lib/market-data/overview-movers";
+import { calculateMarketPulse } from "@/lib/market-data/market-pulse";
 import type { DashboardWatchlistSnapshot } from "@/lib/market-data/watchlist-types";
 import type { NormalizedBar } from "@/lib/providers/types";
 
@@ -116,17 +129,84 @@ export function LiveMarketOverview({
     (provider) => provider.health === "degraded" || provider.health === "down",
   ).length;
 
+  const shared = useMemo(
+    () => buildSharedMarketAnalytics({ quotes: data.tape }),
+    [data.tape],
+  );
+  const movers = useMemo(
+    () =>
+      joinMaterialMovers(
+        data.movers,
+        data.headlines,
+        data.marketSession,
+        data.moversCoverageNotes,
+      ),
+    [data.headlines, data.marketSession, data.movers, data.moversCoverageNotes],
+  );
+  const sectors = useMemo(() => buildSectorHeatmap(data.tape), [data.tape]);
+  const factors = useMemo(() => buildFactorTiles(data.tape), [data.tape]);
+  const pulse = useMemo(
+    () =>
+      calculateMarketPulse({
+        quotes: data.tape,
+        asOf: data.asOf,
+        marketSession: data.marketSession,
+        latencyClass: data.latencyClass,
+        feedCoverage: data.feedCoverage,
+        coverageLabel: data.latencyCoverageLabel,
+        breadthSupported: data.breadthSupported,
+      }),
+    [
+      data.asOf,
+      data.breadthSupported,
+      data.feedCoverage,
+      data.latencyClass,
+      data.latencyCoverageLabel,
+      data.marketSession,
+      data.tape,
+    ],
+  );
+  const attention = useMemo(
+    () =>
+      buildAttentionItems({
+        drivers: pulse.drivers,
+        movers,
+        sectors,
+        spyChange: shared.spyChange,
+        watchlist: watchlist?.rows,
+        calendar: data.calendar,
+        asOf: data.asOf,
+      }),
+    [
+      data.asOf,
+      data.calendar,
+      movers,
+      pulse.drivers,
+      sectors,
+      shared.spyChange,
+      watchlist?.rows,
+    ],
+  );
+  const divergence = useMemo(
+    () => overviewDivergenceNotes(shared.variantViews),
+    [shared.variantViews],
+  );
+
   return (
     <>
-      <SessionControlStrip
-        session={data.marketSession}
-        asOf={data.asOf}
-        coverageLabel={data.latencyCoverageLabel}
-        latencyClass={data.latencyClass}
-        providerCount={data.providers.length}
-        unhealthyCount={unhealthyCount}
-        licenseWarning={data.licenseWarning}
-      />
+      <div className="sticky top-12 z-20 space-y-3 bg-[var(--ib-canvas)] pb-1 lg:top-11">
+        <SessionControlStrip
+          session={data.marketSession}
+          asOf={data.asOf}
+          coverageLabel={data.latencyCoverageLabel}
+          latencyClass={data.latencyClass}
+          providerCount={data.providers.length}
+          unhealthyCount={unhealthyCount}
+          licenseWarning={data.licenseWarning}
+          providers={data.providers}
+        />
+        <AttentionStrip items={attention} onSelectSymbol={selectChartSymbol} />
+      </div>
 
       {data.stale && data.latencyClass !== "unavailable" ? (
         <StaleBanner asOf={data.asOf} />
@@ -150,17 +230,35 @@ export function LiveMarketOverview({
         breadthExplanation={data.breadthExplanation}
         calendar={data.calendar}
         sidebar={
-          <LatestReportCard report={data.latestReport} />
+          <div className="space-y-3">
+            <SectorHeatmap cells={sectors} onSelectSymbol={selectChartSymbol} />
+            <FactorTape rows={factors} onSelectSymbol={selectChartSymbol} />
+            <DurationStack quotes={data.tape} onSelectSymbol={selectChartSymbol} />
+            <MaterialMoversPanel
+              movers={movers}
+              coverageNotes={data.moversCoverageNotes}
+              latestReport={data.latestReport}
+              onSelectSymbol={selectChartSymbol}
+            />
+            <DivergenceNotes notes={divergence} />
+          </div>
         }
       />
 
       <div className="grid min-w-0 gap-3 xl:grid-cols-12">
-        <div id="fedwatch" className="min-w-0 scroll-mt-3 xl:col-span-12">
+        <div id="fedwatch" className="min-w-0 scroll-mt-3 xl:col-span-6">
           <FedWatchPanel />
         </div>
-        <div id="earnings-calendar" className="min-w-0 scroll-mt-3 xl:col-span-12">
-          <EarningsCalendar onSelectSymbol={selectChartSymbol} />
+        <div id="earnings-calendar" className="min-w-0 scroll-mt-3 xl:col-span-3">
+          <EarningsCalendar
+            onSelectSymbol={selectChartSymbol}
+            watchlistSymbols={watchlist?.symbols}
+          />
         </div>
+        <div id="catalyst-calendar" className="min-w-0 scroll-mt-3 xl:col-span-3">
+          <CatalystCalendar events={data.calendar} />
+        </div>
+
         <div className="min-w-0 xl:col-span-8">
           <WatchlistTable
             data={watchlist}
@@ -168,20 +266,10 @@ export function LiveMarketOverview({
             onSelectList={selectWatchlist}
           />
         </div>
-        <div id="catalyst-calendar" className="min-w-0 scroll-mt-3 xl:col-span-4">
-          <CatalystCalendar events={data.calendar} />
-        </div>
-
-        <div className="min-w-0 xl:col-span-8">
-          <HeadlineFeed headlines={data.headlines} />
-        </div>
         <div className="min-w-0 xl:col-span-4">
-          <ProviderHealthBanner
-            providers={data.providers}
-            latencyCoverageLabel={data.latencyCoverageLabel}
-            asOf={data.asOf}
-            marketSession={data.marketSession}
-            licenseWarning={data.licenseWarning}
+          <HeadlineFeed
+            headlines={data.headlines}
+            onSelectSymbol={selectChartSymbol}
           />
         </div>
       </div>

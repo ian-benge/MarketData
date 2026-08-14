@@ -6,13 +6,21 @@ import { formatMarketTime } from "@/lib/utils/format";
 
 export function HeadlineFeed({
   headlines,
+  onSelectSymbol,
 }: {
   headlines: NormalizedNewsItem[];
+  onSelectSymbol?: (ticker: string) => void;
 }) {
+  const clustered = [...headlines].sort((a, b) => {
+    const left = a.tickers[0] ?? "";
+    const right = b.tickers[0] ?? "";
+    if (left !== right) return left.localeCompare(right);
+    return Date.parse(b.publishedAt) - Date.parse(a.publishedAt);
+  });
   return (
     <Panel
       title="Material news"
-      description="Timestamped sources and affected instruments"
+      description="Clustered by tagged ticker · click a ticker to open the chart"
       bodyClassName="p-0"
       actions={
         <Newspaper
@@ -21,9 +29,9 @@ export function HeadlineFeed({
         />
       }
     >
-      {headlines.length ? (
+      {clustered.length ? (
         <ol className="divide-y divide-[var(--ib-border-subtle)]">
-          {headlines.map((headline) => (
+          {clustered.map((headline) => (
             <li
               key={headline.id}
               className="grid gap-2 px-3 py-3 hover:bg-[var(--ib-surface-hover)] sm:grid-cols-[88px_minmax(0,1fr)]"
@@ -65,9 +73,15 @@ export function HeadlineFeed({
                     <Badge tone="mock">Mock source</Badge>
                   ) : null}
                   {headline.tickers.slice(0, 5).map((ticker) => (
-                    <Badge key={ticker} tone="neutral">
-                      {ticker}
-                    </Badge>
+                    <button
+                      key={ticker}
+                      type="button"
+                      onClick={() => onSelectSymbol?.(ticker)}
+                      className="rounded-[3px] focus-visible:outline focus-visible:outline-offset-2"
+                      aria-label={`Open ${ticker} in primary chart`}
+                    >
+                      <Badge tone="neutral">{ticker}</Badge>
+                    </button>
                   ))}
                 </div>
               </div>

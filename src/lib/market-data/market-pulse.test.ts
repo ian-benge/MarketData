@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { NormalizedQuote } from "@/lib/providers/types";
-import { calculateMarketPulse, MARKET_PULSE_CONFIG } from "./market-pulse";
+import { calculateMarketPulse, MARKET_PULSE_CONFIG, PULSE_INPUT_SYMBOLS } from "./market-pulse";
 
 const NOW = "2026-08-11T15:00:00.000Z";
 
@@ -107,5 +107,31 @@ describe("calculateMarketPulse", () => {
     ]);
     expect(neutral.score).toBe(50);
     expect(neutral.regime).toBe("Mixed / Rotational");
+  });
+
+  it("uses the same frozen input symbols as pulse history", async () => {
+    const { PULSE_HISTORY_SYMBOLS } = await import("./pulse-history");
+    expect([...PULSE_INPUT_SYMBOLS]).toEqual([...PULSE_HISTORY_SYMBOLS]);
+  });
+
+  it("does not score the full tape as configured proxy breadth", () => {
+    const result = calculate([
+      quote("SPY", 1),
+      quote("QQQ", 1),
+      quote("VIXY", -2),
+      quote("TLT", 0.5),
+      quote("UUP", 0),
+      quote("HYG", 0.4),
+      quote("USO", 0.2),
+      quote("SMH", 1),
+      quote("NVDA", 8),
+      quote("AMD", 7),
+      quote("XLK", 3),
+    ]);
+    const breadth = result.drivers.find((driver) => driver.id === "breadth");
+    expect(breadth?.symbols).not.toContain("NVDA");
+    expect(breadth?.symbols).not.toContain("AMD");
+    expect(result.comparableCount).toBe(8);
+    expect([...(breadth?.symbols ?? [])].sort()).toEqual([...PULSE_INPUT_SYMBOLS].sort());
   });
 });

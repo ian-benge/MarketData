@@ -13,6 +13,28 @@ export type LatestReport = {
   completedAt: string;
 };
 
+export function LatestReportLine({ report }: { report: LatestReport | null }) {
+  if (!report) {
+    return (
+      <p className="text-[11px] leading-4 text-[var(--ib-text-muted)]">
+        No archived research yet.
+      </p>
+    );
+  }
+  return (
+    <Link
+      href={`/reports/${report.id}`}
+      className="inline-flex min-w-0 items-center gap-1.5 text-[11px] leading-4 text-[var(--ib-text-secondary)] hover:text-[var(--ib-maroon-300)]"
+    >
+      <span className="shrink-0 font-mono uppercase tracking-[0.08em] text-[var(--ib-maroon-300)]">
+        {report.edition}
+      </span>
+      <span className="min-w-0 truncate">{report.headlineSummary}</span>
+      <ArrowUpRight aria-hidden="true" className="size-3 shrink-0" />
+    </Link>
+  );
+}
+
 export function LatestReportCard({ report }: { report: LatestReport | null }) {
   return (
     <Panel

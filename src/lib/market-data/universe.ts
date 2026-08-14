@@ -3,7 +3,10 @@
  * Cap enforced via MARKET_DATA_MAX_UNIVERSE_SIZE (caller passes maxSize).
  */
 
-import { marketPulseProxyEtfs } from "@/lib/market-data/market-pulse";
+import {
+  CROSS_ASSET_TAPE_SYMBOLS,
+  marketPulseProxyEtfs,
+} from "@/lib/market-data/market-pulse";
 
 /** Major US index ETFs always preferred first. */
 export const MAJOR_INDEX_ETFS = ["SPY", "QQQ", "DIA", "IWM"] as const;
@@ -110,7 +113,10 @@ export function buildUniverse(input: UniverseBuildInput): UniverseBuildResult {
       input.majorIndexSymbols ?? [...MAJOR_INDEX_ETFS],
     ),
     cross_asset_proxies: uniqueNormalize(
-      input.crossAssetSymbols ?? [...marketPulseProxyEtfs()],
+      input.crossAssetSymbols ?? [
+        ...marketPulseProxyEtfs(),
+        ...CROSS_ASSET_TAPE_SYMBOLS,
+      ],
     ),
     sector_etfs: uniqueNormalize(input.sectorEtfSymbols ?? [...SECTOR_ETFS]),
     ai_infrastructure: uniqueNormalize(

@@ -6,6 +6,7 @@ import {
 } from "@/lib/market-data/bars-window";
 import {
   calculateMarketPulse,
+  PULSE_INPUT_SYMBOLS,
   type MarketPulseRegime,
 } from "@/lib/market-data/market-pulse";
 import type { NormalizedQuote } from "@/lib/providers/types";
@@ -21,16 +22,8 @@ export const PULSE_HISTORY_RANGES = [
 
 export type PulseHistoryRange = (typeof PULSE_HISTORY_RANGES)[number];
 
-export const PULSE_HISTORY_SYMBOLS = [
-  "SPY",
-  "QQQ",
-  "VIXY",
-  "TLT",
-  "UUP",
-  "HYG",
-  "USO",
-  "SMH",
-] as const;
+/** Same frozen set as live Pulse. Do not fetch a different basket. */
+export const PULSE_HISTORY_SYMBOLS = PULSE_INPUT_SYMBOLS;
 
 export type PulseHistoryBar = {
   barStart: string;

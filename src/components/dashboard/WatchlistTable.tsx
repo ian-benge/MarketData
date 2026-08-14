@@ -8,6 +8,7 @@ import {
   ArrowUpRight,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { Badge } from "@/components/ui/Badge";
 import { Panel } from "@/components/ui/Panel";
 import type {
   DashboardWatchlistRow,
@@ -84,8 +85,8 @@ export function WatchlistTable({
   onSelectSymbol?: (ticker: string) => void;
   onSelectList?: (listId: string) => void;
 }) {
-  const [sortKey, setSortKey] = useState<SortKey>("list");
-  const [descending, setDescending] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>("rvol");
+  const [descending, setDescending] = useState(true);
   const rows = data?.rows;
 
   const sorted = useMemo(() => {
@@ -250,6 +251,9 @@ function WatchlistRow({
         >
           {row.ticker}
           <ToneIcon value={row.change1dPercent} />
+          {row.relativeVolume != null && row.relativeVolume >= 2 ? (
+            <Badge tone="warn">Abn RVOL</Badge>
+          ) : null}
         </button>
       </td>
       <td className="px-3 text-right font-mono text-[var(--ib-text-primary)]">

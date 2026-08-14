@@ -109,8 +109,12 @@ export function MarketChart({
   const [series, setSeries] = useState(() =>
     hydrateInitialSeries(initialSeries),
   );
-  const [range, setRange] = useState<ChartRange>("3M");
-  const [interval, setInterval] = useState<ChartInterval>("1d");
+  const [range, setRange] = useState<ChartRange>(() =>
+    mode === "mock" ? "3M" : "1D",
+  );
+  const [interval, setInterval] = useState<ChartInterval>(() =>
+    mode === "mock" ? "1d" : "5m",
+  );
   const [style, setStyle] = useState<ChartStyle>("candles");
   const [indicators, setIndicators] = useState<IndicatorInstance[]>(
     defaultIndicatorInstances,
@@ -129,7 +133,12 @@ export function MarketChart({
   const [historyLabel, setHistoryLabel] = useState<string | null>(null);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [fitNonce, setFitNonce] = useState(0);
-  const [panelOpen, setPanelOpen] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(true);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1280px)");
+    if (!mq.matches) setPanelOpen(false);
+  }, []);
   const loadedKeys = useRef(
     new Set(Object.keys(hydrateInitialSeries(initialSeries))),
   );
@@ -243,7 +252,13 @@ export function MarketChart({
   }, [compareSymbol, interval, loadBars, range, symbol]);
 
   useEffect(() => {
-    if (mode !== "provider" || (range !== "1D" && range !== "5D")) return;
+    if (
+      mode !== "provider" ||
+      !panelOpen ||
+      (range !== "1D" && range !== "5D")
+    ) {
+      return;
+    }
     const poll = () => {
       if (document.visibilityState === "hidden") return;
       const controller = new AbortController();
@@ -260,7 +275,7 @@ export function MarketChart({
       window.clearInterval(id);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [interval, loadBars, mode, range, symbol]);
+  }, [interval, loadBars, mode, panelOpen, range, symbol]);
 
   useEffect(() => {
     setActiveIndex(null);

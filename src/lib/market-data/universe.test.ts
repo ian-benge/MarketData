@@ -29,7 +29,7 @@ describe("buildUniverse", () => {
     expect(result.symbols).toContain("TLT");
     expect(result.symbols).toContain("VIXY");
     expect(result.sources.cross_asset_proxies).toEqual(
-      expect.arrayContaining(["TLT", "VIXY", "UUP", "HYG", "USO"]),
+      expect.arrayContaining(["TLT", "VIXY", "UUP", "HYG", "USO", "LQD", "IBIT", "SHY", "IEF"]),
     );
   });
 

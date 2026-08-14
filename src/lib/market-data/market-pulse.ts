@@ -187,9 +187,47 @@ function sessionCompatible(
   return false;
 }
 
+/**
+ * Frozen Pulse inputs. Live score and history path must use this set only —
+ * never the full dashboard tape (NVDA, sector ETFs, etc.).
+ * Primary scored proxies; driver fallbacks (ES/VIX/DXY/WTI/SOXX) are unused
+ * so live prints match the history reconstruction symbols.
+ */
+export const PULSE_INPUT_SYMBOLS = [
+  "SPY",
+  "QQQ",
+  "VIXY",
+  "TLT",
+  "UUP",
+  "HYG",
+  "USO",
+  "SMH",
+] as const;
+
+const PULSE_INPUT_SET = new Set<string>(PULSE_INPUT_SYMBOLS);
+
+export function isPulseInputSymbol(ticker: string) {
+  return PULSE_INPUT_SET.has(ticker.toUpperCase());
+}
+
+export function filterPulseQuotes<T extends { ticker: string }>(quotes: T[]): T[] {
+  return quotes.filter((quote) => isPulseInputSymbol(quote.ticker));
+}
+
 export function marketPulseProxyEtfs() {
   return ["TLT", "VIXY", "UUP", "HYG", "USO", "GLD", "SOXX"] as const;
 }
+
+/** ETF duration stack — tape context, not Pulse inputs or CMT yields. */
+export const DURATION_PROXY_ETFS = ["SHY", "IEF", "TLT"] as const;
+
+/** Extra cross-asset names fetched on the stocks path (not Pulse-scored). */
+export const CROSS_ASSET_TAPE_SYMBOLS = [
+  "LQD",
+  "IBIT",
+  "SHY",
+  "IEF",
+] as const;
 
 function signedPercent(value: number | null) {
   if (value == null) return "Unavailable";
@@ -259,11 +297,12 @@ function buildExplanation(drivers: MarketPulseDriver[], definitive: boolean) {
 
 export function calculateMarketPulse(input: CalculateMarketPulseInput): MarketPulseResult {
   const expectedSession = legacySession(input.marketSession);
-  const validQuotes = input.quotes.filter((quote) => {
+  const quotes = filterPulseQuotes(input.quotes);
+  const validQuotes = quotes.filter((quote) => {
     if (quote.changePercent == null || !Number.isFinite(quote.changePercent)) return false;
     return sessionCompatible(expectedSession, quote.marketSession);
   });
-  const excludedSessionCount = input.quotes.filter(
+  const excludedSessionCount = quotes.filter(
     (quote) =>
       quote.changePercent != null &&
       !sessionCompatible(expectedSession, quote.marketSession),

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Landmark } from "lucide-react";
+import { ChevronDown, Landmark } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Panel } from "@/components/ui/Panel";
 import { FEDWATCH_REFRESH_MS } from "@/lib/market-data/fedwatch/types";
@@ -19,6 +19,15 @@ const GRID = [100, 80, 60, 40, 20, 0] as const;
 function formatPct(value: number | null | undefined) {
   if (value == null || !Number.isFinite(value)) return "—";
   return `${value.toFixed(1)}%`;
+}
+
+function formatPpDelta(now: number | null | undefined, prior: number | null | undefined) {
+  if (now == null || prior == null || !Number.isFinite(now) || !Number.isFinite(prior)) {
+    return "—";
+  }
+  const delta = now - prior;
+  const sign = delta > 0 ? "+" : delta < 0 ? "−" : "";
+  return `${sign}${Math.abs(delta).toFixed(1)}pp`;
 }
 
 function formatIsoDate(iso: string, year: "2" | "4" = "4") {
@@ -225,6 +234,7 @@ export function FedWatchPanel() {
   const [data, setData] = useState<FedWatchSnapshot | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -251,7 +261,7 @@ export function FedWatchPanel() {
     }
 
     void pull();
-    const interval = window.setInterval(pull, FEDWATCH_REFRESH_MS);
+    const interval = window.setInterval(pull, expanded ? FEDWATCH_REFRESH_MS : 60_000);
     const onVisible = () => {
       if (document.visibilityState === "visible") void pull();
     };
@@ -261,15 +271,21 @@ export function FedWatchPanel() {
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, []);
+  }, [expanded]);
 
   const meeting =
     data?.meetings.find((item) => item.date === selected) ?? data?.meetings[0] ?? null;
+  const lookback1d = meeting?.lookbacks?.find((item) => item.id === "1d");
+  const pollSeconds = expanded ? (data?.refreshSeconds ?? 15) : 60;
 
   return (
     <Panel
       title="CME FedWatch"
-      description={`FOMC rate-hike projections · America/Chicago · updates every ${data?.refreshSeconds ?? 15}s`}
+      description={
+        expanded
+          ? `FOMC rate-hike projections · America/Chicago · updates every ${pollSeconds}s`
+          : `Next meeting · ease / hold / hike · 1d Δ · ${pollSeconds}s`
+      }
       bodyClassName="space-y-3 p-3"
       actions={
         <div className="flex items-center gap-2">
@@ -286,6 +302,18 @@ export function FedWatchPanel() {
               {data.stale ? `${data.sourceLabel} · stale` : data.sourceLabel}
             </Badge>
           ) : null}
+          <button
+            type="button"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((value) => !value)}
+            className="inline-flex min-h-7 items-center gap-1 rounded-[3px] border border-[var(--ib-border-subtle)] px-2 font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-secondary)] hover:text-[var(--ib-text-primary)]"
+          >
+            {expanded ? "Collapse" : "Expand"}
+            <ChevronDown
+              aria-hidden="true"
+              className={cn("size-3.5 transition-transform", expanded ? "rotate-180" : null)}
+            />
+          </button>
           <Landmark aria-hidden="true" className="size-4 text-[var(--ib-text-muted)]" />
         </div>
       }
@@ -302,7 +330,42 @@ export function FedWatchPanel() {
         </p>
       ) : null}
 
-      {data && meeting ? (
+      {data && meeting && !expanded ? (
+        <div className="space-y-2">
+          <p className="text-[13px] font-semibold text-[var(--ib-text-primary)]">
+            {meeting.label}
+            <span className="ml-2 font-mono text-[11px] font-normal text-[var(--ib-text-muted)]">
+              {formatIsoDate(meeting.date)}
+            </span>
+          </p>
+          <dl className="grid grid-cols-3 gap-2 font-mono text-[11px]">
+            {(
+              [
+                ["Ease", meeting.ease, lookback1d?.ease],
+                ["Hold", meeting.hold, lookback1d?.hold],
+                ["Hike", meeting.hike, lookback1d?.hike],
+              ] as const
+            ).map(([label, now, prior]) => (
+              <div
+                key={label}
+                className="rounded-[4px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-inset)] px-2 py-1.5"
+              >
+                <dt className="text-[9px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
+                  {label}
+                </dt>
+                <dd className="mt-0.5 text-[var(--ib-text-primary)]">
+                  {formatPct(now)}
+                  <span className="ml-1 text-[10px] text-[var(--ib-text-muted)]">
+                    {formatPpDelta(now, prior)} 1d
+                  </span>
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      ) : null}
+
+      {data && meeting && expanded ? (
         <>
           <div className="flex gap-1 overflow-x-auto pb-0.5">
             {data.meetings.map((item) => {

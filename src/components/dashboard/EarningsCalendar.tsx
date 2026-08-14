@@ -5,6 +5,7 @@ import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import {
   AlertTriangle,
   CalendarDays,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Moon,
@@ -258,11 +259,14 @@ function SessionColumn({
 
 export function EarningsCalendar({
   onSelectSymbol,
+  watchlistSymbols,
 }: {
   onSelectSymbol?: (ticker: string) => void;
+  watchlistSymbols?: readonly string[];
 }) {
   const [data, setData] = useState<EarningsCalendarSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   const [weekStart, setWeekStart] = useState(() => mondayWeekStart(new Date()));
   const [selectedDay, setSelectedDay] = useState(() => chicagoDateString(new Date()));
   const [sessionFilter, setSessionFilter] = useState<SessionFilter>("all");
@@ -473,14 +477,37 @@ export function EarningsCalendar({
     setSelectedId((current) => (current === id ? null : id));
   }
 
+  const watchlistSet = useMemo(
+    () => new Set((watchlistSymbols ?? []).map((symbol) => symbol.toUpperCase())),
+    [watchlistSymbols],
+  );
+  const compactEvents = useMemo(() => {
+    const tomorrow = addChicagoDays(today, 1);
+    return (data?.events ?? [])
+      .filter((event) => {
+        if (event.reportDate !== today && event.reportDate !== tomorrow) return false;
+        const watch = watchlistSet.has(event.ticker.toUpperCase());
+        const mega = (event.marketCap ?? 0) >= 200_000_000_000;
+        const highMove = (event.impliedMove?.percent ?? 0) >= 5;
+        return watch || mega || highMove;
+      })
+      .sort((a, b) => (b.impliedMove?.percent ?? 0) - (a.impliedMove?.percent ?? 0));
+  }, [data?.events, today, watchlistSet]);
+
   return (
     <Panel
       title="Earnings calendar"
-      description={`Earnings scheduled · full slate · estimates + expected move · ${data?.sourceLabel ?? "loading"}`}
+      description={
+        expanded
+          ? `Earnings scheduled · full slate · estimates + expected move · ${data?.sourceLabel ?? "loading"}`
+          : "Today / tomorrow ∩ watchlist ∪ mega-cap ∪ high expected move"
+      }
       bodyClassName="space-y-3 p-3"
       actions={
         <div className="flex items-center gap-2">
           {data ? <SourceHealth data={data} /> : null}
+          {expanded ? (
+            <>
           <label className="relative hidden sm:block">
             <Search
               aria-hidden="true"
@@ -512,10 +539,58 @@ export function EarningsCalendar({
               </button>
             ))}
           </div>
+            </>
+          ) : null}
+          <button
+            type="button"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((value) => !value)}
+            className="inline-flex min-h-7 items-center gap-1 rounded-[3px] border border-[var(--ib-border-subtle)] px-2 font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-secondary)] hover:text-[var(--ib-text-primary)]"
+          >
+            {expanded ? "Collapse" : "Expand"}
+            <ChevronDown
+              aria-hidden="true"
+              className={cn("size-3.5 transition-transform", expanded ? "rotate-180" : null)}
+            />
+          </button>
           <CalendarDays aria-hidden="true" className="size-4 text-[var(--ib-text-muted)]" />
         </div>
       }
     >
+      {!expanded ? (
+        <div>
+          {loading && !data ? (
+            <p className="py-6 text-center text-[12px] text-[var(--ib-text-muted)]">
+              Loading earnings calendar…
+            </p>
+          ) : compactEvents.length ? (
+            <ul className="divide-y divide-[var(--ib-border-subtle)]">
+              {compactEvents.slice(0, 8).map((event) => (
+                <li key={event.id} className="flex items-center justify-between gap-2 py-1.5">
+                  <button
+                    type="button"
+                    onClick={() => onSelectSymbol?.(event.ticker)}
+                    className="font-mono text-[12px] font-semibold text-[var(--ib-maroon-300)] hover:underline"
+                  >
+                    {event.ticker}
+                  </button>
+                  <span className="truncate text-[11px] text-[var(--ib-text-secondary)]">
+                    {event.reportDate === today ? "Today" : "Tomorrow"} · {SESSION_LABEL[event.session]}
+                  </span>
+                  <Badge tone={impliedTone(event.impliedMove?.percent)}>
+                    {event.impliedMove ? `${event.impliedMove.percent.toFixed(1)}%` : "—"}
+                  </Badge>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="py-6 text-center text-[12px] text-[var(--ib-text-muted)]">
+              No watchlist, mega-cap, or high-move names today or tomorrow.
+            </p>
+          )}
+        </div>
+      ) : (
+      <>
       <div className="flex items-center justify-between gap-2">
         <button
           type="button"
@@ -809,6 +884,8 @@ export function EarningsCalendar({
           : ""}
         {data?.error ? ` · ${data.error}` : ""}
       </p>
+      </>
+      )}
     </Panel>
   );
 }

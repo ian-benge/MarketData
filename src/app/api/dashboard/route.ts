@@ -17,6 +17,29 @@ import {
 } from "@/lib/market-data/watchlist-service";
 import { getDashboardResearch } from "@/lib/dashboard/research-context";
 import { createProviders } from "@/lib/providers/registry";
+import {
+  isLiveReportsAvailable,
+  listLiveReports,
+} from "@/lib/reports/live-reports";
+
+async function latestLiveReport(): Promise<DashboardSnapshot["latestReport"]> {
+  try {
+    if (!isLiveReportsAvailable()) return null;
+    const reports = await listLiveReports();
+    const first = reports[0];
+    if (!first) return null;
+    return {
+      id: first.id,
+      edition: first.edition,
+      tradingDate: first.tradingDate,
+      status: first.status,
+      headlineSummary: first.headlineSummary,
+      completedAt: first.completedAt ?? first.tradingDate,
+    };
+  } catch {
+    return null;
+  }
+}
 
 function unavailableDashboard(
   licenseWarning: string | null,
@@ -125,6 +148,7 @@ export async function GET(request?: Request) {
         console.error("createProviders failed for dashboard health list", error);
       }
       const watchlist = await getWatchlistSnapshot(env, cached.tape);
+      const latestReport = await latestLiveReport();
       const payload: DashboardSnapshot = {
         asOf: cached.asOf,
         dataCutoff: cached.dataCutoff,
@@ -135,7 +159,11 @@ export async function GET(request?: Request) {
         headlines: research.headlines,
         calendar: research.calendar,
         providers,
-        latestReport: null,
+        latestReport,
+        moversCoverageNotes:
+          cache.getMeta()?.moversCoverageNotes ??
+          cached.notes?.find((note) => /mover/i.test(note)) ??
+          null,
         latencyCoverageLabel: cached.latencyCoverageLabel,
         feedCoverage: cached.feedCoverage,
         latencyClass: cached.latencyClass,

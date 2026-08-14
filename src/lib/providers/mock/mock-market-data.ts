@@ -49,6 +49,10 @@ const SEED: SeedQuote[] = [
   { ticker: "TSM", last: 186.2, priorClose: 183.5, volume: 11_200_000 },
   { ticker: "XLK", last: 232.4, priorClose: 230.1, volume: 5_400_000 },
   { ticker: "XLF", last: 45.8, priorClose: 45.5, volume: 32_000_000 },
+  { ticker: "HYG", last: 79.4, priorClose: 78.9, volume: 18_400_000 },
+  { ticker: "LQD", last: 110.1, priorClose: 109.8, volume: 9_100_000 },
+  { ticker: "SMH", last: 268.2, priorClose: 263.5, volume: 7_200_000 },
+  { ticker: "IBIT", last: 58.2, priorClose: 57.4, volume: 21_000_000 },
   { ticker: "VIXY", last: 14.2, priorClose: 14.8, volume: 6_700_000 },
 ];
 
