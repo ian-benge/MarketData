@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AttentionStrip } from "@/components/dashboard/AttentionStrip";
 import { CatalystCalendar } from "@/components/dashboard/CatalystCalendar";
 import { DivergenceNotes } from "@/components/dashboard/DivergenceNotes";
 import { DurationStack } from "@/components/dashboard/DurationStack";
@@ -13,7 +12,7 @@ import { HeadlineFeed } from "@/components/dashboard/HeadlineFeed";
 import { MaterialMoversPanel } from "@/components/dashboard/MaterialMoversPanel";
 import { SectorHeatmap } from "@/components/dashboard/SectorHeatmap";
 import { WatchlistTable } from "@/components/dashboard/WatchlistTable";
-import { SessionControlStrip } from "@/components/dashboard/SessionControlStrip";
+import { OverviewStatusChrome } from "@/components/dashboard/OverviewStatusChrome";
 import { StaleBanner } from "@/components/ui/StaleBanner";
 import type { DashboardSnapshot } from "@/lib/fixtures/dashboard";
 import { buildAttentionItems } from "@/lib/market-data/overview-attention";
@@ -194,19 +193,18 @@ export function LiveMarketOverview({
 
   return (
     <>
-      <div className="sticky top-12 z-20 space-y-3 bg-[var(--ib-canvas)] pb-1 lg:top-11">
-        <SessionControlStrip
-          session={data.marketSession}
-          asOf={data.asOf}
-          coverageLabel={data.latencyCoverageLabel}
-          latencyClass={data.latencyClass}
-          providerCount={data.providers.length}
-          unhealthyCount={unhealthyCount}
-          licenseWarning={data.licenseWarning}
-          providers={data.providers}
-        />
-        <AttentionStrip items={attention} onSelectSymbol={selectChartSymbol} />
-      </div>
+      <OverviewStatusChrome
+        session={data.marketSession}
+        asOf={data.asOf}
+        coverageLabel={data.latencyCoverageLabel}
+        latencyClass={data.latencyClass}
+        providerCount={data.providers.length}
+        unhealthyCount={unhealthyCount}
+        licenseWarning={data.licenseWarning}
+        providers={data.providers}
+        items={attention}
+        onSelectSymbol={selectChartSymbol}
+      />
 
       {data.stale && data.latencyClass !== "unavailable" ? (
         <StaleBanner asOf={data.asOf} />

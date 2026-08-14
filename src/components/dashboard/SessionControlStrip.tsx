@@ -17,7 +17,7 @@ import { ProviderHealthBanner, type ProviderHealthRow } from "@/components/dashb
 
 import { nextEditionLabel } from "@/lib/scheduling/chicago-schedule";
 
-function qualityKind(latencyClass: string | null | undefined): StatusKind {
+export function dataTrustKind(latencyClass: string | null | undefined): StatusKind {
   if (latencyClass === "mock") return "mock";
   if (latencyClass === "stale") return "stale";
   if (latencyClass === "realtime") return "realtime";
@@ -76,7 +76,7 @@ export function SessionControlStrip({
                 Data trust
               </p>
               <StatusIndicator
-                kind={qualityKind(latencyClass)}
+                kind={dataTrustKind(latencyClass)}
                 label={coverageLabel ?? "Unknown coverage"}
               />
             </div>
