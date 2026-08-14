@@ -12,6 +12,17 @@ const EMPTY_PERIOD: PeriodMetrics = {
   percent: null,
 };
 
+function sumFinite(values: Array<number | null | undefined>): number | null {
+  let total = 0;
+  let seen = false;
+  for (const value of values) {
+    if (value == null || !Number.isFinite(value)) continue;
+    total += value;
+    seen = true;
+  }
+  return seen ? total : null;
+}
+
 function redactOpenLot(row: EnrichedPosition): EnrichedPosition {
   return {
     ...row,
@@ -20,16 +31,10 @@ function redactOpenLot(row: EnrichedPosition): EnrichedPosition {
     marketValue: null,
     signedMarketValue: null,
     weight: null,
-    unrealizedPnl: null,
     realizedPnl: null,
-    totalPnl: null,
-    returnPercent: null,
-    dayPnl: null,
-    dayPercent: null,
     change1d: EMPTY_PERIOD,
     change1w: EMPTY_PERIOD,
     change1m: EMPTY_PERIOD,
-    sinceEntry: EMPTY_PERIOD,
     sparkline: [],
     relatedRealizedPnl: null,
     relatedRealizedPercent: null,
@@ -38,15 +43,21 @@ function redactOpenLot(row: EnrichedPosition): EnrichedPosition {
   };
 }
 
-/** Strip account value, P&L, closed lots, and other money fields from a teammate view. */
+/**
+ * Strip account value, closed lots, notes, and book-composition fields from a
+ * teammate view. Open-lot day P&L and unrealized P&L stay visible.
+ */
 export function redactLockedOwnerSnapshot(
   snapshot: PositionsSnapshot,
 ): PositionsSnapshot {
-  const openLots = snapshot.positions
-    .filter((row) => row.status === "open")
-    .map(redactOpenLot);
+  const originalOpen = snapshot.positions.filter((row) => row.status === "open");
+  const openLots = originalOpen.map(redactOpenLot);
   const longCount = openLots.filter((row) => row.side === "long").length;
   const shortCount = openLots.filter((row) => row.side === "short").length;
+  const unrealizedPnl = sumFinite(originalOpen.map((row) => row.unrealizedPnl));
+  const dayPnl = sumFinite(originalOpen.map((row) => row.dayPnl));
+  const costBasis = sumFinite(originalOpen.map((row) => row.costBasis));
+  const invested = sumFinite(originalOpen.map((row) => row.marketValue));
 
   return {
     ...snapshot,
@@ -70,6 +81,18 @@ export function redactLockedOwnerSnapshot(
       openCount: openLots.length,
       longCount,
       shortCount,
+      quotedCount: originalOpen.filter((row) => row.last != null).length,
+      unrealizedPnl,
+      totalPnl: unrealizedPnl,
+      dayPnl,
+      bookReturnPercent:
+        costBasis != null && costBasis > 0 && unrealizedPnl != null
+          ? (unrealizedPnl / costBasis) * 100
+          : null,
+      dayPercent:
+        invested != null && invested > 0 && dayPnl != null
+          ? (dayPnl / invested) * 100
+          : null,
     },
   };
 }

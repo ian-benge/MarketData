@@ -6,16 +6,27 @@ import { Button } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Panel";
 import { PortfolioPnlChart } from "@/components/positions/PortfolioPnlChart";
 import {
+  BookPnlWindowToggle,
+  PositionsValuePrivacyToggle,
+} from "@/components/positions/PositionsPrivacy";
+import {
+  useHideValues,
+  usePositionsPrivacy,
+} from "@/components/positions/privacy-context";
+import {
+  MoneyValue,
+  ShareValue,
   SignedValue,
   SideLabel,
   toneClass,
 } from "@/components/positions/display";
 import { cn } from "@/lib/utils/cn";
+import { formatCurrency, formatSignedPercent, formatQuantity } from "@/lib/utils/format";
 import {
-  formatCurrency,
-  formatSignedPercent,
-  formatQuantity,
-} from "@/lib/utils/format";
+  BOOK_PNL_WINDOW_LABELS,
+  bookPnlForWindow,
+  bookPnlWindowHint,
+} from "@/lib/positions/value-privacy";
 import type { PositionsSnapshot } from "@/lib/positions/types";
 
 function Metric({
@@ -82,13 +93,73 @@ function ExposureBar({
         />
       </div>
       <div className="mt-2 flex justify-between font-mono text-[11px]">
-        <span className="text-[var(--market-positive)]">
-          Long {formatCurrency(long, { compact: true })}
+        <span className="flex items-center gap-1.5 text-[var(--market-positive)]">
+          Long <MoneyValue value={long} compact />
         </span>
-        <span className="text-[var(--market-negative)]">
-          Short {formatCurrency(short, { compact: true })}
+        <span className="flex items-center gap-1.5 text-[var(--market-negative)]">
+          Short <MoneyValue value={short} compact />
         </span>
       </div>
+    </div>
+  );
+}
+
+function LockedPnlStat({
+  label,
+  value,
+  percent,
+  hint,
+}: {
+  label: string;
+  value: number | null;
+  percent: number | null;
+  hint: string;
+}) {
+  return (
+    <div className="min-w-0 px-3 py-2.5">
+      <p className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
+        {label}
+      </p>
+      <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        <SignedValue
+          value={value}
+          className="text-[16px] leading-5 sm:text-[18px] sm:leading-6"
+        />
+        <SignedValue
+          value={percent}
+          kind="percent"
+          className="text-[12px] sm:text-[13px]"
+        />
+      </div>
+      <p className="mt-0.5 text-[11px] text-[var(--ib-text-muted)]">{hint}</p>
+    </div>
+  );
+}
+
+export function LockedOwnerPnlStrip({
+  snapshot,
+}: {
+  snapshot: PositionsSnapshot;
+}) {
+  const summary = snapshot.summary;
+  return (
+    <div
+      role="group"
+      aria-label="Open lot P&L"
+      className="grid grid-cols-2 divide-x divide-[var(--ib-border-subtle)] border-b border-[var(--ib-border-subtle)] bg-[var(--ib-surface-2)]"
+    >
+      <LockedPnlStat
+        label="Day P&L"
+        value={summary.dayPnl}
+        percent={summary.dayPercent}
+        hint="Open lots vs prior close"
+      />
+      <LockedPnlStat
+        label="Open P&L"
+        value={summary.unrealizedPnl}
+        percent={summary.bookReturnPercent}
+        hint="Unrealized vs entry"
+      />
     </div>
   );
 }
@@ -121,6 +192,10 @@ function PositionsMetricsStripInner({
   onAccountValueChange?: (value: number | null) => void;
   savingAccountValue?: boolean;
 }) {
+  const hideValues = useHideValues();
+  const { pnlWindow } = usePositionsPrivacy();
+  const windowed = bookPnlForWindow(snapshot, pnlWindow);
+  const lifetimeWindow = pnlWindow === "max";
   const summary = snapshot.summary;
   const hasAccountValue = snapshot.accountValue != null;
   const activeBook = snapshot.books.find((book) => book.id === snapshot.bookId);
@@ -158,11 +233,14 @@ function PositionsMetricsStripInner({
       title="Book snapshot"
       description="Portfolio value, exposure, P&L, and buying power. Enter total account value (including cash) to size weights, cash, and margin."
       actions={
-        snapshot.usingFixtures ? undefined : snapshot.stale ? (
-          <Badge tone="warn">Stale</Badge>
-        ) : (
-          <Badge tone="info">{snapshot.latencyCoverageLabel}</Badge>
-        )
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <PositionsValuePrivacyToggle />
+          {snapshot.usingFixtures ? null : snapshot.stale ? (
+            <Badge tone="warn">Stale</Badge>
+          ) : (
+            <Badge tone="info">{snapshot.latencyCoverageLabel}</Badge>
+          )}
+        </div>
       }
       bodyClassName="p-0"
     >
@@ -175,10 +253,10 @@ function PositionsMetricsStripInner({
               : "Set account value to include cash"
           }
         >
-          {formatCurrency(summary.portfolioValue, { compact: true })}
+          <MoneyValue value={summary.portfolioValue} compact />
         </Metric>
         <Metric label="Invested" hint="Long market value">
-          {formatCurrency(summary.investedValue, { compact: true })}
+          <MoneyValue value={summary.investedValue} compact />
         </Metric>
         <Metric
           label="Cash"
@@ -190,25 +268,25 @@ function PositionsMetricsStripInner({
                 : "Account − invested"
           }
         >
-          {formatCurrency(summary.cash, { compact: true })}
+          <MoneyValue value={summary.cash} compact />
         </Metric>
         <Metric label="Gross" hint={`${summary.openCount} open`}>
-          {formatCurrency(summary.grossExposure, { compact: true })}
+          <MoneyValue value={summary.grossExposure} compact />
         </Metric>
         <Metric
           label="Net"
           hint={
-            summary.netExposurePercent == null
+            hideValues || summary.netExposurePercent == null
               ? undefined
               : `${formatSignedPercent(summary.netExposurePercent)} of gross`
           }
         >
-          {formatCurrency(summary.netExposure, { compact: true })}
+          <MoneyValue value={summary.netExposure} compact />
         </Metric>
         <Metric
           label="Day P&L"
           hint={
-            summary.dayPercent == null
+            hideValues || summary.dayPercent == null
               ? "Open lots vs prior close"
               : summary.accountValue != null
                 ? `${formatSignedPercent(summary.dayPercent)} of account`
@@ -220,32 +298,61 @@ function PositionsMetricsStripInner({
       </div>
 
       <div className="border-t border-[var(--ib-border-subtle)]">
-        <p className="px-3 pt-2 font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
-          Profits and losses
-        </p>
-        <div className="grid grid-cols-1 sm:grid-cols-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-3 pt-2">
+          <p className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
+            Profits and losses
+          </p>
+          <BookPnlWindowToggle />
+        </div>
+        <div
+          className={cn(
+            "grid grid-cols-1",
+            lifetimeWindow ? "sm:grid-cols-3" : "sm:grid-cols-2",
+          )}
+        >
           <Metric
-            label="P&L (before fees)"
-            hint="Unrealized + realized, commissions excluded"
+            label={
+              lifetimeWindow
+                ? "P&L (before fees)"
+                : `P&L (${BOOK_PNL_WINDOW_LABELS[pnlWindow]})`
+            }
+            hint={
+              lifetimeWindow
+                ? "Unrealized + realized, commissions excluded"
+                : bookPnlWindowHint(pnlWindow)
+            }
           >
-            <SignedValue value={summary.pnlBeforeFees} compact />
+            <div className="flex flex-wrap items-baseline gap-x-2">
+              <SignedValue value={windowed.beforeFees} compact />
+              {lifetimeWindow || windowed.percent == null ? null : (
+                <SignedValue
+                  value={windowed.percent}
+                  kind="percent"
+                  className="text-[12px] sm:text-[13px]"
+                />
+              )}
+            </div>
           </Metric>
-          <Metric
-            label="Total P&L (with fees)"
-            hint="Net result after commissions and account fees"
-          >
-            <SignedValue value={summary.totalPnl} compact />
-          </Metric>
+          {lifetimeWindow ? (
+            <Metric
+              label="Total P&L (with fees)"
+              hint="Net result after commissions and account fees"
+            >
+              <SignedValue value={windowed.afterFees} compact />
+            </Metric>
+          ) : null}
           <Metric
             label="Total fees"
             hint={
-              summary.fees && summary.fees > 0
-                ? "Commissions and account fees from brokerage history"
-                : "No brokerage fees on this book"
+              lifetimeWindow
+                ? summary.fees && summary.fees > 0
+                  ? "Commissions and account fees from brokerage history"
+                  : "No brokerage fees on this book"
+                : "Lifetime commissions and account fees"
             }
             className="sm:last:border-r-0"
           >
-            {formatCurrency(summary.fees, { compact: true })}
+            <MoneyValue value={summary.fees} compact />
           </Metric>
         </div>
       </div>
@@ -259,7 +366,7 @@ function PositionsMetricsStripInner({
               : "4× account value"
           }
         >
-          {formatCurrency(summary.intradayBuyingPower, { compact: true })}
+          <MoneyValue value={summary.intradayBuyingPower} compact />
         </Metric>
         <Metric
           label="Overnight BP"
@@ -269,7 +376,7 @@ function PositionsMetricsStripInner({
               : "2× account value"
           }
         >
-          {formatCurrency(summary.overnightBuyingPower, { compact: true })}
+          <MoneyValue value={summary.overnightBuyingPower} compact />
         </Metric>
         <Metric
           label="Option BP"
@@ -280,7 +387,7 @@ function PositionsMetricsStripInner({
           }
           className="sm:last:border-r-0"
         >
-          {formatCurrency(summary.optionBuyingPower, { compact: true })}
+          <MoneyValue value={summary.optionBuyingPower} compact />
         </Metric>
       </div>
 
@@ -291,7 +398,11 @@ function PositionsMetricsStripInner({
               Account value
             </span>
             <span className="ml-2 font-mono tabular-nums text-[var(--ib-text-primary)]">
-              {hasAccountValue ? formatCurrency(snapshot.accountValue) : "—"}
+              {hasAccountValue ? (
+                <MoneyValue value={snapshot.accountValue} />
+              ) : (
+                "—"
+              )}
             </span>
             <span className="ml-2 text-[11px] text-[var(--ib-text-muted)]">
               {hasAccountValue
@@ -307,7 +418,7 @@ function PositionsMetricsStripInner({
               Account value
             </span>
             <span className="ml-2 font-mono tabular-nums text-[var(--ib-text-primary)]">
-              {formatCurrency(snapshot.accountValue)}
+              <MoneyValue value={snapshot.accountValue} />
             </span>
             <span className="ml-2 text-[11px] text-[var(--ib-text-muted)]">
               Cash = account − long market value
@@ -403,6 +514,7 @@ export function PastPositionsMetrics({
 }: {
   snapshot: PositionsSnapshot;
 }) {
+  const hideValues = useHideValues();
   const summary = snapshot.summary;
   const closedNetPnl =
     summary.grossRealizedPnl == null
@@ -432,14 +544,16 @@ export function PastPositionsMetrics({
             : "No brokerage fees on this book"
         }
       >
-        {formatCurrency(summary.fees, { compact: true })}
+        <MoneyValue value={summary.fees} compact />
       </Metric>
       <Metric
         label="Realized return"
         hint={
           summary.closedCostBasis == null
             ? "Closed cost unavailable"
-            : `Cost ${formatCurrency(summary.closedCostBasis, { compact: true })}`
+            : hideValues
+              ? "Versus closed cost basis"
+              : `Cost ${formatCurrency(summary.closedCostBasis, { compact: true })}`
         }
       >
         <SignedValue value={summary.realizedReturnPercent} kind="percent" />
@@ -553,10 +667,8 @@ export function PositionsAttribution({
             </div>
             <div>
               <dt className="text-[var(--ib-text-muted)]">Top weight</dt>
-              <dd className="font-mono">
-                {summary.largestWeight == null
-                  ? "—"
-                  : `${summary.largestWeight.toFixed(1)}%`}
+              <dd>
+                <ShareValue value={summary.largestWeight} />
               </dd>
             </div>
           </dl>
@@ -618,11 +730,13 @@ export function PositionsAttribution({
                   className="flex items-center justify-between font-mono text-[11px] text-[var(--ib-text-secondary)]"
                 >
                   <span>{slice.label}</span>
-                  <span>
-                    {formatCurrency(slice.value, { compact: true })}
-                    <span className={cn("ml-2", toneClass(slice.weight))}>
-                      {slice.weight == null ? "" : `${slice.weight.toFixed(1)}%`}
-                    </span>
+                  <span className="flex items-center gap-2">
+                    <MoneyValue value={slice.value} compact />
+                    {slice.weight == null ? null : (
+                      <span className={toneClass(slice.weight)}>
+                        <ShareValue value={slice.weight} />
+                      </span>
+                    )}
                   </span>
                 </li>
               ))}

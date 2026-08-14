@@ -1,8 +1,10 @@
 "use client";
 
 import { ArrowDownRight, ArrowRight, ArrowUpRight } from "lucide-react";
+import { useHideValues } from "@/components/positions/privacy-context";
 import { cn } from "@/lib/utils/cn";
 import {
+  formatCurrency,
   formatSignedCurrency,
   formatSignedPercent,
   marketTone,
@@ -62,6 +64,54 @@ export function ToneIcon({ value }: { value: number | null | undefined }) {
   );
 }
 
+export function HiddenValue({ className }: { className?: string }) {
+  return (
+    <span
+      className={cn(
+        "font-mono tabular-nums tracking-[0.12em] text-[var(--ib-text-muted)]",
+        className,
+      )}
+      aria-label="Hidden"
+    >
+      ••••
+    </span>
+  );
+}
+
+export function MoneyValue({
+  value,
+  compact = false,
+  className,
+}: {
+  value: number | null | undefined;
+  compact?: boolean;
+  className?: string;
+}) {
+  const hide = useHideValues();
+  if (hide) return <HiddenValue className={className} />;
+  return (
+    <span className={cn("font-mono tabular-nums", className)}>
+      {formatCurrency(value, { compact })}
+    </span>
+  );
+}
+
+export function ShareValue({
+  value,
+  className,
+}: {
+  value: number | null | undefined;
+  className?: string;
+}) {
+  const hide = useHideValues();
+  if (hide) return <HiddenValue className={className} />;
+  return (
+    <span className={cn("font-mono tabular-nums", className)}>
+      {value == null || !Number.isFinite(value) ? "—" : `${value.toFixed(1)}%`}
+    </span>
+  );
+}
+
 export function SignedValue({
   value,
   kind = "currency",
@@ -73,6 +123,8 @@ export function SignedValue({
   compact?: boolean;
   className?: string;
 }) {
+  const hide = useHideValues();
+  if (hide) return <HiddenValue className={className} />;
   const label =
     kind === "percent"
       ? formatSignedPercent(value)
@@ -106,6 +158,15 @@ export function Sparkline({
   values: number[];
   label: string;
 }) {
+  const hide = useHideValues();
+  if (hide) {
+    return (
+      <span
+        className="inline-block h-[22px] w-[72px] rounded-[2px] bg-[var(--ib-surface-inset)]"
+        aria-label="Hidden"
+      />
+    );
+  }
   if (values.length < 2) {
     return (
       <span className="font-mono text-[11px] text-[var(--ib-text-muted)]">—</span>

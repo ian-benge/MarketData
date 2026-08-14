@@ -93,6 +93,10 @@ export const OwnerUnlockSchema = z.object({
   password: z.string().min(1).max(200),
 });
 
+export const OwnerUnlockResetSchema = z.object({
+  scope: z.enum(["self", "desk"]),
+});
+
 export function resolveMultiplier(
   assetType: z.infer<typeof PositionWriteSchema>["assetType"],
   multiplier: number | undefined,

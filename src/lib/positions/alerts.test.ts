@@ -92,10 +92,13 @@ describe("position alerts", () => {
       ],
     });
 
-    expect(message.subject).toBe("Ian Benge — Opened LONG 100 AAPL");
+    expect(message.subject).toBe("Ian Benge — Opened LONG 100 shares AAPL");
     expect(message.html).not.toContain("Ian Benge - Position opened");
-    expect(message.html).toContain("Ian Benge opened a long equity in Main");
-    expect(message.html).toContain("LONG 100 AAPL shares");
+    expect(message.html).toContain(
+      "Ian Benge opened 100 shares of AAPL (long equity) in Main",
+    );
+    expect(message.html).toContain("LONG AAPL");
+    expect(message.html).toContain("100 shares");
     expect(message.html).toContain("Open blotter");
     expect(message.html).toContain("https://desk.example.com/positions");
     expect(message.html).toContain("every active member");
@@ -103,6 +106,23 @@ describe("position alerts", () => {
     expect(message.html).toContain("Cost basis");
     expect(message.html).toContain("$18,550.00");
     expect(message.html).not.toContain("Realized");
+  });
+
+  it("shows fill size and remaining position when adding to an open lot", () => {
+    const message = buildPositionAlert(
+      openedAlert({
+        fillQuantity: 25,
+        position: lot({ quantity: 105 }),
+      }),
+      { appUrl: "https://desk.example.com" },
+    );
+    expect(message.subject).toBe("Ian Benge — Opened LONG 25 shares AAPL");
+    expect(message.html).toContain("opened 25 shares of AAPL");
+    expect(message.html).toContain("Position is now 105 shares");
+    expect(message.html).toContain(">Quantity<");
+    expect(message.html).toContain("25 shares");
+    expect(message.html).toContain(">Position<");
+    expect(message.html).toContain("105 shares");
   });
 
   it("shows the owner when someone else closes their book", () => {
@@ -132,11 +152,12 @@ describe("position alerts", () => {
       },
     );
 
-    expect(message.subject).toBe("Ian Benge — Closed LONG 50 AAPL");
+    expect(message.subject).toBe("Ian Benge — Closed LONG 50 shares AAPL");
     expect(message.html).not.toContain("Ian Benge - Position closed");
     expect(message.html).toContain(
-      "Ian Benge closed a long equity in Michael Koval / IRA",
+      "Ian Benge closed 50 shares of AAPL (long equity) in Michael Koval / IRA",
     );
+    expect(message.html).toContain("50 shares");
     expect(message.html).toContain("+$225.00");
     expect(message.html).toContain("#0f7b3a");
   });
@@ -156,7 +177,7 @@ describe("position alerts", () => {
       { appUrl: "https://desk.example.com" },
     );
     expect(message.subject).toContain("(partial)");
-    expect(message.html).toContain("partially closed");
+    expect(message.html).toContain("partially closed 40 shares of AAPL");
     expect(message.html).toContain("#b42318");
   });
 

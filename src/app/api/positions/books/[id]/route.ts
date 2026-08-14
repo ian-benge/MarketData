@@ -95,13 +95,13 @@ export async function DELETE(
       return jsonOk({ demo: true, id });
     }
 
-    const { ownerId } = await deleteStoredBook(user, id);
+    const { ownerId, deletedLots } = await deleteStoredBook(user, id);
     const snapshot = await buildPositionsSnapshot({
       user,
       includeClosed: true,
       ownerId,
     });
-    return jsonOk({ demo: false, snapshot });
+    return jsonOk({ demo: false, snapshot, deletedLots });
   } catch (error) {
     return handleRouteError(error);
   }

@@ -53,6 +53,8 @@ export type PositionAlertInput = {
   bookTitle: string;
   firmId: string;
   partial?: boolean;
+  /** Fill or close size when it differs from the remaining/open lot. */
+  fillQuantity?: number;
 };
 
 export type PositionAlertMessage = {
@@ -129,11 +131,31 @@ function formatLotDate(value: string | null | undefined): string {
   }).format(date);
 }
 
+function unitWord(assetType: PositionAssetType, quantity: number): string {
+  const plural = UNIT_LABELS[assetType];
+  if (Math.abs(quantity - 1) < 1e-8) {
+    if (plural === "shares") return "share";
+    if (plural === "contracts") return "contract";
+    if (plural === "units") return "unit";
+  }
+  return plural;
+}
+
+function quantityAmount(
+  assetType: PositionAssetType,
+  quantity: number,
+): string {
+  return `${formatQuantity(quantity)} ${unitWord(assetType, quantity)}`;
+}
+
+function eventQuantity(input: PositionAlertInput): number {
+  const fill = input.fillQuantity;
+  if (fill != null && Number.isFinite(fill) && fill > 0) return fill;
+  return input.position.quantity;
+}
+
 function lotHeadline(position: PositionRecord): string {
-  const qty = formatQuantity(position.quantity);
-  const unit = UNIT_LABELS[position.assetType];
-  const side = position.side.toUpperCase();
-  return `${side} ${qty} ${position.ticker} ${unit}`;
+  return `${position.side.toUpperCase()} ${position.ticker}`;
 }
 
 function realizedPnl(position: PositionRecord): number | null {
@@ -174,11 +196,13 @@ export function buildPositionAlert(
   const ownerName = ownerDisplayName(input.position, input.actor, recipients);
   const book = bookLabel(input, ownerName);
   const asset = ASSET_LABELS[input.position.assetType];
+  const qty = eventQuantity(input);
+  const qtyLabel = quantityAmount(input.position.assetType, qty);
   const lot = lotHeadline(input.position);
   const blotterUrl = `${options.appUrl.replace(/\/$/, "")}/positions`;
   const opened = input.kind === "opened";
   const verb = opened ? "opened" : input.partial ? "partially closed" : "closed";
-  const subjectLot = `${input.position.side.toUpperCase()} ${formatQuantity(input.position.quantity)} ${input.position.ticker}`;
+  const subjectLot = `${input.position.side.toUpperCase()} ${qtyLabel} ${input.position.ticker}`;
   const subject = opened
     ? `${actorName} — Opened ${subjectLot}`
     : `${actorName} — Closed ${subjectLot}${input.partial ? " (partial)" : ""}`;
@@ -196,13 +220,24 @@ export function buildPositionAlert(
       : null;
   const rows: Array<[string, string, string?]> = [
     ["Lot", lot],
+    ["Quantity", qtyLabel],
     ["Book", book],
     ["Asset", asset],
-    [
-      "Entry",
-      `${formatPrice(input.position.entryPrice, input.position.ticker)} on ${formatLotDate(input.position.entryDate)}`,
-    ],
   ];
+  if (
+    input.fillQuantity != null &&
+    Number.isFinite(input.fillQuantity) &&
+    Math.abs(input.fillQuantity - input.position.quantity) > 1e-8
+  ) {
+    rows.push([
+      "Position",
+      quantityAmount(input.position.assetType, input.position.quantity),
+    ]);
+  }
+  rows.push([
+    "Entry",
+    `${formatPrice(input.position.entryPrice, input.position.ticker)} on ${formatLotDate(input.position.entryDate)}`,
+  ]);
   if (cost != null) {
     rows.push(["Cost basis", formatCurrency(cost)]);
   }
@@ -230,7 +265,13 @@ export function buildPositionAlert(
     rows.push(["Notes", truncate(input.position.notes.trim(), 280)]);
   }
 
-  const summary = `${actorName} ${verb} a ${input.position.side} ${asset} in ${book}.`;
+  const positionNote =
+    input.fillQuantity != null &&
+    Number.isFinite(input.fillQuantity) &&
+    Math.abs(input.fillQuantity - input.position.quantity) > 1e-8
+      ? ` Position is now ${quantityAmount(input.position.assetType, input.position.quantity)}.`
+      : "";
+  const summary = `${actorName} ${verb} ${qtyLabel} of ${input.position.ticker} (${input.position.side} ${asset}) in ${book}.${positionNote}`;
   const htmlRows = rows
     .map(
       ([label, value, color]) =>
@@ -274,7 +315,11 @@ export function preparePositionAlert(
   user: SessionUser,
   kind: PositionAlertKind,
   position: PositionRecord,
-  extra: { partial?: boolean; bookTitle?: string | null } = {},
+  extra: {
+    partial?: boolean;
+    bookTitle?: string | null;
+    fillQuantity?: number;
+  } = {},
 ): PositionAlertInput | null {
   if (shouldSendPositionAlert(user)) return null;
   if (!user.firmId) return null;
@@ -290,6 +335,7 @@ export function preparePositionAlert(
     bookTitle: extra.bookTitle?.trim() || DEFAULT_BOOK_TITLE,
     firmId: user.firmId,
     partial: extra.partial,
+    fillQuantity: extra.fillQuantity,
   };
 }
 

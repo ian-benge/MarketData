@@ -85,7 +85,7 @@ export async function buildPositionsSnapshot(options: {
   const unlockedOwnerIds = skipUnlock
     ? new Set<string>()
     : (options.unlockedOwnerIds ??
-      (await listUnlockedOwnerIds(options.user.id)));
+      (await listUnlockedOwnerIds(options.user)));
 
   const team = await listPositionOwners(options.user);
   const countSource = overlayBookPositions(

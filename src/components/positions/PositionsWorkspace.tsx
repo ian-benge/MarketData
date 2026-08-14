@@ -15,11 +15,13 @@ import {
   PastPositionsMetrics,
   PositionsAttribution,
   PositionsMetricsStrip,
+  LockedOwnerPnlStrip,
 } from "@/components/positions/PositionsSummary";
 import { PositionsOwnerTabs } from "@/components/positions/PositionsOwnerTabs";
 import { OwnerUnlockPanel } from "@/components/positions/OwnerUnlockPanel";
 import { PositionsBookTabs } from "@/components/positions/PositionsBookTabs";
 import { PositionsTable } from "@/components/positions/PositionsTable";
+import { PositionsPrivacyProvider } from "@/components/positions/privacy-context";
 import {
   applyAccountValueToSnapshot,
   toPositionRecord,
@@ -722,6 +724,7 @@ export function PositionsWorkspace({
   }
 
   async function handleDeleteBook(id: string) {
+    const removed = snapshot.books.find((book) => book.id === id);
     setBookBusy(true);
     setFeedback(null);
     try {
@@ -730,9 +733,22 @@ export function PositionsWorkspace({
       });
       const payload = (await response.json()) as {
         snapshot?: PositionsSnapshot;
+        deletedLots?: number;
         error?: string;
       };
       if (!response.ok) throw new Error(payload.error ?? "Unable to delete the book.");
+      setSessionBooks((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
+      setSessionAccountValues((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
+      const lotCount = payload.deletedLots ?? removed?.positionCount ?? 0;
+      const title = removed?.title ?? "book";
       if (payload.snapshot) {
         setSnapshot(payload.snapshot);
         rememberLots(
@@ -740,16 +756,27 @@ export function PositionsWorkspace({
           recordsFromSnapshot(payload.snapshot),
         );
         rememberOwnerBooks(payload.snapshot.ownerId, payload.snapshot.books);
+        setLastBookByOwner((current) => ({
+          ...current,
+          [payload.snapshot!.ownerId]: payload.snapshot!.bookId,
+        }));
         setSelectedId(null);
-        return;
+      } else {
+        const books = snapshot.books.filter((row) => row.id !== id);
+        const next = books[0];
+        rememberOwnerBooks(snapshot.ownerId, books);
+        if (next) {
+          await loadNamedBook(snapshot.ownerId, next.id);
+        }
+        setSelectedId(null);
       }
-      const books = snapshot.books.filter((row) => row.id !== id);
-      const next = books[0];
-      rememberOwnerBooks(snapshot.ownerId, books);
-      if (next) {
-        await loadNamedBook(snapshot.ownerId, next.id);
-      }
-      setSelectedId(null);
+      setFeedback({
+        tone: "success",
+        message:
+          lotCount > 0
+            ? `Deleted ${title} and ${lotCount} ${lotCount === 1 ? "lot" : "lots"}.`
+            : `Deleted ${title}.`,
+      });
     } catch (error) {
       setFeedback({
         tone: "error",
@@ -860,6 +887,7 @@ export function PositionsWorkspace({
   }
 
   return (
+    <PositionsPrivacyProvider>
     <div className="min-w-0 space-y-3">
       <PageHeader
         eyebrow="Portfolio monitor"
@@ -1057,12 +1085,15 @@ export function PositionsWorkspace({
             title="Position blotter"
             description={
               snapshot.ownerLocked
-                ? "Open lots with live marks. Account value, P&L, and closed lots stay hidden until unlocked."
+                ? "Open lots with live marks, day P&L, and open P&L. Account value, cash, and closed lots stay hidden until unlocked."
                 : "Open lots with live marks. Brokerage lots stay in their linked book. Click a row for the lot blotter."
             }
             actions={<Badge tone="neutral">{openRows.length} shown</Badge>}
             bodyClassName="p-0"
           >
+            {snapshot.ownerLocked ? (
+              <LockedOwnerPnlStrip snapshot={displaySnapshot} />
+            ) : null}
             <div className="flex flex-wrap items-end gap-2 border-b border-[var(--ib-border-subtle)] px-3 py-2.5">
               <div className="min-w-[160px] flex-1">
                 <label htmlFor="pos-filter" className="sr-only">
@@ -1209,5 +1240,6 @@ export function PositionsWorkspace({
         />
       ) : null}
     </div>
+    </PositionsPrivacyProvider>
   );
 }

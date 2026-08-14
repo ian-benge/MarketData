@@ -45,11 +45,11 @@ export function OwnerUnlockPanel({
         </span>
         <div className="min-w-0">
           <h2 className="text-[13px] font-semibold text-[var(--ib-text-primary)]">
-            Account value and P&L are locked
+            Account value is locked
           </h2>
           <p className="mt-0.5 text-[12px] leading-5 text-[var(--ib-text-secondary)]">
-            Open lots stay visible. Enter {ownerName}&apos;s sign-in password to
-            see account value, P&L, and closed lots.
+            Day P&L and open P&L stay on the tape. Enter {ownerName}&apos;s
+            sign-in password to see account value, cash, and closed lots.
           </p>
           {error ? (
             <p className="mt-1 text-[12px] text-[var(--danger)]">{error}</p>
@@ -75,7 +75,7 @@ export function OwnerUnlockPanel({
           required
         />
         <Button type="submit" variant="primary" size="sm" disabled={busy}>
-          {busy ? "Checking…" : "Unlock P&L"}
+          {busy ? "Checking…" : "Unlock book"}
         </Button>
       </form>
     </section>

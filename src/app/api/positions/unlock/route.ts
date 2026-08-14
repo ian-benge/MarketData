@@ -47,8 +47,8 @@ export async function POST(request: Request) {
       return jsonError("Incorrect password.", 401);
     }
 
-    await persistOwnerUnlock(user.id, ownerId);
-    const unlockedOwnerIds = await listUnlockedOwnerIds(user.id);
+    await persistOwnerUnlock(user, ownerId);
+    const unlockedOwnerIds = await listUnlockedOwnerIds(user);
     unlockedOwnerIds.add(ownerId);
     const snapshot = await buildPositionsSnapshot({
       user,

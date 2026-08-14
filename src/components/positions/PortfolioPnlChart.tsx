@@ -4,6 +4,7 @@ import { useId, useMemo, useState, type KeyboardEvent } from "react";
 import { cn } from "@/lib/utils/cn";
 import { formatSignedCurrency, marketTone } from "@/lib/utils/format";
 import { formatEntryDate, SignedValue } from "@/components/positions/display";
+import { useHideValues } from "@/components/positions/privacy-context";
 import {
   DEFAULT_PORTFOLIO_PNL_RANGE,
   PORTFOLIO_PNL_RANGES,
@@ -129,6 +130,7 @@ export function PortfolioPnlChart({
   className?: string;
 }) {
   const gradientId = useId().replaceAll(":", "");
+  const hideValues = useHideValues();
   const [hover, setHover] = useState<number | null>(null);
   const [range, setRange] = useState<PortfolioPnlRange>(DEFAULT_PORTFOLIO_PNL_RANGE);
   const windowed = useMemo(
@@ -156,6 +158,23 @@ export function PortfolioPnlChart({
         />
         <div className="grid h-[208px] place-items-center rounded-[4px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-inset)] text-[12px] text-[var(--ib-text-muted)]">
           Not enough history to plot book P&L.
+        </div>
+      </div>
+    );
+  }
+
+  if (hideValues) {
+    return (
+      <div className={cn("min-w-0", className)}>
+        <PnlRangeToggle
+          range={range}
+          onRange={(next) => {
+            setRange(next);
+            setHover(null);
+          }}
+        />
+        <div className="grid h-[208px] place-items-center rounded-[4px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-inset)] text-[12px] text-[var(--ib-text-muted)]">
+          P&L path hidden
         </div>
       </div>
     );

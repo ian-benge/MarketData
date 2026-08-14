@@ -4,6 +4,8 @@ import { Fragment, useEffect, useId, useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, ChevronRight } from "lucide-react";
 import { PositionInspector } from "@/components/positions/PositionInspector";
 import {
+  MoneyValue,
+  ShareValue,
   SignedValue,
   SideLabel,
   Sparkline,
@@ -17,11 +19,7 @@ import {
 import { TablePager } from "@/components/positions/TablePager";
 import { Badge } from "@/components/ui/Badge";
 import { cn } from "@/lib/utils/cn";
-import {
-  formatCurrency,
-  formatPrice,
-  formatQuantity,
-} from "@/lib/utils/format";
+import { formatPrice, formatQuantity } from "@/lib/utils/format";
 import type { DailyClose, EnrichedPosition } from "@/lib/positions/types";
 
 type SortKey =
@@ -110,12 +108,12 @@ export function PositionsTable({
   const tape = privacy === "tape";
   const pageSizeId = useId();
   const [sortKey, setSortKey] = useState<SortKey>(
-    tape ? "ticker" : closed ? "closeDate" : "weight",
+    tape ? "dayPnl" : closed ? "closeDate" : "weight",
   );
-  const [descending, setDescending] = useState(!tape);
+  const [descending, setDescending] = useState(true);
   const [pageSize, setPageSize] = useState<TablePageSize>(DEFAULT_TABLE_PAGE_SIZE);
   const [page, setPage] = useState(1);
-  const colSpan = tape ? 5 : closed ? 11 : 14;
+  const colSpan = tape ? 7 : closed ? 11 : 14;
 
   const sorted = useMemo(() => {
     const next = [...rows];
@@ -214,10 +212,15 @@ export function PositionsTable({
       role="region"
       aria-label={closed ? "Past positions table" : "Positions table"}
     >
-      <table className="w-full min-w-0 border-collapse text-left text-[12px] tabular-nums md:min-w-[760px] xl:min-w-[1100px]">
+      <table
+        className={cn(
+          "w-full min-w-0 border-collapse text-left text-[12px] tabular-nums",
+          tape ? "md:min-w-[680px]" : "md:min-w-[760px] xl:min-w-[1100px]",
+        )}
+      >
         <caption className="sr-only">
           {tape
-            ? "Open lots with ticker, size, entry, and last mark"
+            ? "Open lots with live marks, day P&L, and open P&L"
             : closed
               ? "Closed lots with realized P&L and exit marks"
               : "Open lots with live marks, unrealized P&L, and realized trims"}
@@ -245,8 +248,8 @@ export function PositionsTable({
             )}
             {tape || closed ? null : header("marketValue", "Mkt value", "right", "hidden md:table-cell")}
             {tape || closed ? null : header("weight", "Wt")}
-            {tape || closed ? null : header("dayPnl", "Day P&L")}
-            {tape || closed ? null : header("totalPnl", "Total P&L")}
+            {closed ? null : header("dayPnl", "Day P&L")}
+            {closed ? null : header("totalPnl", "Total P&L")}
             {tape ? null : header("realizedPnl", "Realized")}
             {tape
               ? null
@@ -381,15 +384,15 @@ export function PositionsTable({
                   )}
                   {tape ? null : closed ? null : (
                     <td className="hidden px-2.5 text-right font-mono md:table-cell">
-                      {formatCurrency(row.marketValue, { compact: true })}
+                      <MoneyValue value={row.marketValue} compact />
                     </td>
                   )}
                   {tape ? null : closed ? null : (
                     <td className="hidden px-2.5 text-right font-mono xl:table-cell">
-                      {row.weight == null ? "—" : `${row.weight.toFixed(1)}%`}
+                      <ShareValue value={row.weight} />
                     </td>
                   )}
-                  {tape ? null : closed ? null : (
+                  {closed ? null : (
                     <td className="px-2.5 text-right">
                       <div>
                         <SignedValue value={row.dayPnl} compact />
@@ -399,7 +402,7 @@ export function PositionsTable({
                       </div>
                     </td>
                   )}
-                  {tape ? null : closed ? null : (
+                  {closed ? null : (
                     <td className="px-2.5 text-right">
                       <div>
                         <SignedValue value={row.totalPnl} compact />

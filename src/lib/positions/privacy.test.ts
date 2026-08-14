@@ -62,7 +62,7 @@ const quotes = new Map<string, PositionQuote>([
 ]);
 
 describe("redactLockedOwnerSnapshot", () => {
-  it("keeps open tape fields and strips money, closed lots, and notes", () => {
+  it("keeps open tape and lot P&L, and strips account value, closed lots, and notes", () => {
     const snapshot = assemblePositionsSnapshot({
       positions: [
         lot("AAPL"),
@@ -126,19 +126,26 @@ describe("redactLockedOwnerSnapshot", () => {
     expect(open.notes).toBeNull();
     expect(open.marketValue).toBeNull();
     expect(open.weight).toBeNull();
-    expect(open.unrealizedPnl).toBeNull();
-    expect(open.dayPnl).toBeNull();
-    expect(open.totalPnl).toBeNull();
+    expect(open.unrealizedPnl).toBe(900);
+    expect(open.totalPnl).toBe(900);
+    expect(open.returnPercent).toBe(90);
+    expect(open.dayPnl).toBe(50);
+    expect(open.dayPercent).toBeCloseTo((5 / 185) * 100, 4);
     expect(open.sparkline).toEqual([]);
     expect(open.costBasis).toBe(0);
 
     expect(redacted.summary.openCount).toBe(1);
     expect(redacted.summary.longCount).toBe(1);
     expect(redacted.summary.shortCount).toBe(0);
-    expect(redacted.summary.totalPnl).toBeNull();
+    expect(redacted.summary.unrealizedPnl).toBe(900);
+    expect(redacted.summary.totalPnl).toBe(900);
+    expect(redacted.summary.dayPnl).toBe(50);
+    expect(redacted.summary.bookReturnPercent).toBe(90);
+    expect(redacted.summary.dayPercent).toBeCloseTo((50 / 1900) * 100, 4);
     expect(redacted.summary.accountValue).toBeNull();
     expect(redacted.summary.portfolioValue).toBeNull();
-    expect(redacted.summary.dayPnl).toBeNull();
+    expect(redacted.summary.investedValue).toBeNull();
+    expect(redacted.summary.costBasis).toBeNull();
     expect(redacted.series).toEqual([]);
     expect(redacted.history).toEqual({});
     expect(redacted.brokerage?.connections).toEqual([]);

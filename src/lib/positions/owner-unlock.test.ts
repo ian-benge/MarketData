@@ -85,4 +85,71 @@ describe("owner unlock cookie", () => {
     );
     expect(readOwnerUnlock(token, SECRET, "viewer", 1_000).size).toBe(0);
   });
+
+  it("drops every grant after the desk epoch advances", () => {
+    const token = grantOwnerUnlock(
+      undefined,
+      SECRET,
+      "viewer",
+      "owner-a",
+      1_000,
+      { firm: 0, owners: { "owner-a": 0 } },
+    );
+    expect(
+      readOwnerUnlock(token, SECRET, "viewer", 1_001, {
+        firm: 1,
+        owners: { "owner-a": 0 },
+      }).size,
+    ).toBe(0);
+  });
+
+  it("drops only the owner whose book epoch advanced", () => {
+    const first = grantOwnerUnlock(
+      undefined,
+      SECRET,
+      "viewer",
+      "owner-a",
+      1_000,
+      { firm: 0, owners: { "owner-a": 0, "owner-b": 0 } },
+    );
+    const token = grantOwnerUnlock(
+      first,
+      SECRET,
+      "viewer",
+      "owner-b",
+      1_000,
+      { firm: 0, owners: { "owner-a": 0, "owner-b": 0 } },
+    );
+    expect(
+      readOwnerUnlock(token, SECRET, "viewer", 1_001, {
+        firm: 0,
+        owners: { "owner-a": 1, "owner-b": 0 },
+      }),
+    ).toEqual(new Set(["owner-b"]));
+  });
+
+  it("does not revive prior grants when unlocking after a desk reset", () => {
+    const stale = grantOwnerUnlock(
+      undefined,
+      SECRET,
+      "viewer",
+      "owner-a",
+      1_000,
+      { firm: 0, owners: { "owner-a": 0, "owner-b": 0 } },
+    );
+    const next = grantOwnerUnlock(
+      stale,
+      SECRET,
+      "viewer",
+      "owner-b",
+      1_000,
+      { firm: 1, owners: { "owner-a": 0, "owner-b": 0 } },
+    );
+    expect(
+      readOwnerUnlock(next, SECRET, "viewer", 1_001, {
+        firm: 1,
+        owners: { "owner-a": 0, "owner-b": 0 },
+      }),
+    ).toEqual(new Set(["owner-b"]));
+  });
 });

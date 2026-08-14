@@ -280,6 +280,10 @@ async function syncAccountHoldings(
       schedulePositionAlert(
         preparePositionAlert(user, "opened", result.position, {
           bookTitle: account.name,
+          fillQuantity:
+            current != null && qtyUp
+              ? holding.quantity - current.quantity
+              : undefined,
         }),
       );
     }

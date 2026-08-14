@@ -508,7 +508,7 @@ export async function renameStoredBook(
 export async function deleteStoredBook(
   user: SessionUser,
   bookId: string,
-): Promise<{ ownerId: string }> {
+): Promise<{ ownerId: string; deletedLots: number }> {
   if (!user.firmId) throw new Error("No firm is associated with this session.");
   const current = await loadStoredBook(user, bookId);
   if (!canEditPositionBook(user, current.ownerId)) {
@@ -533,11 +533,13 @@ export async function deleteStoredBook(
   if (countError) {
     throw new Error(countError.message);
   }
-  if ((count ?? 0) > 0) {
-    throw new PositionBookError(
-      "Move or close every lot before deleting this book.",
-      409,
-    );
+  const { error: lotsError } = await supabase
+    .from("positions")
+    .delete()
+    .eq("firm_id", user.firmId)
+    .eq("book_id", bookId);
+  if (lotsError) {
+    throw new Error(lotsError.message);
   }
   const { error } = await supabase
     .from("position_books")
@@ -547,7 +549,7 @@ export async function deleteStoredBook(
   if (error) {
     throw new Error(error.message);
   }
-  return { ownerId: current.ownerId };
+  return { ownerId: current.ownerId, deletedLots: count ?? 0 };
 }
 
 export async function reorderStoredBooks(

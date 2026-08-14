@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils/cn";
@@ -34,14 +34,23 @@ export function PositionsBookTabs({
   const [renameTitle, setRenameTitle] = useState("");
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const skipClickRef = useRef(false);
 
   const selected = books.find((book) => book.id === bookId) ?? null;
-  const canDelete =
-    canEdit &&
-    selected != null &&
-    books.length > 1 &&
-    selected.positionCount === 0;
+  const brokerageSelected = selected?.source === "snaptrade";
+  const deleteBlocked = !canEdit
+    ? null
+    : brokerageSelected
+      ? "Disconnect the brokerage before deleting this book."
+      : books.length <= 1
+        ? "Keep at least one book."
+        : null;
+
+  useEffect(() => {
+    setConfirmDelete(false);
+  }, [bookId]);
+
   const canDragBooks = Boolean(canEdit && onReorder && !busy && books.length > 1);
 
   function commitCreate() {
@@ -248,23 +257,43 @@ export function PositionsBookTabs({
             size="sm"
             disabled={busy}
             onClick={() => {
+              setConfirmDelete(false);
               setRenamingId(selected.id);
               setRenameTitle(selected.title);
             }}
           >
             Rename
           </Button>
-          {canDelete ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={busy}
-              onClick={() => onDelete(selected.id)}
-            >
-              Delete
-            </Button>
-          ) : null}
+          <Button
+            type="button"
+            variant={confirmDelete ? "danger" : "ghost"}
+            size="sm"
+            disabled={busy || Boolean(deleteBlocked)}
+            title={deleteBlocked ?? undefined}
+            aria-label={
+              deleteBlocked
+                ? deleteBlocked
+                : confirmDelete
+                  ? `Confirm delete ${selected.title}`
+                  : `Delete ${selected.title}`
+            }
+            onClick={() => {
+              if (deleteBlocked) return;
+              const needsConfirm = selected.positionCount > 0;
+              if (needsConfirm && !confirmDelete) {
+                setConfirmDelete(true);
+                return;
+              }
+              setConfirmDelete(false);
+              onDelete(selected.id);
+            }}
+          >
+            {confirmDelete
+              ? selected.positionCount === 1
+                ? "Confirm delete (1 lot)"
+                : `Confirm delete (${selected.positionCount} lots)`
+              : "Delete"}
+          </Button>
         </div>
       ) : null}
     </div>

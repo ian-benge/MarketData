@@ -49,7 +49,7 @@ export function PositionsOwnerTabs({
             </span>
             {owner.needsUnlock ? (
               <LockKeyhole
-                aria-label="Account value and P&L locked"
+                aria-label="Account value locked"
                 className="size-3 text-[var(--ib-text-muted)]"
               />
             ) : null}

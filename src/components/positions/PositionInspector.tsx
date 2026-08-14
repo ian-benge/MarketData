@@ -6,12 +6,13 @@ import { Badge } from "@/components/ui/Badge";
 import { PositionPriceChart } from "@/components/positions/PositionPriceChart";
 import {
   ASSET_TYPE_LABELS,
+  MoneyValue,
+  ShareValue,
   SignedValue,
   chicagoDateInput,
   formatEntryDate,
 } from "@/components/positions/display";
 import {
-  formatCurrency,
   formatMarketDateTime,
   formatPrice,
   formatQuantity,
@@ -156,16 +157,31 @@ export function PositionInspector({
               {formatQuantity(row.quantity)}
               {row.multiplier !== 1 ? ` × ${formatQuantity(row.multiplier)}` : ""}
             </Metric>
-            {tape ? null : (
+            {tape ? (
+              <>
+                <Metric label="Day P&L">
+                  <SignedValue value={row.dayPnl} compact />
+                  <span className="ml-1 text-[11px]">
+                    <SignedValue value={row.dayPercent} kind="percent" />
+                  </span>
+                </Metric>
+                <Metric label="Open P&L">
+                  <SignedValue value={row.totalPnl} compact />
+                  <span className="ml-1 text-[11px]">
+                    <SignedValue value={row.returnPercent} kind="percent" />
+                  </span>
+                </Metric>
+              </>
+            ) : (
               <>
             <Metric label="Market value">
-              {formatCurrency(row.marketValue, { compact: true })}
+              <MoneyValue value={row.marketValue} compact />
             </Metric>
             <Metric label="Cost basis">
-              {formatCurrency(row.costBasis, { compact: true })}
+              <MoneyValue value={row.costBasis} compact />
             </Metric>
             <Metric label="Weight">
-              {row.weight == null ? "—" : `${row.weight.toFixed(1)}%`}
+              <ShareValue value={row.weight} />
             </Metric>
             <Metric label="Day P&L">
               <SignedValue value={row.dayPnl} compact />
@@ -182,7 +198,7 @@ export function PositionInspector({
                   <SignedValue value={row.grossRealizedPnl} compact />
                 </Metric>
                 <Metric label="Fees">
-                  {formatCurrency(row.fees, { compact: true })}
+                  <MoneyValue value={row.fees} compact />
                 </Metric>
               </>
             ) : null}

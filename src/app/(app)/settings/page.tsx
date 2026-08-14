@@ -1,5 +1,6 @@
 import { ThemePreferenceControl } from "@/components/settings/ThemePreferenceControl";
 import { TeamAccessPanel } from "@/components/settings/TeamAccessPanel";
+import { OwnerUnlockResetPanel } from "@/components/settings/OwnerUnlockResetPanel";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { listTeamMembers } from "@/lib/auth/team";
 import { getSessionUser } from "@/lib/auth/session";
@@ -20,11 +21,14 @@ export default async function SettingsPage() {
         title="Settings"
         description={
           isAdmin
-            ? "Personal display preferences, and admin-only controls to add people to this desk."
-            : "Personal display preferences for this browser. Changes apply immediately and do not affect other teammates."
+            ? "Personal display preferences, teammate book access, and admin-only controls to add people to this desk."
+            : "Personal display preferences for this browser, and a control to lock your blotter if a teammate previously entered your password."
         }
       />
       <ThemePreferenceControl />
+      {user ? (
+        <OwnerUnlockResetPanel isAdmin={isAdmin} demo={user.isDemo} />
+      ) : null}
       {isAdmin && user ? (
         <TeamAccessPanel initialMembers={members} demo={user.isDemo} />
       ) : null}
