@@ -92,8 +92,8 @@ describe("position alerts", () => {
       ],
     });
 
-    expect(message.subject).toBe("IB Market Data — Opened LONG 100 AAPL");
-    expect(message.html).toContain("Ian Benge - Position opened");
+    expect(message.subject).toBe("Ian Benge — Opened LONG 100 AAPL");
+    expect(message.html).not.toContain("Ian Benge - Position opened");
     expect(message.html).toContain("Ian Benge opened a long equity in Main");
     expect(message.html).toContain("LONG 100 AAPL shares");
     expect(message.html).toContain("Open blotter");
@@ -132,8 +132,8 @@ describe("position alerts", () => {
       },
     );
 
-    expect(message.subject).toBe("IB Market Data — Closed LONG 50 AAPL");
-    expect(message.html).toContain("Ian Benge - Position closed");
+    expect(message.subject).toBe("Ian Benge — Closed LONG 50 AAPL");
+    expect(message.html).not.toContain("Ian Benge - Position closed");
     expect(message.html).toContain(
       "Ian Benge closed a long equity in Michael Koval / IRA",
     );

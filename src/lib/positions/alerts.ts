@@ -178,15 +178,10 @@ export function buildPositionAlert(
   const blotterUrl = `${options.appUrl.replace(/\/$/, "")}/positions`;
   const opened = input.kind === "opened";
   const verb = opened ? "opened" : input.partial ? "partially closed" : "closed";
-  const title = opened
-    ? "Position opened"
-    : input.partial
-      ? "Position partially closed"
-      : "Position closed";
   const subjectLot = `${input.position.side.toUpperCase()} ${formatQuantity(input.position.quantity)} ${input.position.ticker}`;
   const subject = opened
-    ? `IB Market Data — Opened ${subjectLot}`
-    : `IB Market Data — Closed ${subjectLot}${input.partial ? " (partial)" : ""}`;
+    ? `${actorName} — Opened ${subjectLot}`
+    : `${actorName} — Closed ${subjectLot}${input.partial ? " (partial)" : ""}`;
 
   const pnl = opened ? null : realizedPnl(input.position);
   const pnlPct = opened ? null : realizedPercent(input.position);
@@ -235,7 +230,6 @@ export function buildPositionAlert(
     rows.push(["Notes", truncate(input.position.notes.trim(), 280)]);
   }
 
-  const heading = `${actorName} - ${title}`;
   const summary = `${actorName} ${verb} a ${input.position.side} ${asset} in ${book}.`;
   const htmlRows = rows
     .map(
@@ -249,7 +243,6 @@ export function buildPositionAlert(
 
   const html = `<div style="font-family:'IBM Plex Sans',Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.45;color:#18181b">
   <p style="margin:0 0 6px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#71717a">IB Market Data</p>
-  <h1 style="margin:0 0 8px;font-size:18px;font-weight:600">${escapeHtml(heading)}</h1>
   <p style="margin:0 0 16px">${escapeHtml(summary)}</p>
   <table style="border-collapse:collapse;margin:0 0 16px">${htmlRows}</table>
   <p style="margin:0 0 16px"><a href="${escapeHtml(blotterUrl)}">Open blotter</a></p>
@@ -258,7 +251,7 @@ export function buildPositionAlert(
 
   const textRows = rows.map(([label, value]) => `${label}: ${value}`).join("\n");
   const text = [
-    `IB Market Data — ${heading}`,
+    subject,
     summary,
     textRows,
     `Open blotter: ${blotterUrl}`,
