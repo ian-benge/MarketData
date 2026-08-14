@@ -47,19 +47,51 @@ export async function POST(request: Request) {
     }
 
     const event = parseSnapTradeWebhook(payload);
-    if (!event) return jsonOk({ ok: true, ignored: "malformed" });
+    if (!event) {
+      console.info("[brokerage] webhook ignored", { reason: "malformed" });
+      return jsonOk({ ok: true, ignored: "malformed" });
+    }
     if (!webhookEventIsFresh(event.eventTimestamp)) {
+      console.info("[brokerage] webhook ignored", {
+        reason: "stale",
+        eventType: event.eventType,
+      });
       return jsonOk({ ok: true, ignored: "stale" });
     }
     if (!SNAPTRADE_HOLDINGS_EVENTS.has(event.eventType)) {
+      console.info("[brokerage] webhook ignored", {
+        reason: event.eventType,
+        eventType: event.eventType,
+      });
       return jsonOk({ ok: true, ignored: event.eventType });
     }
-    if (!event.userId) return jsonOk({ ok: true, ignored: "no-user" });
+    if (!event.userId) {
+      console.info("[brokerage] webhook ignored", {
+        reason: "no-user",
+        eventType: event.eventType,
+      });
+      return jsonOk({ ok: true, ignored: "no-user" });
+    }
 
     const user = await loadBrokerageJobUserBySnapTradeId(event.userId);
-    if (!user) return jsonOk({ ok: true, ignored: "unknown-user" });
+    if (!user) {
+      console.info("[brokerage] webhook ignored", {
+        reason: "unknown-user",
+        eventType: event.eventType,
+        userId: event.userId,
+      });
+      return jsonOk({ ok: true, ignored: "unknown-user" });
+    }
 
-    const result = await syncBrokerageHoldingsLive(user);
+    const refresh = event.eventType !== "ACCOUNT_HOLDINGS_UPDATED";
+    const result = await syncBrokerageHoldingsLive(user, { refresh });
+    console.info("[brokerage] webhook", {
+      eventType: event.eventType,
+      userId: event.userId,
+      imported: result.imported,
+      updated: result.updated,
+      closed: result.closed,
+    });
     return jsonOk({
       ok: true,
       eventType: event.eventType,

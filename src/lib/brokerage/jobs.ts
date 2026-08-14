@@ -60,14 +60,18 @@ export async function loadBrokerageJobUserBySnapTradeId(
 
 export async function syncBrokerageHoldingsLive(
   user: SessionUser,
+  options?: { refresh?: boolean },
 ): Promise<SyncResult> {
   return syncBrokerageHoldings(user, {
     historyLookback: false,
     live: true,
+    refresh: options?.refresh,
   });
 }
 
-export async function syncAllLinkedBrokerageHoldings(): Promise<{
+export async function syncAllLinkedBrokerageHoldings(
+  options?: { refresh?: boolean },
+): Promise<{
   users: number;
   imported: number;
   updated: number;
@@ -83,7 +87,7 @@ export async function syncAllLinkedBrokerageHoldings(): Promise<{
     const user = await loadBrokerageJobUser(userId);
     if (!user) continue;
     try {
-      const result = await syncBrokerageHoldingsLive(user);
+      const result = await syncBrokerageHoldingsLive(user, options);
       imported += result.imported;
       updated += result.updated;
       closed += result.closed;

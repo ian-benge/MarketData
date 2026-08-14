@@ -321,7 +321,11 @@ async function syncAccountHoldings(
 
 export async function syncBrokerageHoldings(
   user: SessionUser,
-  options?: { historyLookback?: HistoryLookback | false; live?: boolean },
+  options?: {
+    historyLookback?: HistoryLookback | false;
+    live?: boolean;
+    refresh?: boolean;
+  },
 ): Promise<SyncResult> {
   if (user.isDemo) {
     throw new BrokerageError(
@@ -341,6 +345,7 @@ export async function syncBrokerageHoldings(
   }
 
   const live = Boolean(options?.live);
+  const refresh = Boolean(options?.refresh);
   const remoteConnections = await listSnapTradeConnections(creds);
   let remoteAccounts = await collectRemoteAccounts(creds, remoteConnections);
   if (!live) {
@@ -384,13 +389,15 @@ export async function syncBrokerageHoldings(
     let accounts = remoteAccounts.filter((account) => account.connectionId === remote.id);
     try {
       if (
-        !live &&
-        (accountsStillImporting(accounts) || accounts.length === 0)
+        refresh ||
+        (!live && (accountsStillImporting(accounts) || accounts.length === 0))
       ) {
         await refreshSnapTradeHoldings(creds, remote.id);
-        await sleep(2_500);
-        remoteAccounts = await collectRemoteAccounts(creds, remoteConnections);
-        accounts = remoteAccounts.filter((account) => account.connectionId === remote.id);
+        if (!live) {
+          await sleep(2_500);
+          remoteAccounts = await collectRemoteAccounts(creds, remoteConnections);
+          accounts = remoteAccounts.filter((account) => account.connectionId === remote.id);
+        }
       }
       let connectionPending = accounts.length === 0;
       for (const remoteAccount of accounts) {

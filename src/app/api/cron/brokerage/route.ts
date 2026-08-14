@@ -3,13 +3,13 @@ import {
   handleRouteError,
   jsonError,
   jsonOk,
-  verifyCronSecret,
 } from "@/lib/api/http";
 import { isSnapTradeConfigured } from "@/lib/brokerage/client";
+import { authorizeBrokerageCron } from "@/lib/brokerage/cron-auth";
 import { syncAllLinkedBrokerageHoldings } from "@/lib/brokerage/jobs";
 import { isUsEquityMonitorWindow } from "@/lib/scheduling/chicago-schedule";
 
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 export async function GET(request: Request) {
   return POST(request);
@@ -17,7 +17,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    if (!verifyCronSecret(request)) {
+    if (!(await authorizeBrokerageCron(request))) {
       return jsonError("Unauthorized", 401);
     }
     if (fixturesEnabled()) {
@@ -29,7 +29,8 @@ export async function POST(request: Request) {
     if (!isUsEquityMonitorWindow()) {
       return jsonOk({ ok: true, skipped: "session-closed" });
     }
-    const result = await syncAllLinkedBrokerageHoldings();
+    const result = await syncAllLinkedBrokerageHoldings({ refresh: true });
+    console.info("[brokerage] cron sync", result);
     return jsonOk({ ok: true, ...result });
   } catch (error) {
     return handleRouteError(error);
