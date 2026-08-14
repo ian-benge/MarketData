@@ -27,6 +27,7 @@ export const PositionWriteSchema = z.object({
   notes: z.string().trim().max(2000).nullable().optional(),
   ownerId: z.string().trim().min(1).max(64).optional(),
   bookId: z.string().trim().min(1).max(64).optional(),
+  confirmManualOnBrokerageBook: z.boolean().optional(),
 });
 
 export const PositionPatchSchema = PositionWriteSchema.partial().extend({
@@ -43,6 +44,7 @@ export const PositionCloseSchema = z.object({
 export const PositionSnapshotSchema = z.object({
   positions: z.array(z.unknown()).max(80),
   includeClosed: z.boolean().optional(),
+  includeHistory: z.boolean().optional(),
   ownerId: z.string().trim().min(1).max(64).optional(),
   bookId: z.string().trim().min(1).max(64).optional(),
   accountValue: z.number().finite().gt(0).max(1_000_000_000_000).nullable().optional(),

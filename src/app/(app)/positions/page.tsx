@@ -14,6 +14,7 @@ export default async function PositionsPage() {
     const snapshot = await buildPositionsSnapshot({
       user,
       includeClosed: true,
+      includeHistory: false,
     });
     return <PositionsWorkspace initial={snapshot} />;
   } catch {

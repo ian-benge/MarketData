@@ -7,9 +7,9 @@ import {
 } from "./value-privacy";
 import type { PortfolioPoint, PositionsSnapshot } from "./types";
 
-function point(dayPnl: number | null): PortfolioPoint {
+function point(dayPnl: number | null, date = "2026-08-01"): PortfolioPoint {
   return {
-    date: "2026-08-01",
+    date,
     dayPnl,
     cumulativePnl: dayPnl,
     openCount: 1,
@@ -22,21 +22,23 @@ function point(dayPnl: number | null): PortfolioPoint {
 function snapshot(
   extra: Partial<PositionsSnapshot["summary"]> & {
     series?: PortfolioPoint[];
+    asOf?: string;
   } = {},
-): Pick<PositionsSnapshot, "series" | "summary"> {
-  const { series = [], ...summary } = extra;
+): Pick<PositionsSnapshot, "series" | "summary" | "asOf"> {
+  const { series = [], asOf = "2026-08-13T15:00:00.000Z", ...summary } = extra;
   return {
     series,
+    asOf,
     summary: { ...emptySummary(), ...summary },
   };
 }
 
 describe("book P&L windows", () => {
-  it("accepts the supported window ids", () => {
+  it("accepts the unified window ids including YTD", () => {
     expect(isBookPnlWindow("1d")).toBe(true);
-    expect(isBookPnlWindow("1y")).toBe(true);
+    expect(isBookPnlWindow("ytd")).toBe(true);
     expect(isBookPnlWindow("max")).toBe(true);
-    expect(isBookPnlWindow("ytd")).toBe(false);
+    expect(isBookPnlWindow("1y")).toBe(false);
   });
 
   it("sums the last N session P&Ls and skips gaps", () => {
@@ -49,23 +51,39 @@ describe("book P&L windows", () => {
     expect(sumSeriesPnl([point(null), point(null)], 5)).toBeNull();
   });
 
-  it("uses live day P&L for 1D and lifetime totals for Max", () => {
+  it("uses realized-today for 1D on a flat book and NAV for Max percent", () => {
     const snap = snapshot({
+      openCount: 0,
+      closedCount: 4,
+      realizedTodayPnl: null,
       dayPnl: 12,
       dayPercent: 0.5,
       pnlBeforeFees: 100,
-      totalPnl: 80,
+      totalPnl: -4594.48,
+      accountValue: 1.28,
       bookReturnPercent: 4,
     });
-    expect(bookPnlForWindow(snap, "1d")).toEqual({
-      beforeFees: 12,
-      afterFees: 12,
-      percent: 0.5,
+    expect(bookPnlForWindow(snap, "1d")).toMatchObject({
+      beforeFees: null,
+      afterFees: null,
+      hint: "Flat · no closes today",
     });
-    expect(bookPnlForWindow(snap, "max")).toEqual({
-      beforeFees: 100,
-      afterFees: 80,
-      percent: 4,
+    const max = bookPnlForWindow(snap, "max");
+    expect(max.afterFees).toBeCloseTo(-4594.48);
+    expect(max.percentBase).toBe("nav");
+    expect(max.percent).toBeCloseTo((-4594.48 / 1.28) * 100);
+  });
+
+  it("labels Max percent vs premium when NAV is missing and the book is options", () => {
+    const snap = snapshot({
+      openCount: 0,
+      totalPnl: -10,
+      closedCostBasis: 100,
+      closedAllOptions: true,
+    });
+    expect(bookPnlForWindow(snap, "max")).toMatchObject({
+      percent: -10,
+      percentBase: "premium",
     });
   });
 
@@ -78,10 +96,7 @@ describe("book P&L windows", () => {
     expect(bookPnlForWindow(fromSeries, "1w").percent).toBe(20);
 
     const fallback = snapshot({ change1wPnl: 15, accountValue: 150 });
-    expect(bookPnlForWindow(fallback, "1w")).toEqual({
-      beforeFees: 15,
-      afterFees: 15,
-      percent: 10,
-    });
+    expect(bookPnlForWindow(fallback, "1w").beforeFees).toBe(15);
+    expect(bookPnlForWindow(fallback, "1w").percent).toBe(10);
   });
 });

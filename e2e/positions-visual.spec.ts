@@ -17,6 +17,7 @@ test.describe("positions visual", () => {
       page.getByRole("region", { name: "Positions table", exact: true }),
     ).toContainText("GLD");
     await page.getByRole("button", { name: "New book" }).click();
+    await page.getByRole("button", { name: "Manual book" }).click();
     await page.getByLabel("New book title").fill("Taxable");
     await page.getByRole("button", { name: "Create book" }).click();
     await expect(page.getByRole("tab", { name: /^Taxable/ })).toBeVisible();
@@ -36,13 +37,16 @@ test.describe("positions visual", () => {
     await expect(page.getByRole("tab", { name: /Demo Member/ })).toBeVisible();
     await expect(page.getByText(/Mock data/i).first()).toBeVisible();
     await expect(
-      page.getByRole("group", { name: "P&L range" }),
+      page.getByRole("group", { name: "P&L timeframe" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: "3M", exact: true }),
+      page.getByRole("group", { name: "P&L timeframe" }).getByRole("button", { name: "Max", exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
     const chart = page.getByRole("img", { name: /cumulative book P&L/i });
     await expect(chart).toBeVisible();
+    await expect(
+      page.getByRole("group", { name: "Chart P&L timeframe" }),
+    ).toBeVisible();
     await expect(
       page.getByRole("list", { name: "P&L chart legend" }),
     ).toBeVisible();
@@ -55,9 +59,9 @@ test.describe("positions visual", () => {
     await page.screenshot({
       path: "tmp/positions-pnl-chart.png",
     });
-    await page.getByRole("button", { name: "Max", exact: true }).click();
+    await page.getByRole("group", { name: "Chart P&L timeframe" }).getByRole("button", { name: "Max", exact: true }).click();
     await expect(
-      page.getByRole("button", { name: "Max", exact: true }),
+      page.getByRole("group", { name: "Chart P&L timeframe" }).getByRole("button", { name: "Max", exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
     await expect(chart).toBeVisible();
     await page.screenshot({
@@ -76,6 +80,30 @@ test.describe("positions visual", () => {
     await chart.scrollIntoViewIfNeeded();
     await page.screenshot({
       path: "tmp/positions-pnl-admin.png",
+    });
+  });
+
+  test("flat options book is the primary blotter", async ({ page }) => {
+    await demoLogin(page, "member");
+    await page.goto("/positions");
+    await page.getByRole("tab", { name: /^DAYTRADING/ }).click();
+    await expect(page.getByText("Flat · no live marks required")).toBeVisible();
+    await expect(page.getByText("0/154")).toHaveCount(0);
+    await expect(page.getByText(/Real-time — IEX/i)).toHaveCount(0);
+    await expect(page.getByText("Intraday BP")).toHaveCount(0);
+    await expect(page.getByText("Overnight BP")).toHaveCount(0);
+    await expect(page.getByText("Option BP")).toHaveCount(0);
+    await expect(page.getByText("4× account value")).toHaveCount(0);
+    await expect(page.getByText("Total P&L (with fees)")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Recent closes" })).toBeVisible();
+    await expect(page.getByText("MSFT  2 Feb 26  430 C")).toBeVisible();
+    await expect(page.getByText("No open positions on the book")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Add position" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Past positions" })).toHaveCount(0);
+    await expectNoPageHorizontalOverflow(page);
+    await page.screenshot({
+      path: "tmp/positions-flat-options.png",
+      fullPage: true,
     });
   });
 

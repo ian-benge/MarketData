@@ -1,10 +1,11 @@
 export const TABLE_PAGE_SIZES = [10, 20, 50, 100] as const;
 export type TablePageSize = (typeof TABLE_PAGE_SIZES)[number];
 export const DEFAULT_TABLE_PAGE_SIZE: TablePageSize = 10;
+export const DEFAULT_CLOSED_PAGE_SIZE: TablePageSize = 50;
+export const CLOSED_PAGE_SIZE_STORAGE_KEY = "ib-positions-closed-page-size";
 
 export const CLOSED_PAGE_SIZES = TABLE_PAGE_SIZES;
 export type ClosedPageSize = TablePageSize;
-export const DEFAULT_CLOSED_PAGE_SIZE = DEFAULT_TABLE_PAGE_SIZE;
 
 export function paginate<T>(
   items: T[],

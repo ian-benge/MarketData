@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Plus } from "lucide-react";
+import { Landmark, Plus } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils/cn";
 import { DEFAULT_BOOK_TITLE, moveBookInList } from "@/lib/positions/books";
+import { tabListKeyDown } from "@/components/positions/tablist-keyboard";
 import type { PositionBook } from "@/lib/positions/types";
 
 export function PositionsBookTabs({
@@ -13,6 +14,10 @@ export function PositionsBookTabs({
   canEdit,
   onSelect,
   onCreate,
+  onLinkBrokerage,
+  onManageBrokerage,
+  canLinkBrokerage = false,
+  hasLinkedBrokerage = false,
   onRename,
   onDelete,
   onReorder,
@@ -23,12 +28,16 @@ export function PositionsBookTabs({
   canEdit: boolean;
   onSelect: (id: string) => void;
   onCreate: (title: string) => void;
+  onLinkBrokerage?: () => void;
+  onManageBrokerage?: () => void;
+  canLinkBrokerage?: boolean;
+  hasLinkedBrokerage?: boolean;
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
   onReorder?: (bookIds: string[]) => void;
   busy?: boolean;
 }) {
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState<"choose" | "manual" | false>(false);
   const [createTitle, setCreateTitle] = useState("");
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameTitle, setRenameTitle] = useState("");
@@ -61,6 +70,11 @@ export function PositionsBookTabs({
     setCreating(false);
   }
 
+  function cancelCreate() {
+    setCreating(false);
+    setCreateTitle("");
+  }
+
   function commitRename() {
     if (!renamingId) return;
     const title = renameTitle.trim();
@@ -83,6 +97,13 @@ export function PositionsBookTabs({
         role="tablist"
         aria-label="Named books"
         className="flex min-w-0 gap-1 overflow-x-auto overscroll-x-contain terminal-scroll pb-0.5"
+        onKeyDown={(event) =>
+          tabListKeyDown(event, {
+            ids: books.map((book) => book.id),
+            selectedId: bookId,
+            onSelect,
+          })
+        }
       >
         {books.map((book) => {
           const selectedBook = book.id === bookId;
@@ -115,7 +136,10 @@ export function PositionsBookTabs({
               key={book.id}
               type="button"
               role="tab"
+              id={`tab-book-${book.id}`}
               aria-selected={selectedBook}
+              aria-controls={`positions-book-${book.id}`}
+              tabIndex={selectedBook ? 0 : -1}
               aria-grabbed={draggable ? draggingId === book.id : undefined}
               title={draggable ? "Drag to reorder" : undefined}
               disabled={busy}
@@ -189,7 +213,7 @@ export function PositionsBookTabs({
       </div>
 
       {canEdit ? (
-        creating ? (
+        creating === "manual" ? (
           <div className="flex items-center gap-1">
             <input
               id="new-book-title"
@@ -206,8 +230,7 @@ export function PositionsBookTabs({
                   commitCreate();
                 }
                 if (event.key === "Escape") {
-                  setCreating(false);
-                  setCreateTitle("");
+                  cancelCreate();
                 }
               }}
             />
@@ -227,10 +250,60 @@ export function PositionsBookTabs({
               size="sm"
               disabled={busy}
               onMouseDown={(event) => event.preventDefault()}
+              onClick={cancelCreate}
+            >
+              Cancel
+            </Button>
+          </div>
+        ) : creating === "choose" ? (
+          <div className="flex flex-wrap items-center gap-1">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={busy}
+              onClick={() => setCreating("manual")}
+            >
+              Manual book
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={busy || !canLinkBrokerage || !onLinkBrokerage}
+              title={
+                canLinkBrokerage
+                  ? "Create a book from a SnapTrade login"
+                  : "Brokerage sync needs SnapTrade keys"
+              }
               onClick={() => {
-                setCreating(false);
-                setCreateTitle("");
+                cancelCreate();
+                onLinkBrokerage?.();
               }}
+            >
+              <Landmark aria-hidden="true" className="size-3.5" />
+              Linked brokerage
+            </Button>
+            {hasLinkedBrokerage && onManageBrokerage ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={busy}
+                onClick={() => {
+                  cancelCreate();
+                  onManageBrokerage();
+                }}
+              >
+                Manage accounts
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={busy}
+              onClick={cancelCreate}
             >
               Cancel
             </Button>
@@ -241,7 +314,7 @@ export function PositionsBookTabs({
             variant="ghost"
             size="sm"
             disabled={busy}
-            onClick={() => setCreating(true)}
+            onClick={() => setCreating("choose")}
           >
             <Plus aria-hidden="true" className="size-3.5" />
             New book

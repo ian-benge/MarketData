@@ -411,7 +411,16 @@ export async function syncBrokerageHoldings(
             creds,
             remoteAccount.id,
           );
-          if (cash != null) remoteAccount.totalValue = cash;
+          if (cash != null) {
+            console.info(
+              JSON.stringify({
+                msg: "brokerage_account_value_cash_fallback",
+                accountId: remoteAccount.id,
+                cash,
+              }),
+            );
+            remoteAccount.totalValue = cash;
+          }
         }
         const storedAccount = await upsertStoredAccount(user, stored, {
           snaptradeAccountId: remoteAccount.id,

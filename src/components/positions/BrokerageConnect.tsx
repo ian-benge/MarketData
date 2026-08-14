@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
-import { Landmark, History, RefreshCw, Unplug, X } from "lucide-react";
+import { useEffect, useId, useImperativeHandle, useRef, useState, type Ref } from "react";
+import { History, RefreshCw, Unplug, X } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { formatMarketDateTime } from "@/lib/utils/format";
+import { ClientMarketTime } from "@/components/ui/ClientMarketTime";
 import {
   HISTORY_LOOKBACKS,
   HISTORY_LOOKBACK_LABELS,
@@ -18,24 +18,29 @@ type PortalState = "picker" | "portal" | "manage" | "import" | null;
 
 const BROKERAGE_REFRESH_MS = 15_000;
 
+export type BrokerageConnectHandle = {
+  openPicker: () => void;
+  openManage: () => void;
+};
+
 export function BrokerageConnect({
   brokerage,
   canManage,
   busy,
-  usingFixtures = false,
   bookId,
   headless = false,
   onSnapshot,
   onFeedback,
+  ref,
 }: {
   brokerage: BrokerageSnapshot | undefined;
   canManage: boolean;
   busy: boolean;
-  usingFixtures?: boolean;
   bookId?: string;
   headless?: boolean;
   onSnapshot: (snapshot: PositionsSnapshot) => void;
   onFeedback: (message: { tone: "error" | "success"; message: string }) => void;
+  ref?: Ref<BrokerageConnectHandle | null>;
 }) {
   const titleId = useId();
   const [panel, setPanel] = useState<PortalState>(null);
@@ -56,6 +61,7 @@ export function BrokerageConnect({
     .filter(Boolean)
     .sort()
     .at(-1);
+  const lastLiveSyncRef = useRef(0);
   const onSnapshotRef = useRef(onSnapshot);
   const onFeedbackRef = useRef(onFeedback);
   const mountedRef = useRef(true);
@@ -67,6 +73,17 @@ export function BrokerageConnect({
   const importing = snapshot.connections.some((row) =>
     Boolean(row.lastSyncError && /import/i.test(row.lastSyncError)),
   );
+
+  useImperativeHandle(ref, () => ({
+    openPicker() {
+      if (!canManage) return;
+      setPanel("picker");
+    },
+    openManage() {
+      if (!canManage) return;
+      setPanel(connected ? "manage" : "picker");
+    },
+  }), [canManage, connected]);
 
   function withBook(path: string) {
     if (!bookId) return path;
@@ -81,6 +98,13 @@ export function BrokerageConnect({
   ) {
     if (announce) pendingAnnounceRef.current = true;
     if (syncingRef.current) return;
+    if (
+      holdingsOnly &&
+      lastLiveSyncRef.current &&
+      Date.now() - lastLiveSyncRef.current < 12_000
+    ) {
+      return;
+    }
     syncingRef.current = true;
     if (!silent) setWorking(true);
     try {
@@ -111,6 +135,7 @@ export function BrokerageConnect({
         return;
       }
       if (payload.snapshot && mountedRef.current) {
+        lastLiveSyncRef.current = Date.now();
         onSnapshotRef.current(payload.snapshot);
       }
       const historyImported = payload.historyImported ?? 0;
@@ -420,9 +445,8 @@ export function BrokerageConnect({
 
   return (
     <>
-      <div className="flex flex-wrap items-center gap-2">
-        {connected ? (
-          <>
+      {connected ? (
+        <div className="flex flex-wrap items-center gap-2">
             <Badge tone={needsReconnect ? "warn" : importing ? "warn" : "brand"}>
               {needsReconnect
                 ? "Reconnect brokerage"
@@ -432,7 +456,7 @@ export function BrokerageConnect({
             </Badge>
             {lastSyncAt && !importing ? (
               <span className="font-mono text-[11px] text-[var(--ib-text-muted)]">
-                Synced {formatMarketDateTime(lastSyncAt, { seconds: false })}
+                Synced <ClientMarketTime value={lastSyncAt} seconds={false} />
               </span>
             ) : null}
             {snapshot.connectable ? (
@@ -457,35 +481,10 @@ export function BrokerageConnect({
                   <History aria-hidden="true" className="size-3.5" />
                   Import past trades
                 </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={busy || working}
-                  onClick={() => setPanel("manage")}
-                >
-                  Manage
-                </Button>
               </>
             ) : null}
-          </>
-        ) : snapshot.connectable ? (
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            disabled={busy || working}
-            onClick={() => setPanel("picker")}
-          >
-            <Landmark aria-hidden="true" className="size-3.5" />
-            Connect brokerage
-          </Button>
-        ) : snapshot.configured ? null : canManage && !usingFixtures ? (
-          <span className="font-mono text-[11px] text-[var(--ib-text-muted)]">
-            Brokerage sync needs SnapTrade keys
-          </span>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
       {panel ? (
         <div

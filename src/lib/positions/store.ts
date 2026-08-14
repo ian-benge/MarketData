@@ -278,6 +278,7 @@ export type StoredBook = {
   source: "manual" | "snaptrade";
   fees: number;
   sortOrder: number;
+  brokerageName?: string | null;
 };
 
 function mapBookRow(row: BookDbRow): StoredBook {
@@ -315,6 +316,7 @@ export async function listStoredBooks(
         source: book.source ?? "manual",
         fees: book.fees ?? 0,
         sortOrder: book.sortOrder ?? index,
+        brokerageName: book.brokerageName ?? null,
       }))
       .sort((a, b) => a.sortOrder - b.sortOrder || a.title.localeCompare(b.title));
   }
@@ -614,6 +616,7 @@ export async function insertStoredPosition(
   input: PositionWrite,
   ownerId = user.id,
   bookId?: string | null,
+  options?: { confirmManualOnBrokerageBook?: boolean },
 ): Promise<PositionRecord> {
   if (!user.firmId) throw new Error("No firm is associated with this session.");
   if (!canEditPositionBook(user, ownerId)) {
@@ -630,6 +633,12 @@ export async function insertStoredPosition(
     throw new PositionBookError("That book does not belong to this owner.", 400);
   }
   if (resolvedBook.source === "snaptrade") {
+    if (!options?.confirmManualOnBrokerageBook) {
+      throw new PositionBookError(
+        "Manual lots on a linked book are not updated by the broker. Add them to a manual book, or confirm to continue.",
+        409,
+      );
+    }
     const supabasePeek = await createClient();
     const { data: synced } = await supabasePeek
       .from("positions")

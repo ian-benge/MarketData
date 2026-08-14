@@ -49,10 +49,13 @@ export function OwnerUnlockPanel({
           </h2>
           <p className="mt-0.5 text-[12px] leading-5 text-[var(--ib-text-secondary)]">
             Day P&L and open P&L stay on the tape. Enter {ownerName}&apos;s
-            sign-in password to see account value, cash, and closed lots.
+            IB Market Data sign-in password to see account value, cash, and
+            closed lots. Revoke from Settings.
           </p>
           {error ? (
-            <p className="mt-1 text-[12px] text-[var(--danger)]">{error}</p>
+            <p role="alert" className="mt-1 text-[12px] text-[var(--danger)]">
+              {error}
+            </p>
           ) : null}
         </div>
       </div>

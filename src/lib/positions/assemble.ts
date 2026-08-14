@@ -70,13 +70,18 @@ export type AssemblePositionsInput = {
   ownerLocked?: boolean;
   brokerage?: PositionsSnapshot["brokerage"];
   accountValue?: number | null;
+  includeHistory?: boolean;
+  closedIncluded?: boolean;
+  accountValueKind?: PositionsSnapshot["accountValueKind"];
 };
 
 export function assemblePositionsSnapshot(
   input: AssemblePositionsInput,
 ): PositionsSnapshot {
   const requested = new Set(
-    input.positions.map((position) => position.ticker.toUpperCase()),
+    input.positions
+      .filter((position) => position.status === "open")
+      .map((position) => position.ticker.toUpperCase()),
   );
   const quotesRequested = requested.size;
   const quotesCovered = [...requested].filter((ticker) => {
@@ -130,8 +135,11 @@ export function assemblePositionsSnapshot(
         )
       : emptySummary(),
     positions: enriched,
-    series: buildPortfolioSeries(input.positions, input.closes),
-    history: Object.fromEntries(input.closes.entries()),
+    series: buildPortfolioSeries(input.positions, input.closes, {
+      quotes: input.quotes,
+      asOf: input.asOf,
+    }),
+    history: input.includeHistory === false ? {} : Object.fromEntries(input.closes.entries()),
     owners: input.owners ?? [],
     ownerId: input.ownerId ?? "",
     books: input.books ?? [],
@@ -139,6 +147,8 @@ export function assemblePositionsSnapshot(
     viewerId: input.viewerId ?? "",
     canEdit: input.canEdit ?? false,
     ownerLocked: input.ownerLocked ?? false,
+    accountValueKind: input.accountValueKind ?? null,
+    closedIncluded: input.closedIncluded ?? true,
     brokerage: input.brokerage,
     error: input.error ?? null,
   };
@@ -173,6 +183,8 @@ export function emptyPositionsSnapshot(
     viewerId: extra?.viewerId ?? "",
     canEdit: extra?.canEdit ?? false,
     ownerLocked: extra?.ownerLocked ?? false,
+    accountValueKind: extra?.accountValueKind ?? null,
+    closedIncluded: extra?.closedIncluded ?? true,
     brokerage: extra?.brokerage ?? EMPTY_BROKERAGE_SNAPSHOT,
     error,
     ...extra,

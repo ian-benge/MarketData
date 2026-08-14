@@ -63,12 +63,14 @@ export function PositionFormDialog({
   submitting,
   onClose,
   onSubmit,
+  brokerageWarning = false,
 }: {
   mode: "add" | "edit";
   initial?: EnrichedPosition | null;
   submitting: boolean;
   onClose: () => void;
   onSubmit: (values: PositionFormValues) => void;
+  brokerageWarning?: boolean;
 }) {
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -156,6 +158,15 @@ export function PositionFormDialog({
           </button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-3 p-4" noValidate>
+          {brokerageWarning ? (
+            <p
+              role="alert"
+              className="rounded-[4px] border border-[color-mix(in_oklab,var(--state-warning)_38%,transparent)] bg-[color-mix(in_oklab,var(--state-warning)_8%,transparent)] p-2.5 text-[12px] text-[var(--ib-text-secondary)]"
+            >
+              This book is linked to a brokerage. A manual lot will not stay in
+              sync with SnapTrade and can double-count the same ticker.
+            </p>
+          ) : null}
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2 sm:col-span-1">
               <label htmlFor="pos-ticker" className="mb-1 block text-xs font-medium text-[var(--ib-text-secondary)]">

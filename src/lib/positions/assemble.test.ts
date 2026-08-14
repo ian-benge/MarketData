@@ -63,7 +63,8 @@ describe("assemblePositionsSnapshot", () => {
     expect(snapshot.history.NVDA).toEqual(closes);
     expect(snapshot.positions[0]?.last).toBe(110);
     expect(snapshot.positions[0]?.sparkline.length).toBeGreaterThan(0);
-    expect(snapshot.series.length).toBe(3);
+    expect(snapshot.series.at(-1)?.date).toBe("2026-08-13");
+    expect(snapshot.series.at(-1)?.cumulativePnl).toBe(100);
   });
 
   it("keeps empty snapshots fixture-free", () => {
@@ -111,9 +112,9 @@ describe("assemblePositionsSnapshot", () => {
     expect(funded.summary.portfolioValue).toBe(20_000);
     expect(funded.summary.investedValue).toBeCloseTo(1_100);
     expect(funded.summary.cash).toBeCloseTo(18_900);
-    expect(funded.summary.intradayBuyingPower).toBe(80_000);
-    expect(funded.summary.overnightBuyingPower).toBe(40_000);
-    expect(funded.summary.optionBuyingPower).toBeCloseTo(18_900);
+    expect(funded.summary.intradayBuyingPower).toBeNull();
+    expect(funded.summary.overnightBuyingPower).toBeNull();
+    expect(funded.summary.optionBuyingPower).toBeNull();
     expect(funded.positions[0]?.weight).toBeCloseTo(5.5);
   });
 });

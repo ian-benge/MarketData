@@ -49,6 +49,7 @@ export function decorateBooks(
     openCount?: number;
     positionCount?: number;
     source?: "manual" | "snaptrade";
+    brokerageName?: string | null;
     fees?: number;
     sortOrder?: number;
   }>,
@@ -60,6 +61,7 @@ export function decorateBooks(
     title: book.title,
     accountValue: book.accountValue,
     source: book.source ?? "manual",
+    brokerageName: book.brokerageName ?? null,
     fees: book.fees ?? 0,
     sortOrder: book.sortOrder ?? index,
     openCount: positions.filter(

@@ -207,10 +207,12 @@ async function loadDailyCloses(tickers: string[]): Promise<Map<string, DailyClos
 
 export async function loadPositionMarketContext(
   symbols: string[],
+  options: { includeBars?: boolean } = {},
 ): Promise<PositionMarketContext> {
   const unique = [
     ...new Set(symbols.map((symbol) => symbol.trim().toUpperCase()).filter(Boolean)),
   ];
+  const includeBars = options.includeBars !== false;
   const env = getEnv();
   const license = licenseConfigFromEnv(env);
   const licenseWarning =
@@ -225,7 +227,9 @@ export async function loadPositionMarketContext(
       closes: new Map(),
       asOf: new Date().toISOString(),
       stale: false,
-      latencyCoverageLabel: fixturesEnabled() ? "Mock data" : "Unavailable",
+      latencyCoverageLabel: fixturesEnabled()
+        ? "Mock data"
+        : "Flat · no live marks required",
       feedCoverage: "unknown",
       latencyClass: fixturesEnabled() ? "mock" : "unavailable",
       marketSession: session,
@@ -238,14 +242,16 @@ export async function loadPositionMarketContext(
     const provider = new MockMarketDataProvider();
     const quotes = await provider.getQuotes(unique);
     const closes = new Map<string, DailyClose[]>();
-    await mapPool(unique, BAR_CONCURRENCY, async (ticker) => {
-      const bars = await provider.getTimeSeries({
-        symbol: ticker,
-        interval: "1d",
-        limit: BAR_LIMIT,
+    if (includeBars) {
+      await mapPool(unique, BAR_CONCURRENCY, async (ticker) => {
+        const bars = await provider.getTimeSeries({
+          symbol: ticker,
+          interval: "1d",
+          limit: BAR_LIMIT,
+        });
+        closes.set(ticker, closesFromBars(bars));
       });
-      closes.set(ticker, closesFromBars(bars));
-    });
+    }
     return {
       quotes: new Map(
         quotes.map((quote) => [quote.ticker.toUpperCase(), quoteFromNormalized(quote)]),
@@ -263,7 +269,7 @@ export async function loadPositionMarketContext(
   }
 
   const live = await loadLiveQuotes(unique);
-  const closes = await loadDailyCloses(unique);
+  const closes = includeBars ? await loadDailyCloses(unique) : new Map<string, DailyClose[]>();
 
   if (live.bundle) {
     const covered = unique.filter(
@@ -288,8 +294,9 @@ export async function loadPositionMarketContext(
       asOf: live.bundle.asOf,
       stale,
       latencyCoverageLabel:
-        live.bundle.latencyCoverageLabel ||
-        (coveredAfter === 0 ? "Unavailable" : "Partial coverage"),
+        coveredAfter === 0
+          ? "No live marks"
+          : live.bundle.latencyCoverageLabel || "Partial coverage",
       feedCoverage: live.bundle.feedCoverage,
       latencyClass: coveredAfter === 0 ? "unavailable" : live.bundle.latencyClass,
       marketSession: live.bundle.marketSession ?? session,
@@ -298,7 +305,7 @@ export async function loadPositionMarketContext(
         coveredAfter === 0
           ? "No live marks are available for this book. Cost basis remains visible; P&L stays blank until quotes arrive."
           : coveredAfter < unique.length
-            ? `Partial coverage · ${coveredAfter} of ${unique.length} symbols`
+            ? `Partial coverage · ${coveredAfter} of ${unique.length} open`
             : null,
     };
   }

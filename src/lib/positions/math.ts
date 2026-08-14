@@ -1,4 +1,5 @@
 import { percentChange } from "@/lib/domain/market-math";
+import { chicagoDateKey } from "@/lib/market-data/bars-window";
 import { POSITION_ASSET_TYPES, type PositionAssetType } from "./types";
 import type {
   DailyClose,
@@ -62,7 +63,7 @@ export function positionFees(position: Pick<PositionRecord, "fees">): number {
   return value != null && value > 0 ? value : 0;
 }
 
-function dateOnly(value: string | null | undefined): string | null {
+export function dateOnly(value: string | null | undefined): string | null {
   if (!value) return null;
   const match = value.match(/^(\d{4}-\d{2}-\d{2})/);
   return match?.[1] ?? null;
@@ -302,7 +303,14 @@ export function enrichPosition(
     holdingDays: holdingDays(position, asOfDate),
     quoteStale: quote?.stale === true,
     missing: [],
-    sparkline: positionSparkline(position, closes),
+    sparkline: (() => {
+      const fromBars = positionSparkline(position, closes);
+      if (fromBars.length) return fromBars;
+      if (position.status === "closed" && realizedPnl != null) {
+        return [0, realizedPnl];
+      }
+      return [];
+    })(),
     relatedRealizedPnl: null,
     relatedRealizedPercent: null,
     fees,
@@ -419,31 +427,35 @@ export function summarizePositions(
   const weights = open
     .map((row) => row.weight)
     .filter((value): value is number => value != null);
-  const pnls = open
+  const openPnls = open
     .map((row) => row.unrealizedPnl)
     .filter((value): value is number => value != null);
-  const winners = pnls.filter((value) => value > 0);
-  const losers = pnls.filter((value) => value < 0);
   const closedPnls = closed
     .map((row) => row.realizedPnl)
     .filter((value): value is number => value != null);
+  const samplePnls = closedPnls.length ? closedPnls : openPnls;
+  const winners = samplePnls.filter((value) => value > 0);
+  const losers = samplePnls.filter((value) => value < 0);
   const closedWinners = closedPnls.filter((value) => value > 0);
   const asOfDate = dateOnly(asOf);
+  const chicagoAsOf = chicagoDateKey(asOf);
   const investedValue = longExposure;
   const normalizedAccount =
     accountValue != null && Number.isFinite(accountValue) && accountValue >= 0
       ? accountValue
       : null;
   const cash =
-    normalizedAccount != null && investedValue != null
-      ? normalizedAccount - investedValue
+    normalizedAccount != null
+      ? normalizedAccount - (longExposure ?? 0)
       : null;
   const portfolioValue = normalizedAccount ?? investedValue;
-  const intradayBuyingPower =
-    normalizedAccount != null ? normalizedAccount * 4 : null;
-  const overnightBuyingPower =
-    normalizedAccount != null ? normalizedAccount * 2 : null;
-  const optionBuyingPower = cash;
+  const realizedTodayPnl = sum(
+    closed
+      .filter(
+        (row) => dateOnly(row.closeDate ?? row.closedAt) === chicagoAsOf,
+      )
+      .map((row) => row.realizedPnl),
+  );
   const dayBase =
     normalizedAccount != null
       ? normalizedAccount
@@ -473,9 +485,10 @@ export function summarizePositions(
     cash,
     investedValue,
     portfolioValue,
-    intradayBuyingPower,
-    overnightBuyingPower,
-    optionBuyingPower,
+    intradayBuyingPower: null,
+    overnightBuyingPower: null,
+    optionBuyingPower: null,
+    realizedTodayPnl,
     costBasis,
     closedCostBasis,
     unrealizedPnl,
@@ -487,6 +500,8 @@ export function summarizePositions(
     closedHitRate: closedPnls.length
       ? (closedWinners.length / closedPnls.length) * 100
       : null,
+    closedAllOptions:
+      closed.length > 0 && closed.every((row) => row.assetType === "option"),
     closedAverageHoldingDays: mean(
       closed
         .map((row) => holdingDays(row, asOfDate ?? row.closeDate ?? row.entryDate))
@@ -509,7 +524,10 @@ export function summarizePositions(
     herfindahl: weights.length
       ? weights.reduce((acc, weight) => acc + (weight / 100) ** 2, 0)
       : null,
-    hitRate: pnls.length ? (winners.length / pnls.length) * 100 : null,
+    hitRate: samplePnls.length
+      ? (winners.length / samplePnls.length) * 100
+      : null,
+    hitRateSampleSize: samplePnls.length,
     averageWinner: mean(winners),
     averageLoser: mean(losers),
     averageHoldingDays: mean(
@@ -517,8 +535,8 @@ export function summarizePositions(
         .map((row) => holdingDays(row, dateOnly(asOf) ?? row.entryDate))
         .filter((value): value is number => value != null),
     ),
-    winners: contributors(open, "winners"),
-    losers: contributors(open, "losers"),
+    winners: contributors(closed.length ? closed : open, "winners"),
+    losers: contributors(closed.length ? closed : open, "losers"),
     bySide: allocation(
       open,
       (row) => row.side,
@@ -654,10 +672,6 @@ export function applyWeights(
   }));
 }
 
-function firstDateOnOrAfter(ordered: string[], date: string): string | null {
-  return ordered.find((value) => value >= date) ?? null;
-}
-
 function eventFor(
   position: PositionRecord,
   kind: PortfolioEvent["kind"],
@@ -670,22 +684,53 @@ function eventFor(
   };
 }
 
+function lotRealizedNet(position: PositionRecord): number | null {
+  if (position.status !== "closed") return null;
+  const gross = signedPricePnl(
+    position.closePrice,
+    position.entryPrice,
+    position.quantity,
+    position.multiplier,
+    position.side,
+  );
+  if (gross == null) return null;
+  return gross - positionFees(position);
+}
+
+function lotUnrealized(
+  position: PositionRecord,
+  last: number | null | undefined,
+): number | null {
+  if (position.status !== "open") return null;
+  return signedPricePnl(
+    last,
+    position.entryPrice,
+    position.quantity,
+    position.multiplier,
+    position.side,
+  );
+}
+
 export function buildPortfolioSeries(
   positions: PositionRecord[],
-  closesByTicker: Map<string, DailyClose[]>,
-  limit = 252,
+  _closesByTicker: Map<string, DailyClose[]> = new Map(),
+  options: {
+    quotes?: Map<string, PositionQuote>;
+    asOf?: string;
+    limit?: number;
+  } = {},
 ): PortfolioPoint[] {
+  const limit = options.limit ?? 252;
+  const quotes = options.quotes ?? new Map();
+  const asOfDate = options.asOf
+    ? (dateOnly(options.asOf) ?? chicagoDateKey(options.asOf))
+    : null;
   const dates = new Set<string>();
-  for (const closes of closesByTicker.values()) {
-    for (const bar of sortedCloses(closes)) dates.add(bar.date);
-  }
-  const ordered = [...dates].sort((a, b) => a.localeCompare(b)).slice(-limit);
-  const firstDate = ordered[0] ?? null;
   const eventsByDate = new Map<string, PortfolioEvent[]>();
-  const carried: PortfolioEvent[] = [];
 
   function pushEvent(date: string | null, event: PortfolioEvent) {
     if (!date) return;
+    dates.add(date);
     const current = eventsByDate.get(date) ?? [];
     current.push(event);
     eventsByDate.set(date, current);
@@ -697,14 +742,30 @@ export function buildPortfolioSeries(
       position.status === "closed"
         ? dateOnly(position.closeDate ?? position.closedAt)
         : null;
-    if (close && firstDate && close < firstDate) continue;
-    if (entry && firstDate && entry < firstDate) {
-      carried.push(eventFor(position, "opened"));
-    } else if (entry) {
-      pushEvent(firstDateOnOrAfter(ordered, entry), eventFor(position, "opened"));
-    }
     if (close) {
-      pushEvent(firstDateOnOrAfter(ordered, close), eventFor(position, "closed"));
+      dates.add(close);
+      pushEvent(close, eventFor(position, "closed"));
+    }
+    if (entry) {
+      pushEvent(entry, eventFor(position, "opened"));
+    }
+  }
+  if (asOfDate && positions.some((row) => row.status === "open")) {
+    dates.add(asOfDate);
+  }
+
+  const ordered = [...dates].sort((a, b) => a.localeCompare(b)).slice(-limit);
+  const firstDate = ordered[0] ?? null;
+  const carried: PortfolioEvent[] = [];
+  for (const position of positions) {
+    const entry = dateOnly(position.entryDate);
+    const close =
+      position.status === "closed"
+        ? dateOnly(position.closeDate ?? position.closedAt)
+        : null;
+    if (!entry || !firstDate) continue;
+    if (entry < firstDate && (!close || close >= firstDate)) {
+      carried.push(eventFor(position, "opened"));
     }
   }
 
@@ -712,32 +773,36 @@ export function buildPortfolioSeries(
   const points: PortfolioPoint[] = [];
   for (let index = 0; index < ordered.length; index += 1) {
     const date = ordered[index]!;
-    const previousDate = index > 0 ? ordered[index - 1]! : null;
     let dayPnl: number | null = null;
     let openCount = 0;
     let leader: PortfolioPoint["leader"] = null;
+
     for (const position of positions) {
-      if (!wasOpenOn(position, date)) continue;
-      openCount += 1;
-      const closes = closesByTicker.get(position.ticker.toUpperCase());
-      const current = closeOnOrBefore(closes, date);
-      if (!current) continue;
-      const previous = previousDate && wasOpenOn(position, previousDate)
-        ? closeOnOrBefore(closes, previousDate)?.close
-        : position.entryPrice;
-      const pnl = signedPricePnl(
-        current.close,
-        previous,
-        position.quantity,
-        position.multiplier,
-        position.side,
-      );
-      if (pnl == null) continue;
-      dayPnl = (dayPnl ?? 0) + pnl;
-      if (!leader || Math.abs(pnl) > Math.abs(leader.pnl)) {
-        leader = { ticker: position.ticker, pnl };
+      if (wasOpenOn(position, date)) openCount += 1;
+      const close = dateOnly(position.closeDate ?? position.closedAt);
+      if (position.status === "closed" && close === date) {
+        const pnl = lotRealizedNet(position);
+        if (pnl == null) continue;
+        dayPnl = (dayPnl ?? 0) + pnl;
+        if (!leader || Math.abs(pnl) > Math.abs(leader.pnl)) {
+          leader = { ticker: position.ticker, pnl };
+        }
       }
     }
+
+    if (asOfDate && date === asOfDate) {
+      for (const position of positions) {
+        if (position.status !== "open") continue;
+        const quote = quotes.get(position.ticker.toUpperCase());
+        const pnl = lotUnrealized(position, quote?.last);
+        if (pnl == null) continue;
+        dayPnl = (dayPnl ?? 0) + pnl;
+        if (!leader || Math.abs(pnl) > Math.abs(leader.pnl)) {
+          leader = { ticker: position.ticker, pnl };
+        }
+      }
+    }
+
     if (dayPnl != null) cumulative += dayPnl;
     points.push({
       date,
@@ -772,6 +837,7 @@ export function emptySummary(): PortfolioSummary {
     intradayBuyingPower: null,
     overnightBuyingPower: null,
     optionBuyingPower: null,
+    realizedTodayPnl: null,
     costBasis: null,
     closedCostBasis: null,
     unrealizedPnl: null,
@@ -779,6 +845,7 @@ export function emptySummary(): PortfolioSummary {
     realizedReturnPercent: null,
     closedHitRate: null,
     closedAverageHoldingDays: null,
+    closedAllOptions: false,
     totalPnl: null,
     pnlBeforeFees: null,
     fees: null,
@@ -791,6 +858,7 @@ export function emptySummary(): PortfolioSummary {
     largestWeight: null,
     herfindahl: null,
     hitRate: null,
+    hitRateSampleSize: 0,
     averageWinner: null,
     averageLoser: null,
     averageHoldingDays: null,

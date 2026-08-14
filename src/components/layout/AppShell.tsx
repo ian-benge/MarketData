@@ -355,7 +355,7 @@ export function AppShell({
       </aside>
 
       <div className="min-w-0">
-        <header className="sticky top-0 z-30 border-b border-[var(--ib-border-subtle)] bg-[color-mix(in_oklab,var(--ib-surface-1)_94%,transparent)] backdrop-blur-sm">
+        <header className="sticky top-0 z-30 isolate border-b border-[var(--ib-border-subtle)] bg-[var(--ib-surface-1)]">
           <div className="flex h-12 items-center gap-2 px-3 sm:px-4 lg:h-11 lg:px-5 xl:px-6">
             <Link href="/dashboard" className="mr-auto lg:hidden">
               <BrandMark compact />
@@ -365,7 +365,7 @@ export function AppShell({
               ref={commandButtonRef}
               type="button"
               onClick={openCommand}
-              className="hidden min-w-0 max-w-[460px] flex-1 items-center gap-2 rounded-[4px] border border-[var(--ib-border-control)] bg-[var(--ib-surface-inset)] px-2.5 py-1.5 text-left text-[12px] text-[var(--ib-text-muted)] transition-colors hover:border-[var(--ib-text-muted)] hover:text-[var(--ib-text-secondary)] sm:flex"
+              className="hidden min-w-0 w-[min(100%,28rem)] max-w-[28rem] items-center gap-2 rounded-[4px] border border-[var(--ib-border-control)] bg-[var(--ib-surface-inset)] px-2.5 py-1.5 text-left text-[12px] text-[var(--ib-text-muted)] transition-colors hover:border-[var(--ib-text-muted)] hover:text-[var(--ib-text-secondary)] sm:flex"
               aria-label="Open command search"
               aria-haspopup="dialog"
             >

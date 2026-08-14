@@ -8,6 +8,7 @@ import {
   resolveBookId,
 } from "./books";
 import { loadPositionMarketContext } from "./market";
+import { marketSymbolsForPositions } from "./coverage";
 import {
   UNASSIGNED_OWNER_ID,
   buildOwnerList,
@@ -40,6 +41,7 @@ export async function buildPositionsSnapshot(options: {
   user: SessionUser;
   positions?: PositionRecord[];
   includeClosed?: boolean;
+  includeHistory?: boolean;
   ownerId?: string | null;
   bookId?: string | null;
   books?: Array<{
@@ -50,6 +52,7 @@ export async function buildPositionsSnapshot(options: {
     openCount?: number;
     positionCount?: number;
     source?: "manual" | "snaptrade";
+    brokerageName?: string | null;
     sortOrder?: number;
   }>;
   accountValue?: number | null;
@@ -137,6 +140,7 @@ export async function buildPositionsSnapshot(options: {
     title: string;
     accountValue: number | null;
     source?: "manual" | "snaptrade";
+    brokerageName?: string | null;
     sortOrder?: number;
   }> = options.books?.length
     ? options.books.map((book, index) => ({
@@ -145,6 +149,7 @@ export async function buildPositionsSnapshot(options: {
         title: book.title,
         accountValue: book.accountValue ?? null,
         source: book.source,
+        brokerageName: book.brokerageName,
         sortOrder: book.sortOrder ?? index,
       }))
     : [
@@ -185,12 +190,15 @@ export async function buildPositionsSnapshot(options: {
       ? ownerLots
       : matchedBookLots;
 
-  const visible =
-    metricsLocked || options.includeClosed === false
-      ? bookLots.filter((row) => row.status === "open")
-      : bookLots;
+  const openLots = bookLots.filter((row) => row.status === "open");
+  const assembleLots = metricsLocked ? openLots : bookLots;
+  const includeClosed = options.includeClosed !== false && !metricsLocked;
+  const includeHistory = options.includeHistory === true;
 
-  const market = await loadPositionMarketContext(visible.map((row) => row.ticker));
+  const market = await loadPositionMarketContext(
+    marketSymbolsForPositions(openLots),
+    { includeBars: includeHistory },
+  );
   const brokerage =
     metricsLocked || ownerId !== options.user.id
       ? EMPTY_BROKERAGE_SNAPSHOT
@@ -212,6 +220,11 @@ export async function buildPositionsSnapshot(options: {
     ),
   );
   const activeBook = ownerBooks.find((book) => book.id === bookId) ?? null;
+  const accountValueKind: PositionsSnapshot["accountValueKind"] = metricsLocked
+    ? null
+    : activeBook?.source === "snaptrade"
+      ? "broker"
+      : "manual";
   const accountValue = metricsLocked
     ? null
     : options.accountValue !== undefined
@@ -228,7 +241,7 @@ export async function buildPositionsSnapshot(options: {
     const next = {
       ...book,
       source: linked ? ("snaptrade" as const) : (book.source ?? "manual"),
-      brokerageName: linked?.brokerageName ?? null,
+      brokerageName: linked?.brokerageName ?? book.brokerageName ?? null,
       connectionStatus: linked?.connectionStatus ?? null,
       lastSyncAt: linked?.lastSyncAt ?? null,
     };
@@ -238,7 +251,7 @@ export async function buildPositionsSnapshot(options: {
   });
 
   const snapshot = assemblePositionsSnapshot({
-    positions: visible,
+    positions: assembleLots,
     quotes: market.quotes,
     closes: market.closes,
     asOf: market.asOf,
@@ -260,6 +273,15 @@ export async function buildPositionsSnapshot(options: {
     ownerLocked: metricsLocked,
     brokerage,
     accountValue,
+    includeHistory,
+    closedIncluded: includeClosed,
+    accountValueKind,
   });
-  return metricsLocked ? redactLockedOwnerSnapshot(snapshot) : snapshot;
+  const redacted = metricsLocked ? redactLockedOwnerSnapshot(snapshot) : snapshot;
+  if (includeClosed || redacted.ownerLocked) return redacted;
+  return {
+    ...redacted,
+    positions: redacted.positions.filter((row) => row.status === "open"),
+    closedIncluded: false,
+  };
 }

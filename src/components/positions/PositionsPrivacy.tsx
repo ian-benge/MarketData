@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils/cn";
 import {
   BOOK_PNL_WINDOW_LABELS,
   BOOK_PNL_WINDOWS,
+  type BookPnlWindow,
 } from "@/lib/positions/value-privacy";
 import { usePositionsPrivacy } from "@/components/positions/privacy-context";
 
@@ -32,14 +33,22 @@ export function PositionsValuePrivacyToggle() {
 
 export function BookPnlWindowToggle({
   className,
+  value,
+  onChange,
+  "aria-label": ariaLabel = "P&L timeframe",
 }: {
   className?: string;
+  value?: BookPnlWindow;
+  onChange?: (window: BookPnlWindow) => void;
+  "aria-label"?: string;
 }) {
-  const { pnlWindow, setPnlWindow } = usePositionsPrivacy();
+  const privacy = usePositionsPrivacy();
+  const pnlWindow = value ?? privacy.pnlWindow;
+  const setPnlWindow = onChange ?? privacy.setPnlWindow;
   return (
     <div
       role="group"
-      aria-label="P&L timeframe"
+      aria-label={ariaLabel}
       className={cn("flex flex-wrap gap-1", className)}
     >
       {BOOK_PNL_WINDOWS.map((item) => (

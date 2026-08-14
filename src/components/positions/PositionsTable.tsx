@@ -1,30 +1,45 @@
 "use client";
 
-import { Fragment, useEffect, useId, useMemo, useState } from "react";
+import {
+  Fragment,
+  useEffect,
+  useId,
+  useMemo,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import { ArrowDown, ArrowUp, ChevronRight } from "lucide-react";
 import { PositionInspector } from "@/components/positions/PositionInspector";
 import {
   MoneyValue,
+  PriceValue,
   ShareValue,
   SignedValue,
   SideLabel,
   Sparkline,
+  TickerLabel,
   formatEntryDate,
 } from "@/components/positions/display";
 import {
+  CLOSED_PAGE_SIZE_STORAGE_KEY,
+  DEFAULT_CLOSED_PAGE_SIZE,
   DEFAULT_TABLE_PAGE_SIZE,
   paginate,
   type TablePageSize,
+  TABLE_PAGE_SIZES,
 } from "@/components/positions/pagination";
 import { TablePager } from "@/components/positions/TablePager";
 import { Badge } from "@/components/ui/Badge";
 import { cn } from "@/lib/utils/cn";
-import { formatPrice, formatQuantity } from "@/lib/utils/format";
+import { formatQuantity } from "@/lib/utils/format";
+import { groupLotsForBlotter } from "@/lib/positions/lot-groups";
+import { displayPositionTicker } from "@/lib/positions/option-symbol";
 import type { DailyClose, EnrichedPosition } from "@/lib/positions/types";
 
 type SortKey =
   | "ticker"
   | "side"
+  | "quantity"
   | "marketValue"
   | "weight"
   | "dayPnl"
@@ -34,7 +49,21 @@ type SortKey =
   | "change1w"
   | "change1m"
   | "entryDate"
-  | "closeDate";
+  | "closeDate"
+  | "mark"
+  | "closePrice";
+
+function readClosedPageSize(): TablePageSize {
+  if (typeof window === "undefined") return DEFAULT_CLOSED_PAGE_SIZE;
+  try {
+    const raw = Number(window.localStorage.getItem(CLOSED_PAGE_SIZE_STORAGE_KEY));
+    return TABLE_PAGE_SIZES.includes(raw as TablePageSize)
+      ? (raw as TablePageSize)
+      : DEFAULT_CLOSED_PAGE_SIZE;
+  } catch {
+    return DEFAULT_CLOSED_PAGE_SIZE;
+  }
+}
 
 function numeric(value: number | null | undefined) {
   return value == null || !Number.isFinite(value)
@@ -87,6 +116,7 @@ export function PositionsTable({
   variant = "open",
   privacy = "full",
   emptyMessage,
+  groupFills = false,
 }: {
   rows: EnrichedPosition[];
   selectedId: string | null;
@@ -103,6 +133,7 @@ export function PositionsTable({
   variant?: "open" | "closed";
   privacy?: "full" | "tape";
   emptyMessage?: string;
+  groupFills?: boolean;
 }) {
   const closed = variant === "closed";
   const tape = privacy === "tape";
@@ -111,16 +142,55 @@ export function PositionsTable({
     tape ? "dayPnl" : closed ? "closeDate" : "weight",
   );
   const [descending, setDescending] = useState(true);
-  const [pageSize, setPageSize] = useState<TablePageSize>(DEFAULT_TABLE_PAGE_SIZE);
+  const [pageSize, setPageSize] = useState<TablePageSize>(
+    closed ? DEFAULT_CLOSED_PAGE_SIZE : DEFAULT_TABLE_PAGE_SIZE,
+  );
   const [page, setPage] = useState(1);
-  const colSpan = tape ? 7 : closed ? 11 : 14;
+  const [wide, setWide] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const colSpan = tape ? 7 : closed ? 10 : 13;
 
-  const sorted = useMemo(() => {
-    const next = [...rows];
-    next.sort((a, b) => {
+  useEffect(() => {
+    if (!closed) return;
+    setPageSize(readClosedPageSize());
+  }, [closed]);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1280px)");
+    const sync = () => setWide(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape" && selectedId) onSelect(null);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onSelect, selectedId]);
+
+  const groups = useMemo(
+    () =>
+      groupFills && closed
+        ? groupLotsForBlotter(rows)
+        : rows.map((row) => ({ id: row.id, key: row.id, row, fills: [row] })),
+    [closed, groupFills, rows],
+  );
+
+  const sortedGroups = useMemo(() => {
+    const next = [...groups];
+    next.sort((left, right) => {
+      const a = left.row;
+      const b = right.row;
       let result = 0;
-      if (sortKey === "ticker") result = a.ticker.localeCompare(b.ticker);
+      if (sortKey === "ticker")
+        result = displayPositionTicker(a.ticker).localeCompare(
+          displayPositionTicker(b.ticker),
+        );
       if (sortKey === "side") result = a.side.localeCompare(b.side);
+      if (sortKey === "quantity") result = a.quantity - b.quantity;
       if (sortKey === "marketValue")
         result = numeric(a.marketValue) - numeric(b.marketValue);
       if (sortKey === "weight") result = numeric(a.weight) - numeric(b.weight);
@@ -137,6 +207,9 @@ export function PositionsTable({
         result = numeric(a.change1w.pnl) - numeric(b.change1w.pnl);
       if (sortKey === "change1m")
         result = numeric(a.change1m.pnl) - numeric(b.change1m.pnl);
+      if (sortKey === "mark") result = numeric(a.mark) - numeric(b.mark);
+      if (sortKey === "closePrice")
+        result = numeric(a.closePrice) - numeric(b.closePrice);
       if (sortKey === "entryDate")
         result = (a.entryDate ?? "").localeCompare(b.entryDate ?? "");
       if (sortKey === "closeDate") {
@@ -149,14 +222,29 @@ export function PositionsTable({
       return descending ? -result : result;
     });
     return next;
-  }, [closed, descending, rows, sortKey]);
+  }, [closed, descending, groups, sortKey]);
 
-  const pagedClosed = paginate(sorted, page, pageSize);
-  const paged = closed ? pagedClosed.items : sorted;
+  const pagedGroups = paginate(sortedGroups, page, pageSize);
+  const visibleGroups = closed ? pagedGroups.items : sortedGroups;
+  const selectedRow =
+    rows.find((row) => row.id === selectedId) ??
+    groups.find((group) => group.id === selectedId)?.row ??
+    null;
 
   useEffect(() => {
     setPage(1);
   }, [pageSize, sortKey, descending, rows.length]);
+
+  function changePageSize(next: TablePageSize) {
+    setPageSize(next);
+    if (closed) {
+      try {
+        window.localStorage.setItem(CLOSED_PAGE_SIZE_STORAGE_KEY, String(next));
+      } catch {
+        /* ignore */
+      }
+    }
+  }
 
   function toggleSort(next: SortKey) {
     if (sortKey === next) setDescending((value) => !value);
@@ -204,8 +292,26 @@ export function PositionsTable({
     );
   }
 
+  const paneInspector =
+    wide && selectedRow ? (
+      <aside className="sticky top-24 hidden w-[min(100%,24rem)] shrink-0 border-l border-[var(--ib-border-subtle)] bg-[var(--ib-surface-inset)] xl:block">
+        <PositionInspector
+          key={`${selectedRow.id}:${selectedRow.last}:${selectedRow.entryPrice}:${selectedRow.quantity}`}
+          row={selectedRow}
+          history={history[selectedRow.ticker.toUpperCase()] ?? []}
+          onClose={() => onSelect(null)}
+          onEdit={onEdit}
+          onClosePosition={onClosePosition}
+          closing={closing}
+          canEdit={canEdit && selectedRow.source !== "snaptrade" && !tape}
+          privacy={privacy}
+        />
+      </aside>
+    ) : null;
+
   return (
-    <div>
+    <div className={wide ? "xl:flex xl:items-start" : undefined}>
+    <div className="min-w-0 flex-1">
     <div
       className="w-full min-w-0 overflow-x-auto overscroll-x-contain terminal-scroll"
       tabIndex={0}
@@ -229,36 +335,20 @@ export function PositionsTable({
           <tr className="border-b border-[var(--ib-border-strong)] font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
             {header("ticker", "Ticker", "left")}
             {header("side", "Side", "left", "hidden md:table-cell")}
-            <th className="sticky top-0 z-10 hidden h-8 bg-[var(--ib-surface-2)] px-2.5 font-medium md:table-cell">
-              Qty
-            </th>
+            {header("quantity", "Qty", "left", "hidden md:table-cell")}
             {closed ? header("entryDate", "Date entered", "left") : null}
             <th className="sticky top-0 z-10 hidden h-8 bg-[var(--ib-surface-2)] px-2.5 text-right font-medium md:table-cell">
               Entry
             </th>
             {closed ? header("closeDate", "Date closed", "left") : null}
-            {closed ? (
-              <th className="sticky top-0 z-10 h-8 bg-[var(--ib-surface-2)] px-2.5 text-right font-medium">
-                Exit
-              </th>
-            ) : (
-              <th className="sticky top-0 z-10 h-8 bg-[var(--ib-surface-2)] px-2.5 text-right font-medium">
-                Last
-              </th>
-            )}
+            {closed
+              ? header("closePrice", "Exit")
+              : header("mark", "Last")}
             {tape || closed ? null : header("marketValue", "Mkt value", "right", "hidden md:table-cell")}
             {tape || closed ? null : header("weight", "Wt")}
             {closed ? null : header("dayPnl", "Day P&L")}
             {closed ? null : header("totalPnl", "Total P&L")}
             {tape ? null : header("realizedPnl", "Realized")}
-            {tape
-              ? null
-              : header(
-                  "returnPercent",
-                  "Return",
-                  "right",
-                  closed ? "hidden md:table-cell" : "hidden xl:table-cell",
-                )}
             {tape ? null : closed ? (
               <th className="sticky top-0 z-10 hidden h-8 bg-[var(--ib-surface-2)] px-2.5 text-right font-medium md:table-cell">
                 Hold
@@ -277,7 +367,7 @@ export function PositionsTable({
           </tr>
         </thead>
         <tbody>
-          {sorted.length === 0 ? (
+          {visibleGroups.length === 0 ? (
             <tr>
               <td
                 colSpan={colSpan}
@@ -290,20 +380,37 @@ export function PositionsTable({
               </td>
             </tr>
           ) : (
-            paged.map((row) => {
-              const selected = row.id === selectedId;
+            visibleGroups.map((group) => {
+              const row = group.row;
+              const fillCount = group.fills.length;
+              const expanded = expandedGroups.has(group.id);
+              const selected =
+                selectedId === row.id ||
+                selectedId === group.id ||
+                group.fills.some((fill) => fill.id === selectedId);
+              const inspectTarget =
+                group.fills.find((fill) => fill.id === selectedId) ??
+                (selectedId === group.id || selectedId === row.id ? row : null);
               const detailId = `position-lot-${row.id}`;
               function toggle() {
-                onSelect(selected ? null : row.id);
+                onSelect(selected && inspectTarget?.id === row.id ? null : row.id);
+              }
+              function onRowKey(event: ReactKeyboardEvent<HTMLTableRowElement>) {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  toggle();
+                }
               }
               return (
-                <Fragment key={row.id}>
+                <Fragment key={group.id}>
                 <tr
+                  tabIndex={0}
                   className={cn(
-                    "cursor-pointer border-b border-[var(--ib-border-subtle)] hover:bg-[var(--ib-surface-hover)]",
-                    selected && "bg-[var(--ib-surface-selected)]",
+                    "cursor-pointer border-b border-[var(--ib-border-subtle)] hover:bg-[var(--ib-surface-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--ib-maroon-500)]",
+                    selected && inspectTarget?.id === row.id && "bg-[var(--ib-surface-selected)]",
                   )}
                   onClick={toggle}
+                  onKeyDown={onRowKey}
                 >
                   <td className="h-[34px] px-2.5">
                     <button
@@ -324,13 +431,12 @@ export function PositionsTable({
                         )}
                       />
                       <span>
-                        <span className="block font-mono text-[13px] font-medium text-[var(--ib-text-primary)]">
-                          {row.ticker}
-                        </span>
+                        <TickerLabel ticker={row.ticker} />
                         <span className="block text-[10px] text-[var(--ib-text-muted)]">
                           <span className="md:hidden">
                             {row.side === "short" ? "Short · " : "Long · "}
                           </span>
+                          {fillCount > 1 ? `${fillCount} fills · ` : ""}
                           {row.source === "snaptrade"
                             ? row.brokerageName || "Brokerage"
                             : row.strategy || row.assetType}
@@ -338,6 +444,23 @@ export function PositionsTable({
                         </span>
                       </span>
                     </button>
+                    {fillCount > 1 ? (
+                      <button
+                        type="button"
+                        className="ml-6 text-[10px] text-[var(--ib-text-muted)] underline-offset-2 hover:underline"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setExpandedGroups((current) => {
+                            const next = new Set(current);
+                            if (next.has(group.id)) next.delete(group.id);
+                            else next.add(group.id);
+                            return next;
+                          });
+                        }}
+                      >
+                        {expanded ? "Hide fills" : `Show ${fillCount} fills`}
+                      </button>
+                    ) : null}
                   </td>
                   <td className="hidden px-2.5 md:table-cell">
                     <SideLabel side={row.side} />
@@ -355,8 +478,8 @@ export function PositionsTable({
                       {formatEntryDate(row.entryDate)}
                     </td>
                   ) : null}
-                  <td className="hidden px-2.5 text-right font-mono md:table-cell">
-                    {formatPrice(row.entryPrice, row.ticker)}
+                  <td className="hidden px-2.5 text-right md:table-cell">
+                    <PriceValue value={row.entryPrice} ticker={row.ticker} />
                     {closed ? null : (
                       <div className="text-[10px] text-[var(--ib-text-muted)]">
                         {formatEntryDate(row.entryDate)}
@@ -369,12 +492,15 @@ export function PositionsTable({
                     </td>
                   ) : null}
                   {closed ? (
-                    <td className="px-2.5 text-right font-mono">
-                      {formatPrice(row.closePrice, row.ticker)}
+                    <td className="px-2.5 text-right">
+                      <PriceValue
+                        value={row.closePrice ?? row.mark}
+                        ticker={row.ticker}
+                      />
                     </td>
                   ) : (
-                    <td className="px-2.5 text-right font-mono">
-                      {formatPrice(row.last, row.ticker)}
+                    <td className="px-2.5 text-right">
+                      <PriceValue value={row.last} ticker={row.ticker} />
                       {row.quoteStale ? (
                         <Badge tone="warn" className="ml-1">
                           Stale
@@ -430,11 +556,6 @@ export function PositionsTable({
                       </div>
                     </td>
                   )}
-                  {tape ? null : (
-                    <td className="hidden px-2.5 text-right xl:table-cell">
-                      <SignedValue value={row.returnPercent} kind="percent" />
-                    </td>
-                  )}
                   {tape ? null : closed ? (
                     <td className="hidden px-2.5 text-right font-mono md:table-cell">
                       {row.holdingDays == null ? "—" : `${row.holdingDays}d`}
@@ -453,23 +574,95 @@ export function PositionsTable({
                     <td className="hidden px-2.5 xl:table-cell">
                       <Sparkline
                         values={row.sparkline}
-                        label={`${row.ticker} cumulative P&L path`}
+                        label={`${displayPositionTicker(row.ticker)} cumulative P&L path`}
                       />
                     </td>
                   )}
                 </tr>
-                {selected ? (
-                  <tr className="border-b border-[var(--ib-border-subtle)] last:border-b-0">
+                {expanded && fillCount > 1
+                  ? group.fills.map((fill) => (
+                      <tr
+                        key={fill.id}
+                        tabIndex={0}
+                        className={cn(
+                          "cursor-pointer border-b border-[var(--ib-border-subtle)] bg-[var(--ib-surface-inset)] hover:bg-[var(--ib-surface-hover)]",
+                          selectedId === fill.id && "bg-[var(--ib-surface-selected)]",
+                        )}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onSelect(fill.id === selectedId ? null : fill.id);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            onSelect(fill.id === selectedId ? null : fill.id);
+                          }
+                        }}
+                      >
+                        <td className="h-[30px] px-2.5 pl-10 font-mono text-[11px] text-[var(--ib-text-muted)]">
+                          Fill · {formatQuantity(fill.quantity)}
+                        </td>
+                        <td className="hidden px-2.5 md:table-cell" />
+                        <td className="hidden px-2.5 font-mono text-[11px] md:table-cell">
+                          {formatQuantity(fill.quantity)}
+                        </td>
+                        {closed ? (
+                          <td className="px-2.5 font-mono text-[11px] text-[var(--ib-text-muted)]">
+                            {formatEntryDate(fill.entryDate)}
+                          </td>
+                        ) : null}
+                        <td className="hidden px-2.5 text-right md:table-cell">
+                          <PriceValue value={fill.entryPrice} ticker={fill.ticker} />
+                        </td>
+                        {closed ? (
+                          <td className="px-2.5 font-mono text-[11px] text-[var(--ib-text-muted)]">
+                            {formatEntryDate(fill.closeDate)}
+                          </td>
+                        ) : null}
+                        <td className="px-2.5 text-right">
+                          <PriceValue
+                            value={
+                              closed ? (fill.closePrice ?? fill.mark) : fill.last
+                            }
+                            ticker={fill.ticker}
+                          />
+                        </td>
+                        {tape || closed ? null : <td className="hidden md:table-cell" />}
+                        {tape || closed ? null : <td className="hidden xl:table-cell" />}
+                        {closed ? null : <td />}
+                        {closed ? null : <td />}
+                        {tape ? null : (
+                          <td className="px-2.5 text-right">
+                            <SignedValue
+                              value={closed ? fill.realizedPnl : fill.totalPnl}
+                              compact
+                            />
+                          </td>
+                        )}
+                        {tape ? null : closed ? (
+                          <td className="hidden md:table-cell" />
+                        ) : (
+                          <>
+                            <td className="hidden xl:table-cell" />
+                            <td className="hidden xl:table-cell" />
+                          </>
+                        )}
+                        {tape ? null : <td className="hidden xl:table-cell" />}
+                      </tr>
+                    ))
+                  : null}
+                {inspectTarget && !wide ? (
+                  <tr className="border-b border-[var(--ib-border-subtle)] last:border-b-0 xl:hidden">
                     <td colSpan={colSpan} className="p-0" id={detailId}>
                       <PositionInspector
-                        key={`${row.id}:${row.last}:${row.entryPrice}:${row.quantity}`}
-                        row={row}
-                        history={history[row.ticker.toUpperCase()] ?? []}
+                        key={`${inspectTarget.id}:${inspectTarget.last}:${inspectTarget.entryPrice}:${inspectTarget.quantity}`}
+                        row={inspectTarget}
+                        history={history[inspectTarget.ticker.toUpperCase()] ?? []}
                         onClose={() => onSelect(null)}
                         onEdit={onEdit}
                         onClosePosition={onClosePosition}
                         closing={closing}
-                        canEdit={canEdit && row.source !== "snaptrade" && !tape}
+                        canEdit={canEdit && inspectTarget.source !== "snaptrade" && !tape}
                         privacy={privacy}
                       />
                     </td>
@@ -484,16 +677,18 @@ export function PositionsTable({
     </div>
     {closed ? (
       <TablePager
-        total={sorted.length}
+        total={sortedGroups.length}
         page={page}
         pageSize={pageSize}
         pageSizeId={pageSizeId}
         navLabel="Past positions pages"
         pageSizeLabel="Past positions per page"
         onPageChange={setPage}
-        onPageSizeChange={setPageSize}
+        onPageSizeChange={changePageSize}
       />
     ) : null}
+    </div>
+    {paneInspector}
     </div>
   );
 }

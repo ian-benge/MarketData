@@ -170,12 +170,16 @@ export type PortfolioSummary = {
   cash: number | null;
   investedValue: number | null;
   portfolioValue: number | null;
-  /** 4× account value — intraday / day-trading buying power. */
+  /**
+   * Heuristic Reg-T multiples. Always null until a broker-sourced field exists.
+   * Kept on the type so older clients do not break; the UI must not display them.
+   */
   intradayBuyingPower: number | null;
-  /** 2× account value — overnight hold buying power. */
   overnightBuyingPower: number | null;
-  /** 1× cash — options buying power. */
   optionBuyingPower: number | null;
+  /** Closed-lot net P&L with closeDate equal to Chicago as-of date. */
+  realizedTodayPnl: number | null;
+  hitRateSampleSize: number;
   costBasis: number | null;
   closedCostBasis: number | null;
   unrealizedPnl: number | null;
@@ -183,6 +187,7 @@ export type PortfolioSummary = {
   realizedReturnPercent: number | null;
   closedHitRate: number | null;
   closedAverageHoldingDays: number | null;
+  closedAllOptions: boolean;
   totalPnl: number | null;
   /** Unrealized + gross realized, before commissions and account fees. */
   pnlBeforeFees: number | null;
@@ -256,6 +261,10 @@ export type PositionsSnapshot = {
   canEdit: boolean;
   /** True when the viewer must enter this owner's password to see account value, P&L, and closed lots. */
   ownerLocked: boolean;
+  /** How the book NAV was sourced. Cash fallback is labeled separately from broker equity. */
+  accountValueKind?: "broker" | "broker_cash" | "manual" | null;
+  /** False when this payload omitted closed lot rows (summary still includes closed aggregates). */
+  closedIncluded?: boolean;
   brokerage?: BrokerageSnapshot;
   error: string | null;
 };

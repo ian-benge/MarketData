@@ -28,7 +28,8 @@ export async function POST(request: Request) {
     );
     const snapshot = await buildPositionsSnapshot({
       user,
-      includeClosed: true,
+      includeClosed: !live,
+      includeHistory: false,
       ownerId: user.id,
       bookId,
     });

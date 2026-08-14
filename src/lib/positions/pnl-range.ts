@@ -1,4 +1,5 @@
 import { chicagoDateKey } from "@/lib/market-data/bars-window";
+import type { BookPnlWindow } from "./value-privacy";
 import type { PortfolioEvent, PortfolioPoint, PositionRecord } from "./types";
 
 export const PORTFOLIO_PNL_RANGES = ["1M", "3M", "6M", "YTD", "Max"] as const;
@@ -56,6 +57,51 @@ function carriedInto(
     });
   }
   return carried;
+}
+
+const BOOK_WINDOW_SESSIONS: Record<
+  Exclude<BookPnlWindow, "1d" | "ytd" | "max">,
+  number
+> = {
+  "1w": 5,
+  "1m": 21,
+  "3m": 63,
+};
+
+export function visiblePointsForBookWindow(
+  series: PortfolioPoint[],
+  window: BookPnlWindow,
+  asOf: string,
+): PortfolioPoint[] {
+  if (window === "max") return series;
+  if (window === "ytd") {
+    const start = ytdStart(asOf);
+    return series.filter((point) => point.date >= start);
+  }
+  if (window === "1d") {
+    const today = /^\d{4}-\d{2}-\d{2}/.test(asOf)
+      ? asOf.slice(0, 10)
+      : chicagoDateKey(asOf);
+    const todayPoints = series.filter((point) => point.date === today);
+    return todayPoints.length ? todayPoints : series.slice(-1);
+  }
+  return series.slice(-BOOK_WINDOW_SESSIONS[window]);
+}
+
+export function sliceSeriesForBookWindow(
+  series: PortfolioPoint[],
+  window: BookPnlWindow,
+  asOf: string,
+  positions: PositionRecord[] = [],
+): PortfolioPoint[] {
+  const visible = visiblePointsForBookWindow(series, window, asOf);
+  const firstDate = visible[0]?.date;
+  if (!firstDate) return visible;
+  const carried = carriedInto(positions, firstDate);
+  return visible.map((point, index) => ({
+    ...point,
+    carried: index === 0 ? carried : [],
+  }));
 }
 
 export function slicePortfolioSeries(

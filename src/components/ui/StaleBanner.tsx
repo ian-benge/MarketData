@@ -1,6 +1,8 @@
+"use client";
+
 import { Clock3 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
-import { formatMarketDateTime } from "@/lib/utils/format";
+import { ClientMarketTime } from "@/components/ui/ClientMarketTime";
 
 export function StaleBanner({
   asOf,
@@ -21,7 +23,7 @@ export function StaleBanner({
       <span>
         <strong className="font-medium">Stale market data.</strong>{" "}
         <span className="text-[var(--ib-text-secondary)]">
-          Last valid update {formatMarketDateTime(asOf, { seconds: true })}.
+          Last valid update <ClientMarketTime value={asOf} seconds />.
           Current values remain visible while the next safe refresh is
           attempted.
         </span>

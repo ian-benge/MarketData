@@ -35,6 +35,7 @@ export async function POST(request: Request) {
       user,
       positions,
       includeClosed: parsed.data.includeClosed !== false,
+      includeHistory: parsed.data.includeHistory === true,
       ownerId: parsed.data.ownerId,
       bookId: parsed.data.bookId,
       books: parsed.data.books,

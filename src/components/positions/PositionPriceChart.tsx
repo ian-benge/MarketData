@@ -10,7 +10,8 @@ import {
   type UTCTimestamp,
 } from "lightweight-charts";
 import { useTheme } from "@/components/providers/ThemeProvider";
-import { formatEntryDate } from "@/components/positions/display";
+import { formatEntryDate, HiddenValue } from "@/components/positions/display";
+import { useHideValues } from "@/components/positions/privacy-context";
 import { formatPrice } from "@/lib/utils/format";
 import { cn } from "@/lib/utils/cn";
 import type { DailyClose } from "@/lib/positions/types";
@@ -39,6 +40,7 @@ export function PositionPriceChart({
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const { resolved } = useTheme();
+  const hideValues = useHideValues();
 
   useEffect(() => {
     const node = containerRef.current;
@@ -140,7 +142,8 @@ export function PositionPriceChart({
       />
       <p className="mt-1.5 font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
         {ticker} daily · {formatEntryDate(first)} → {formatEntryDate(latest)} · last{" "}
-        {formatPrice(last, ticker)} · entry {formatPrice(entryPrice, ticker)}
+        {hideValues ? <HiddenValue /> : formatPrice(last, ticker)} · entry{" "}
+        {hideValues ? <HiddenValue /> : formatPrice(entryPrice, ticker)}
       </p>
     </div>
   );

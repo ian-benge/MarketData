@@ -1,14 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Panel";
 import { PortfolioPnlChart } from "@/components/positions/PortfolioPnlChart";
-import {
-  BookPnlWindowToggle,
-  PositionsValuePrivacyToggle,
-} from "@/components/positions/PositionsPrivacy";
+import { BookPnlWindowToggle } from "@/components/positions/PositionsPrivacy";
 import {
   useHideValues,
   usePositionsPrivacy,
@@ -21,13 +18,13 @@ import {
   toneClass,
 } from "@/components/positions/display";
 import { cn } from "@/lib/utils/cn";
+import { displayPositionTicker } from "@/lib/positions/option-symbol";
 import { formatCurrency, formatSignedPercent, formatQuantity } from "@/lib/utils/format";
 import {
   BOOK_PNL_WINDOW_LABELS,
   bookPnlForWindow,
-  bookPnlWindowHint,
 } from "@/lib/positions/value-privacy";
-import type { PositionsSnapshot } from "@/lib/positions/types";
+import type { NamedContributor, PositionsSnapshot } from "@/lib/positions/types";
 
 function Metric({
   label,
@@ -58,6 +55,43 @@ function Metric({
           {hint}
         </p>
       ) : null}
+    </div>
+  );
+}
+
+function ContributorList({
+  label,
+  rows,
+}: {
+  label: string;
+  rows: NamedContributor[];
+}) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[11px] text-[var(--ib-text-muted)]">{label}</p>
+      <ul className="mt-1.5 space-y-2">
+        {rows.length ? (
+          rows.map((row) => (
+            <li
+              key={row.id}
+              className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 gap-y-0.5 font-mono text-[12px]"
+            >
+              <span
+                className="min-w-0 truncate text-[var(--ib-text-primary)]"
+                title={row.ticker}
+              >
+                {displayPositionTicker(row.ticker)}
+              </span>
+              <SignedValue value={row.pnl} compact className="justify-self-end" />
+              <span className="col-start-1">
+                <SideLabel side={row.side} />
+              </span>
+            </li>
+          ))
+        ) : (
+          <li className="text-[12px] text-[var(--ib-text-muted)]">None</li>
+        )}
+      </ul>
     </div>
   );
 }
@@ -200,6 +234,16 @@ function PositionsMetricsStripInner({
   const hasAccountValue = snapshot.accountValue != null;
   const activeBook = snapshot.books.find((book) => book.id === snapshot.bookId);
   const brokerageBook = activeBook?.source === "snaptrade";
+  const accountHint =
+    snapshot.accountValueKind === "broker_cash"
+      ? "Cash balance (broker)"
+      : snapshot.accountValueKind === "broker" || brokerageBook
+        ? summary.openCount === 0
+          ? "Account (broker) · cash ≈ NAV"
+          : "Account (broker)"
+        : summary.accountValue != null
+          ? "Account (manual)"
+          : "Set account value to include cash";
   const canEditAccount =
     Boolean(snapshot.canEdit && onAccountValueChange) && !brokerageBook;
   const [draft, setDraft] = useState(
@@ -231,27 +275,20 @@ function PositionsMetricsStripInner({
   return (
     <Panel
       title="Book snapshot"
-      description="Portfolio value, exposure, P&L, and buying power. Enter total account value (including cash) to size weights, cash, and margin."
+      description="NAV, cash, exposure, and fee-aware P&L."
       actions={
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <PositionsValuePrivacyToggle />
-          {snapshot.usingFixtures ? null : snapshot.stale ? (
-            <Badge tone="warn">Stale</Badge>
-          ) : (
-            <Badge tone="info">{snapshot.latencyCoverageLabel}</Badge>
-          )}
-        </div>
+        snapshot.usingFixtures ? (
+          <Badge tone="mock">Mock data</Badge>
+        ) : snapshot.stale ? (
+          <Badge tone="warn">Stale</Badge>
+        ) : undefined
       }
       bodyClassName="p-0"
     >
       <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6">
         <Metric
           label="Portfolio"
-          hint={
-            summary.accountValue != null
-              ? "Account value incl. cash"
-              : "Set account value to include cash"
-          }
+          hint={accountHint}
         >
           <MoneyValue value={summary.portfolioValue} compact />
         </Metric>
@@ -316,11 +353,7 @@ function PositionsMetricsStripInner({
                 ? "P&L (before fees)"
                 : `P&L (${BOOK_PNL_WINDOW_LABELS[pnlWindow]})`
             }
-            hint={
-              lifetimeWindow
-                ? "Unrealized + realized, commissions excluded"
-                : bookPnlWindowHint(pnlWindow)
-            }
+            hint={windowed.hint}
           >
             <div className="flex flex-wrap items-baseline gap-x-2">
               <SignedValue value={windowed.beforeFees} compact />
@@ -336,9 +369,26 @@ function PositionsMetricsStripInner({
           {lifetimeWindow ? (
             <Metric
               label="Total P&L (with fees)"
-              hint="Net result after commissions and account fees"
+              hint={
+                windowed.percentBase === "nav"
+                  ? "Net vs account NAV"
+                  : windowed.percentBase === "premium"
+                    ? "Net vs premium, not TWR"
+                    : windowed.percentBase === "cost"
+                      ? "Net vs cost, not TWR"
+                      : "Net result after commissions and account fees"
+              }
             >
-              <SignedValue value={windowed.afterFees} compact />
+              <div className="flex flex-wrap items-baseline gap-x-2">
+                <SignedValue value={windowed.afterFees} compact />
+                {windowed.percent == null ? null : (
+                  <SignedValue
+                    value={windowed.percent}
+                    kind="percent"
+                    className="text-[12px] sm:text-[13px]"
+                  />
+                )}
+              </div>
             </Metric>
           ) : null}
           <Metric
@@ -357,40 +407,6 @@ function PositionsMetricsStripInner({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 border-t border-[var(--ib-border-subtle)] sm:grid-cols-3">
-        <Metric
-          label="Intraday BP"
-          hint={
-            summary.intradayBuyingPower == null
-              ? "4× account · set account value"
-              : "4× account value"
-          }
-        >
-          <MoneyValue value={summary.intradayBuyingPower} compact />
-        </Metric>
-        <Metric
-          label="Overnight BP"
-          hint={
-            summary.overnightBuyingPower == null
-              ? "2× account · set account value"
-              : "2× account value"
-          }
-        >
-          <MoneyValue value={summary.overnightBuyingPower} compact />
-        </Metric>
-        <Metric
-          label="Option BP"
-          hint={
-            summary.optionBuyingPower == null
-              ? "1× cash · set account value"
-              : "1× cash"
-          }
-          className="sm:last:border-r-0"
-        >
-          <MoneyValue value={summary.optionBuyingPower} compact />
-        </Metric>
-      </div>
-
       {brokerageBook ? (
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--ib-border-subtle)] px-3 py-2">
           <p className="text-[12px] text-[var(--ib-text-secondary)]">
@@ -406,7 +422,7 @@ function PositionsMetricsStripInner({
             </span>
             <span className="ml-2 text-[11px] text-[var(--ib-text-muted)]">
               {hasAccountValue
-                ? `From ${activeBook?.brokerageName || "brokerage"}`
+                ? accountHint
                 : "No holdings and $0 in this brokerage account yet"}
             </span>
           </p>
@@ -561,15 +577,21 @@ export function PastPositionsMetrics({
       <Metric label="Closed lots" hint="Fully exited sleeves">
         {summary.closedCount}
       </Metric>
-      <Metric label="Hit rate" hint="Winning closed lots">
-        {summary.closedHitRate == null
+      <Metric
+        label="Hit rate"
+        hint={
+          summary.hitRateSampleSize
+            ? `${summary.hitRateSampleSize} closed lots · expectancy ${
+                summary.closedCount && summary.realizedPnl != null
+                  ? "in inspector"
+                  : "n/a"
+              }`
+            : "Winning closed lots"
+        }
+      >
+        {summary.closedHitRate == null && summary.hitRate == null
           ? "—"
-          : `${summary.closedHitRate.toFixed(0)}%`}
-      </Metric>
-      <Metric label="Avg hold" hint="Calendar days to exit">
-        {summary.closedAverageHoldingDays == null
-          ? "—"
-          : `${Math.round(summary.closedAverageHoldingDays)}d`}
+          : `${(summary.closedHitRate ?? summary.hitRate)!.toFixed(0)}% of ${summary.hitRateSampleSize || summary.closedCount} lots`}
       </Metric>
     </div>
   );
@@ -581,12 +603,30 @@ export function PositionsAttribution({
   snapshot: PositionsSnapshot;
 }) {
   const summary = snapshot.summary;
+  const [open, setOpen] = useState(true);
+
+  useEffect(() => {
+    setOpen(window.matchMedia("(min-width: 1024px)").matches);
+  }, []);
+
   return (
     <Panel
       title="Exposure & attribution"
-      description="Long/short mix, top contributors, and the book P&L path. Widen the window with 1M–Max."
+      description="Long/short mix, top contributors, and the book P&L path from fills."
       bodyClassName="p-0"
+      actions={
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+          className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)] hover:text-[var(--ib-text-primary)]"
+        >
+          {open ? "Hide" : "Show"}
+        </button>
+      }
     >
+      {open ? (
+      <>
       <div className="grid gap-0 lg:grid-cols-2">
         <div className="border-b border-[var(--ib-border-subtle)] p-3 lg:border-b-0 lg:border-r">
           <p className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
@@ -618,7 +658,9 @@ export function PositionsAttribution({
             <div>
               <dt className="text-[var(--ib-text-muted)]">Quoted</dt>
               <dd className="font-mono">
-                {summary.quotedCount}/{summary.openCount}
+                {summary.openCount === 0
+                  ? "—"
+                  : `${summary.quotedCount}/${summary.openCount} open`}
               </dd>
             </div>
             <div>
@@ -636,7 +678,9 @@ export function PositionsAttribution({
             <div>
               <dt className="text-[var(--ib-text-muted)]">Hit rate</dt>
               <dd className="font-mono">
-                {summary.hitRate == null ? "—" : `${summary.hitRate.toFixed(0)}%`}
+                {summary.hitRate == null
+                  ? "—"
+                  : `${summary.hitRate.toFixed(0)}% of ${summary.hitRateSampleSize}`}
               </dd>
             </div>
             <div>
@@ -678,49 +722,9 @@ export function PositionsAttribution({
           <p className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
             Contributors
           </p>
-          <div className="mt-3 grid grid-cols-2 gap-3">
-            <div>
-              <p className="text-[11px] text-[var(--ib-text-muted)]">Winners</p>
-              <ul className="mt-1 space-y-1">
-                {summary.winners.length ? (
-                  summary.winners.map((row) => (
-                    <li
-                      key={row.id}
-                      className="flex items-center justify-between gap-2 font-mono text-[12px]"
-                    >
-                      <span className="flex items-center gap-1.5">
-                        {row.ticker}
-                        <SideLabel side={row.side} />
-                      </span>
-                      <SignedValue value={row.pnl} compact />
-                    </li>
-                  ))
-                ) : (
-                  <li className="text-[12px] text-[var(--ib-text-muted)]">None</li>
-                )}
-              </ul>
-            </div>
-            <div>
-              <p className="text-[11px] text-[var(--ib-text-muted)]">Losers</p>
-              <ul className="mt-1 space-y-1">
-                {summary.losers.length ? (
-                  summary.losers.map((row) => (
-                    <li
-                      key={row.id}
-                      className="flex items-center justify-between gap-2 font-mono text-[12px]"
-                    >
-                      <span className="flex items-center gap-1.5">
-                        {row.ticker}
-                        <SideLabel side={row.side} />
-                      </span>
-                      <SignedValue value={row.pnl} compact />
-                    </li>
-                  ))
-                ) : (
-                  <li className="text-[12px] text-[var(--ib-text-muted)]">None</li>
-                )}
-              </ul>
-            </div>
+          <div className="mt-3 space-y-4">
+            <ContributorList label="Winners" rows={summary.winners} />
+            <ContributorList label="Losers" rows={summary.losers} />
           </div>
           {summary.byStrategy.length ? (
             <ul className="mt-3 space-y-1 border-t border-[var(--ib-border-subtle)] pt-2">
@@ -752,6 +756,8 @@ export function PositionsAttribution({
           asOf={snapshot.asOf}
         />
       </div>
+      </>
+      ) : null}
     </Panel>
   );
 }

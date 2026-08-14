@@ -154,7 +154,7 @@ describe("position math", () => {
     expect(summary.closedCostBasis).toBeCloseTo(11_750);
     expect(summary.realizedReturnPercent).toBeCloseTo(4.297, 2);
     expect(summary.closedHitRate).toBe(100);
-    expect(summary.winners.map((row) => row.ticker)).toContain("SPY");
+    expect(summary.winners.map((row) => row.ticker)).toContain("QQQ");
     expect(summary.portfolioValue).toBeCloseTo(5_624);
     expect(summary.cash).toBeNull();
 
@@ -165,10 +165,49 @@ describe("position math", () => {
     expect(funded.investedValue).toBeCloseTo(5_624);
     expect(funded.cash).toBeCloseTo(14_376);
     expect(funded.portfolioValue).toBe(20_000);
-    expect(funded.intradayBuyingPower).toBe(80_000);
-    expect(funded.overnightBuyingPower).toBe(40_000);
-    expect(funded.optionBuyingPower).toBeCloseTo(14_376);
+    expect(funded.intradayBuyingPower).toBeNull();
+    expect(funded.overnightBuyingPower).toBeNull();
+    expect(funded.optionBuyingPower).toBeNull();
     expect(funded.dayPercent).toBeCloseTo(((562.4 - 560.1) * 10) / 20_000 * 100, 4);
+  });
+
+  it("sets cash equal to NAV when there are no open longs", () => {
+    const closed = enrichPosition(
+      position({
+        ticker: "MSFT260202C00430000",
+        assetType: "option",
+        side: "short",
+        quantity: 1,
+        multiplier: 100,
+        entryPrice: 1.06,
+        status: "closed",
+        closePrice: 1.32,
+        closeDate: "2026-02-02",
+        fees: 1.32,
+      }),
+      undefined,
+      undefined,
+      "2026-08-13T15:00:00.000Z",
+    );
+    const summary = summarizePositions([closed], "2026-08-13T15:00:00.000Z", 1.28);
+    expect(summary.openCount).toBe(0);
+    expect(summary.longExposure).toBeNull();
+    expect(summary.cash).toBeCloseTo(1.28);
+    expect(summary.portfolioValue).toBe(1.28);
+    expect(summary.intradayBuyingPower).toBeNull();
+  });
+
+  it("does not inflate cash by short market value", () => {
+    const short = enrichPosition(
+      position({ ticker: "TLT", side: "short", quantity: 10, entryPrice: 100 }),
+      quote(90, 95),
+      undefined,
+      "2026-08-13T15:00:00.000Z",
+    );
+    const summary = summarizePositions([short], "2026-08-13T15:00:00.000Z", 20_000);
+    expect(summary.shortExposure).toBeCloseTo(900);
+    expect(summary.longExposure).toBeNull();
+    expect(summary.cash).toBe(20_000);
   });
 
   it("nets brokerage fees out of realized and total P&L", () => {
@@ -289,27 +328,73 @@ describe("position math", () => {
     expect(buildPositionActivity([])).toEqual([]);
   });
 
-  it("builds a cumulative book series without filling missing days as zero trades", () => {
-    const long = position({ ticker: "NVDA", side: "long", quantity: 10, entryPrice: 100 });
-    const closes = new Map<string, DailyClose[]>([
-      [
-        "NVDA",
-        [
-          { date: "2026-08-11", close: 100 },
-          { date: "2026-08-12", close: 110 },
-          { date: "2026-08-13", close: 105 },
-        ],
-      ],
+  it("builds a cumulative book series from fill cashflows, not equity bars", () => {
+    const closed = position({
+      ticker: "MSFT260202C00430000",
+      assetType: "option",
+      side: "short",
+      quantity: 1,
+      multiplier: 100,
+      entryPrice: 1.06,
+      entryDate: "2026-02-02",
+      status: "closed",
+      closePrice: 1.32,
+      closeDate: "2026-02-02",
+      fees: 1.32,
+    });
+    const later = position({
+      id: "pos-later",
+      ticker: "NVDA260203P00100000",
+      assetType: "option",
+      side: "long",
+      quantity: 1,
+      multiplier: 100,
+      entryPrice: 2,
+      entryDate: "2026-02-03",
+      status: "closed",
+      closePrice: 1.5,
+      closeDate: "2026-02-03",
+      fees: 1,
+    });
+    const series = buildPortfolioSeries([closed, later], new Map());
+    expect(series.map((point) => point.date)).toEqual([
+      "2026-02-02",
+      "2026-02-03",
     ]);
-    const series = buildPortfolioSeries([long], closes);
-    expect(series.map((point) => point.dayPnl)).toEqual([0, 100, -50]);
-    expect(series.at(-1)?.cumulativePnl).toBe(50);
-    expect(series[0]?.carried.map((event) => event.ticker)).toEqual(["NVDA"]);
-    expect(series[0]?.openCount).toBe(1);
-    expect(series[1]?.leader).toEqual({ ticker: "NVDA", pnl: 100 });
+    const first = signedPricePnl(1.32, 1.06, 1, 100, "short")! - 1.32;
+    const second = signedPricePnl(1.5, 2, 1, 100, "long")! - 1;
+    expect(series[0]?.dayPnl).toBeCloseTo(first);
+    expect(series[1]?.dayPnl).toBeCloseTo(second);
+    expect(series.at(-1)?.cumulativePnl).toBeCloseTo(first + second);
   });
 
-  it("marks opens and closes on the first session on or after the lot date", () => {
+  it("adds marked open lots onto the as-of point", () => {
+    const open = position({ ticker: "AAPL", side: "long", quantity: 10, entryPrice: 100 });
+    const quotes = new Map([
+      [
+        "AAPL",
+        {
+          ticker: "AAPL",
+          last: 110,
+          priorClose: 108,
+          open: 108,
+          changeAbsolute: 2,
+          changePercent: 1.85,
+          currency: "USD",
+          stale: false,
+        },
+      ],
+    ]);
+    const series = buildPortfolioSeries([open], new Map(), {
+      quotes,
+      asOf: "2026-08-13T15:00:00.000Z",
+    });
+    expect(series.at(-1)?.date).toBe("2026-08-13");
+    expect(series.at(-1)?.dayPnl).toBe(100);
+    expect(series.at(-1)?.cumulativePnl).toBe(100);
+  });
+
+  it("marks opens and closes on the fill dates", () => {
     const row = position({
       ticker: "QQQ",
       side: "long",
@@ -320,30 +405,19 @@ describe("position math", () => {
       closeDate: "2026-08-13",
       closePrice: 110,
     });
-    const series = buildPortfolioSeries(
-      [row],
-      new Map([
-        [
-          "QQQ",
-          [
-            { date: "2026-08-11", close: 100 },
-            { date: "2026-08-12", close: 108 },
-            { date: "2026-08-13", close: 110 },
-          ],
-        ],
-      ]),
-    );
-    expect(series[1]?.events).toEqual([
+    const series = buildPortfolioSeries([row], new Map());
+    expect(series[0]?.date).toBe("2026-08-12");
+    expect(series[0]?.events).toEqual([
       expect.objectContaining({ kind: "opened", ticker: "QQQ" }),
     ]);
-    expect(series[2]?.events).toEqual([
+    expect(series[1]?.events).toEqual([
       expect.objectContaining({ kind: "closed", ticker: "QQQ" }),
     ]);
-    expect(series[2]?.openCount).toBe(0);
-    expect(series[1]?.leader?.ticker).toBe("QQQ");
+    expect(series[1]?.openCount).toBe(0);
+    expect(series[1]?.dayPnl).toBe(100);
   });
 
-  it("does not pin lots that closed before the plotted window onto the first bar", () => {
+  it("includes a close that sits before any equity-bar window", () => {
     const row = position({
       ticker: "QQQ",
       side: "long",
@@ -354,53 +428,9 @@ describe("position math", () => {
       closeDate: "2026-08-05",
       closePrice: 110,
     });
-    const series = buildPortfolioSeries(
-      [row],
-      new Map([
-        [
-          "QQQ",
-          [
-            { date: "2026-08-11", close: 100 },
-            { date: "2026-08-12", close: 108 },
-            { date: "2026-08-13", close: 110 },
-          ],
-        ],
-      ]),
-    );
-    expect(series.every((point) => point.events.length === 0)).toBe(true);
-    expect(series[0]?.carried).toEqual([]);
-    expect(series.every((point) => point.openCount === 0)).toBe(true);
-  });
-
-  it("carries lots opened before the window and marks a close inside it", () => {
-    const row = position({
-      ticker: "QQQ",
-      side: "long",
-      quantity: 10,
-      entryPrice: 100,
-      entryDate: "2026-05-06",
-      status: "closed",
-      closeDate: "2026-08-12",
-      closePrice: 110,
-    });
-    const series = buildPortfolioSeries(
-      [row],
-      new Map([
-        [
-          "QQQ",
-          [
-            { date: "2026-08-11", close: 108 },
-            { date: "2026-08-12", close: 110 },
-            { date: "2026-08-13", close: 111 },
-          ],
-        ],
-      ]),
-    );
-    expect(series[0]?.carried.map((event) => event.ticker)).toEqual(["QQQ"]);
-    expect(series[1]?.events).toEqual([
-      expect.objectContaining({ kind: "closed", ticker: "QQQ" }),
-    ]);
-    expect(series[2]?.openCount).toBe(0);
+    const series = buildPortfolioSeries([row], new Map());
+    expect(series.some((point) => point.date === "2026-08-05")).toBe(true);
+    expect(series.find((point) => point.date === "2026-08-05")?.dayPnl).toBe(100);
   });
 
   it("does not treat a position as open before entry or after close", () => {

@@ -29,12 +29,14 @@ export async function GET(request: Request) {
   try {
     const user = await requirePermission("viewDashboard");
     const url = new URL(request.url);
-    const includeClosed = url.searchParams.get("includeClosed") !== "0";
+    const includeClosed = url.searchParams.get("includeClosed") === "1";
+    const includeHistory = url.searchParams.get("includeHistory") === "1";
     const ownerId = url.searchParams.get("owner") ?? undefined;
     const bookId = url.searchParams.get("book") ?? undefined;
     const snapshot = await buildPositionsSnapshot({
       user,
       includeClosed,
+      includeHistory,
       ownerId,
       bookId,
     });
@@ -63,8 +65,12 @@ export async function POST(request: Request) {
       });
     }
 
-    const { ownerId: requestedOwnerId, bookId: requestedBookId, ...parsedInput } =
-      parsed.data;
+    const {
+      ownerId: requestedOwnerId,
+      bookId: requestedBookId,
+      confirmManualOnBrokerageBook,
+      ...parsedInput
+    } = parsed.data;
     const ownerId = requestedOwnerId ?? user.id;
     if (!canEditPositionBook(user, ownerId)) {
       return jsonError("You can only add positions to your own book.", 403);
@@ -92,6 +98,7 @@ export async function POST(request: Request) {
       input,
       ownerId,
       requestedBookId,
+      { confirmManualOnBrokerageBook },
     );
     const snapshot = await buildPositionsSnapshot({
       user,

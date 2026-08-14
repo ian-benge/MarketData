@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Plus } from "lucide-react";
+import { MoreHorizontal, Plus } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { ClientMarketTime } from "@/components/ui/ClientMarketTime";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { StaleBanner } from "@/components/ui/StaleBanner";
 import { StatePanel } from "@/components/ui/StatePanel";
-import { BrokerageConnect } from "@/components/positions/BrokerageConnect";
+import { BrokerageConnect, type BrokerageConnectHandle } from "@/components/positions/BrokerageConnect";
 import { PositionFormDialog, type PositionFormValues } from "@/components/positions/PositionFormDialog";
 import { PositionActivity } from "@/components/positions/PositionActivity";
 import {
@@ -22,11 +23,13 @@ import { OwnerUnlockPanel } from "@/components/positions/OwnerUnlockPanel";
 import { PositionsBookTabs } from "@/components/positions/PositionsBookTabs";
 import { PositionsTable } from "@/components/positions/PositionsTable";
 import { PositionsPrivacyProvider } from "@/components/positions/privacy-context";
+import { PositionsValuePrivacyToggle } from "@/components/positions/PositionsPrivacy";
 import {
   applyAccountValueToSnapshot,
   toPositionRecord,
 } from "@/lib/positions/assemble";
 import { applyCloseToBook, PositionCloseError } from "@/lib/positions/close";
+import { mergePolledSnapshot, positionsCoverageCopy } from "@/lib/positions/coverage";
 import { buildPositionActivity } from "@/lib/positions/math";
 import { UNASSIGNED_OWNER_ID, snapshotBelongsToView } from "@/lib/positions/owners";
 import type {
@@ -35,9 +38,11 @@ import type {
   PositionsSnapshot,
 } from "@/lib/positions/types";
 import type { BrokerageSnapshot } from "@/lib/brokerage/types";
-import { formatMarketDateTime, formatQuantity } from "@/lib/utils/format";
+import { formatQuantity } from "@/lib/utils/format";
+import { displayPositionTicker } from "@/lib/positions/option-symbol";
 
 const POLL_MS = 15_000;
+const CLOSED_REFRESH_MS = 10 * 60 * 1000;
 
 type SideFilter = "all" | "long" | "short";
 
@@ -51,6 +56,7 @@ function matchesPositionFilters(
   if (!needle) return true;
   return (
     row.ticker.includes(needle) ||
+    displayPositionTicker(row.ticker).toUpperCase().includes(needle) ||
     (row.strategy ?? "").toUpperCase().includes(needle) ||
     (row.notes ?? "").toUpperCase().includes(needle)
   );
@@ -87,6 +93,9 @@ export function PositionsWorkspace({
   const [side, setSide] = useState<SideFilter>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [formMode, setFormMode] = useState<"add" | "edit" | null>(null);
+  const [confirmBrokerageAdd, setConfirmBrokerageAdd] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [showFillTape, setShowFillTape] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [closing, setClosing] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
@@ -97,6 +106,9 @@ export function PositionsWorkspace({
   } | null>(null);
 
   const viewedOwnerRef = useRef(initial.ownerId);
+  const snapshotRef = useRef(snapshot);
+  snapshotRef.current = snapshot;
+  const brokerageRef = useRef<BrokerageConnectHandle | null>(null);
   const [viewerBrokerage, setViewerBrokerage] = useState<
     BrokerageSnapshot | undefined
   >(() =>
@@ -167,6 +179,7 @@ export function PositionsWorkspace({
       body: JSON.stringify({
         positions: nextBook,
         includeClosed: true,
+        includeHistory: false,
         ownerId,
         bookId,
         books,
@@ -358,6 +371,7 @@ export function PositionsWorkspace({
           body: JSON.stringify({
             positions: book,
             includeClosed: true,
+            includeHistory: false,
             ownerId: snapshot.ownerId,
             bookId: snapshot.bookId,
             books: snapshot.books,
@@ -401,6 +415,44 @@ export function PositionsWorkspace({
       if (ownerId !== snapshot.ownerId) return;
       try {
         const params = new URLSearchParams({
+          owner: ownerId,
+        });
+        if (snapshot.bookId) params.set("book", snapshot.bookId);
+        const response = await fetch(`/api/positions?${params}`, {
+          cache: "no-store",
+        });
+        if (!response.ok || cancelled) return;
+        const next = (await response.json()) as PositionsSnapshot;
+        if (cancelled || !snapshotBelongsToView(next, viewedOwnerRef.current)) {
+          return;
+        }
+        const merged = mergePolledSnapshot(snapshotRef.current, next);
+        setSnapshot(merged);
+        if (!merged.ownerLocked) {
+          rememberLots(merged.bookId || merged.ownerId, recordsFromSnapshot(merged));
+        }
+      } catch {
+        /* keep last valid snapshot */
+      }
+    }
+    const timeout = window.setTimeout(pull, 2_000);
+    const interval = window.setInterval(pull, POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+      window.clearInterval(interval);
+    };
+  }, [demo, snapshot.bookId, snapshot.ownerId, snapshot.ownerLocked, snapshot.persistence]);
+
+  useEffect(() => {
+    if (demo || snapshot.persistence !== "supabase") return;
+    let cancelled = false;
+    async function pullClosed() {
+      if (document.visibilityState === "hidden") return;
+      const ownerId = viewedOwnerRef.current;
+      if (ownerId !== snapshot.ownerId) return;
+      try {
+        const params = new URLSearchParams({
           includeClosed: "1",
           owner: ownerId,
         });
@@ -421,12 +473,17 @@ export function PositionsWorkspace({
         /* keep last valid snapshot */
       }
     }
-    const timeout = window.setTimeout(pull, 2_000);
-    const interval = window.setInterval(pull, POLL_MS);
+    function onVisible() {
+      if (document.visibilityState === "visible") void pullClosed();
+    }
+    const interval = window.setInterval(pullClosed, CLOSED_REFRESH_MS);
+    window.addEventListener("focus", onVisible);
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       cancelled = true;
-      window.clearTimeout(timeout);
       window.clearInterval(interval);
+      window.removeEventListener("focus", onVisible);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [demo, snapshot.bookId, snapshot.ownerId, snapshot.ownerLocked, snapshot.persistence]);
 
@@ -449,6 +506,7 @@ export function PositionsWorkspace({
           notes: values.notes || null,
           ownerId: snapshot.ownerId,
           bookId: snapshot.bookId || undefined,
+          confirmManualOnBrokerageBook: confirmBrokerageAdd || undefined,
         }),
       });
       const payload = (await response.json()) as {
@@ -873,6 +931,21 @@ export function PositionsWorkspace({
     }
   }
 
+  const activeBookRow = snapshot.books.find((row) => row.id === snapshot.bookId);
+  const snaptradeBook = activeBookRow?.source === "snaptrade";
+  const flatBook =
+    !snapshot.ownerLocked &&
+    displaySnapshot.summary.openCount === 0 &&
+    displaySnapshot.summary.closedCount > 0;
+  const emptyBook =
+    displaySnapshot.summary.openCount === 0 &&
+    displaySnapshot.summary.closedCount === 0;
+  const sameDayRoundTrips =
+    flatBook && (displaySnapshot.summary.closedAverageHoldingDays ?? 0) < 1;
+  const coverage = positionsCoverageCopy(displaySnapshot);
+  const primaryRows = flatBook ? closedRows : openRows;
+  const secondaryClosed = flatBook ? [] : closedRows;
+
   if (snapshot.persistence === "unavailable" && !snapshot.usingFixtures) {
     return (
       <StatePanel
@@ -890,13 +963,14 @@ export function PositionsWorkspace({
     <PositionsPrivacyProvider>
     <div className="min-w-0 space-y-3">
       <PageHeader
-        eyebrow="Portfolio monitor"
         title="Positions"
-        description="Per-user blotters with live marks, exposure, and P&L. Add lots by hand or connect a brokerage."
+        className="mb-2"
         actions={
           unassignedLocked ? undefined : (
           <div className="flex flex-wrap items-center gap-2">
+            <PositionsValuePrivacyToggle />
             <BrokerageConnect
+              ref={brokerageRef}
               brokerage={
                 viewerBrokerage ??
                 (snapshot.ownerId === snapshot.viewerId
@@ -906,7 +980,6 @@ export function PositionsWorkspace({
               canManage={snapshot.canEdit && snapshot.ownerId === snapshot.viewerId}
               headless={snapshot.ownerId !== snapshot.viewerId}
               busy={submitting || closing || bookBusy}
-              usingFixtures={snapshot.usingFixtures}
               bookId={
                 snapshot.ownerId === snapshot.viewerId
                   ? snapshot.bookId
@@ -939,17 +1012,55 @@ export function PositionsWorkspace({
                   void loadNamedBook(next.ownerId, keepBookId);
                   return;
                 }
-                const resolved = { ...next, bookId: keepBookId };
+                const resolved = mergePolledSnapshot(snapshotRef.current, {
+                  ...next,
+                  bookId: keepBookId,
+                });
                 setSnapshot(resolved);
               }}
               onFeedback={setFeedback}
             />
-            {snapshot.ownerId === snapshot.viewerId && snapshot.canEdit ? (
+            {snapshot.ownerId === snapshot.viewerId && snapshot.canEdit && !snaptradeBook ? (
               <Button variant="primary" size="sm" onClick={() => setFormMode("add")}>
                 <Plus aria-hidden="true" className="size-3.5" />
                 Add position
               </Button>
-            ) : (
+            ) : snapshot.ownerId === snapshot.viewerId && snapshot.canEdit && snaptradeBook ? (
+              <div className="relative">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-expanded={moreOpen}
+                  aria-haspopup="menu"
+                  onClick={() => setMoreOpen((value) => !value)}
+                >
+                  <MoreHorizontal aria-hidden="true" className="size-3.5" />
+                  More
+                </Button>
+                {moreOpen ? (
+                  <div
+                    role="menu"
+                    className="absolute right-0 z-20 mt-1 w-64 rounded-[4px] border border-[var(--ib-border-strong)] bg-[var(--ib-surface-1)] p-2 shadow-lg"
+                  >
+                    <p className="px-1 pb-2 text-[11px] leading-4 text-[var(--ib-text-muted)]">
+                      Manual lots on a linked book are not updated by the broker.
+                    </p>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => {
+                        setMoreOpen(false);
+                        setConfirmBrokerageAdd(true);
+                        setFormMode("add");
+                      }}
+                    >
+                      Add position
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            ) : snapshot.ownerId === snapshot.viewerId ? null : (
               <Badge tone="neutral">View only</Badge>
             )}
           </div>
@@ -960,12 +1071,15 @@ export function PositionsWorkspace({
       {!unassignedLocked ? (
       <div className="flex flex-wrap items-center gap-2 text-[11px] text-[var(--ib-text-muted)]">
         {snapshot.usingFixtures ? <Badge tone="mock">Mock data</Badge> : null}
+        {snapshot.licenseWarning ? (
+          <Badge tone="warn">License</Badge>
+        ) : null}
         <span className="font-mono">
-          {snapshot.latencyCoverageLabel} · as of{" "}
-          {formatMarketDateTime(snapshot.asOf, { seconds: true })}
-        </span>
-        <span>
-          {snapshot.quotesCovered}/{snapshot.quotesRequested} symbols marked
+          {coverage.label}
+          {coverage.detail ? ` · ${coverage.detail}` : ""}
+          {snapshot.marketSession ? ` · ${snapshot.marketSession}` : ""}
+          {" · as of "}
+          <ClientMarketTime value={snapshot.asOf} seconds />
         </span>
         {activeOwner && !activeOwner.isViewer ? (
           <span>Viewing {activeOwner.displayName}</span>
@@ -974,7 +1088,7 @@ export function PositionsWorkspace({
       ) : null}
 
       {snapshot.owners.length > 0 ? (
-        <div className="space-y-1.5">
+        <div className="sticky top-12 z-20 -mx-3 space-y-1.5 border-b border-[var(--ib-border-subtle)] bg-[var(--ib-canvas)] px-3 py-1.5 lg:top-11">
           <PositionsOwnerTabs
             owners={snapshot.owners}
             ownerId={snapshot.ownerId}
@@ -1014,6 +1128,16 @@ export function PositionsWorkspace({
               onCreate={(title) => {
                 void handleCreateBook(title);
               }}
+              onLinkBrokerage={() => brokerageRef.current?.openPicker()}
+              onManageBrokerage={() => brokerageRef.current?.openManage()}
+              canLinkBrokerage={Boolean(
+                snapshot.ownerId === snapshot.viewerId &&
+                  (viewerBrokerage ?? snapshot.brokerage)?.connectable,
+              )}
+              hasLinkedBrokerage={Boolean(
+                snapshot.ownerId === snapshot.viewerId &&
+                  (viewerBrokerage ?? snapshot.brokerage)?.connections.length,
+              )}
               onRename={(id, title) => {
                 void handleRenameBook(id, title);
               }}
@@ -1082,13 +1206,19 @@ export function PositionsWorkspace({
 
         <div className="order-2 min-w-0 space-y-3 lg:order-3">
           <Panel
-            title="Position blotter"
+            title={flatBook ? "Recent closes" : "Position blotter"}
             description={
               snapshot.ownerLocked
                 ? "Open lots with live marks, day P&L, and open P&L. Account value, cash, and closed lots stay hidden until unlocked."
-                : "Open lots with live marks. Brokerage lots stay in their linked book. Click a row for the lot blotter."
+                : flatBook
+                  ? `Flat · ${activeBookRow?.brokerageName || activeBookRow?.title || "book"} · 0 open`
+                  : "Open lots with live marks. Brokerage lots stay in their linked book. Click a row for the lot blotter."
             }
-            actions={<Badge tone="neutral">{openRows.length} shown</Badge>}
+            actions={
+              <Badge tone="neutral">
+                {flatBook ? `${closedRows.length} closed` : `${openRows.length} shown`}
+              </Badge>
+            }
             bodyClassName="p-0"
           >
             {snapshot.ownerLocked ? (
@@ -1139,21 +1269,24 @@ export function PositionsWorkspace({
               </div>
             ) : null}
 
-            {displaySnapshot.summary.openCount === 0 && !query.trim() && side === "all" ? (
+            {emptyBook && !query.trim() && side === "all" ? (
               <div className="p-3">
                 <StatePanel
                   kind="empty"
-                  title="No open positions on the book"
+                  title={
+                    snaptradeBook
+                      ? "Waiting for holdings"
+                      : "No positions on the book"
+                  }
                   description={
-                    snapshot.books.find((book) => book.id === snapshot.bookId)
-                      ?.source === "snaptrade"
+                    snaptradeBook
                       ? "This brokerage account has no holdings yet. Sync again after positions appear at the broker."
                       : snapshot.canEdit
                       ? "Add a ticker by hand, or connect a brokerage to import holdings."
-                      : `${activeOwner?.displayName ?? "This user"} has no open positions on the book.`
+                      : `${activeOwner?.displayName ?? "This user"} has no positions on the book.`
                   }
                   actions={
-                    snapshot.canEdit ? (
+                    snapshot.canEdit && !snaptradeBook ? (
                       <Button
                         variant="primary"
                         size="sm"
@@ -1167,8 +1300,8 @@ export function PositionsWorkspace({
               </div>
             ) : (
               <PositionsTable
-                key={snapshot.ownerLocked ? "tape" : "full"}
-                rows={openRows}
+                key={snapshot.ownerLocked ? "tape" : flatBook ? "closed-primary" : "full"}
+                rows={primaryRows}
                 selectedId={selectedId}
                 onSelect={setSelectedId}
                 history={snapshot.history}
@@ -1177,22 +1310,28 @@ export function PositionsWorkspace({
                 onClosePosition={handleClose}
                 closing={closing}
                 privacy={snapshot.ownerLocked ? "tape" : "full"}
-                emptyMessage="No open lots match the current filters."
+                variant={flatBook ? "closed" : "open"}
+                groupFills={flatBook}
+                emptyMessage={
+                  flatBook
+                    ? "No closed lots match the current filters."
+                    : "No open lots match the current filters."
+                }
               />
             )}
           </Panel>
 
-          {snapshot.ownerLocked ? null : (
+          {snapshot.ownerLocked || flatBook ? null : (
             <>
           <Panel
             title="Past positions"
             description="Closed lots and realized return versus entry. Linked accounts refresh automatically while this page is open."
-            actions={<Badge tone="neutral">{closedRows.length} closed</Badge>}
+            actions={<Badge tone="neutral">{secondaryClosed.length} closed</Badge>}
             bodyClassName="p-0"
           >
             <PastPositionsMetrics snapshot={displaySnapshot} />
             <PositionsTable
-              rows={closedRows}
+              rows={secondaryClosed}
               selectedId={selectedId}
               onSelect={setSelectedId}
               history={snapshot.history}
@@ -1201,6 +1340,7 @@ export function PositionsWorkspace({
               onClosePosition={handleClose}
               closing={closing}
               variant="closed"
+              groupFills
               emptyMessage={
                 snapshot.summary.closedCount === 0
                   ? snapshot.brokerage?.connections.length
@@ -1211,9 +1351,18 @@ export function PositionsWorkspace({
             />
           </Panel>
 
+          {sameDayRoundTrips && !showFillTape ? (
+            <button
+              type="button"
+              className="text-left text-[12px] text-[var(--ib-text-muted)] underline-offset-2 hover:underline"
+              onClick={() => setShowFillTape(true)}
+            >
+              Show fill tape
+            </button>
+          ) : (
           <Panel
             title="Entries & exits"
-            description="Every open and close on this book, newest first. Brokerage fills stay as separate lots — partials are not collapsed into one round-trip."
+            description="Every open and close on this book, newest first."
             actions={<Badge tone="neutral">{activity.length} events</Badge>}
             bodyClassName="p-0"
           >
@@ -1223,6 +1372,33 @@ export function PositionsWorkspace({
               onSelect={setSelectedId}
             />
           </Panel>
+          )}
+            </>
+          )}
+          {snapshot.ownerLocked || !flatBook ? null : (
+            <>
+            {sameDayRoundTrips && !showFillTape ? (
+              <button
+                type="button"
+                className="text-left text-[12px] text-[var(--ib-text-muted)] underline-offset-2 hover:underline"
+                onClick={() => setShowFillTape(true)}
+              >
+                Show fill tape
+              </button>
+            ) : (
+              <Panel
+                title="Entries & exits"
+                description="Fill tape for this book."
+                actions={<Badge tone="neutral">{activity.length} events</Badge>}
+                bodyClassName="p-0"
+              >
+                <PositionActivity
+                  events={activity}
+                  selectedId={selectedId}
+                  onSelect={setSelectedId}
+                />
+              </Panel>
+            )}
             </>
           )}
         </div>
@@ -1235,8 +1411,12 @@ export function PositionsWorkspace({
           mode={formMode}
           initial={formMode === "edit" ? selected : null}
           submitting={submitting}
-          onClose={() => setFormMode(null)}
+          onClose={() => {
+            setFormMode(null);
+            setConfirmBrokerageAdd(false);
+          }}
           onSubmit={formMode === "edit" ? handleEdit : handleCreate}
+          brokerageWarning={formMode === "add" && (confirmBrokerageAdd || snaptradeBook)}
         />
       ) : null}
     </div>

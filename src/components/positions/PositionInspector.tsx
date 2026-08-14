@@ -1,22 +1,21 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { PositionPriceChart } from "@/components/positions/PositionPriceChart";
 import {
   ASSET_TYPE_LABELS,
   MoneyValue,
+  PriceValue,
   ShareValue,
   SignedValue,
   chicagoDateInput,
   formatEntryDate,
 } from "@/components/positions/display";
-import {
-  formatMarketDateTime,
-  formatPrice,
-  formatQuantity,
-} from "@/lib/utils/format";
+import { ClientMarketTime } from "@/components/ui/ClientMarketTime";
+import { formatQuantity } from "@/lib/utils/format";
+import { displayPositionTicker, parseOccOptionSymbol } from "@/lib/positions/option-symbol";
 import type { DailyClose, EnrichedPosition } from "@/lib/positions/types";
 
 function Metric({
@@ -34,6 +33,26 @@ function Metric({
       <div className="mt-0.5 font-mono text-[12px] tabular-nums">{children}</div>
     </div>
   );
+}
+
+function canFetchDailyBars(row: EnrichedPosition): boolean {
+  if (row.status === "closed") return false;
+  if (row.assetType === "option") return false;
+  if (parseOccOptionSymbol(row.ticker)) return false;
+  if (row.ticker.length > 16) return false;
+  return true;
+}
+
+function closesFromBars(bars: unknown): DailyClose[] {
+  if (!Array.isArray(bars)) return [];
+  const out: DailyClose[] = [];
+  for (const bar of bars) {
+    if (!bar || typeof bar !== "object") continue;
+    const rec = bar as { barStart?: string; close?: number | null };
+    if (rec.close == null || !Number.isFinite(rec.close) || !rec.barStart) continue;
+    out.push({ date: rec.barStart.slice(0, 10), close: rec.close });
+  }
+  return out;
 }
 
 export function PositionInspector({
@@ -61,12 +80,55 @@ export function PositionInspector({
 }) {
   const headingId = useId();
   const [confirmClose, setConfirmClose] = useState(false);
-  const [closePrice, setClosePrice] = useState(row.last ?? row.entryPrice);
+  const [closePrice, setClosePrice] = useState(
+    row.status === "closed"
+      ? (row.closePrice ?? row.mark ?? row.entryPrice)
+      : (row.last ?? row.entryPrice),
+  );
   const [closeDate, setCloseDate] = useState(chicagoDateInput());
   const [closeQuantity, setCloseQuantity] = useState(row.quantity);
+  const [liveHistory, setLiveHistory] = useState<DailyClose[]>(history);
+  const [loadingBars, setLoadingBars] = useState(
+    canFetchDailyBars(row) && history.length < 2,
+  );
   const tape = privacy === "tape";
+  const closed = row.status === "closed";
+  const occ = parseOccOptionSymbol(row.ticker);
+  const closedOption = closed && (row.assetType === "option" || Boolean(occ));
+  const fetchBars = canFetchDailyBars(row);
 
-  const closes = tape ? [] : history.filter((bar) => Number.isFinite(bar.close));
+  useEffect(() => {
+    setLiveHistory(history);
+    if (!fetchBars || history.length >= 2) {
+      setLoadingBars(false);
+      return;
+    }
+    let cancelled = false;
+    setLoadingBars(true);
+    const params = new URLSearchParams({
+      symbol: row.ticker,
+      interval: "1d",
+      limit: "252",
+      surface: "derived_charts",
+    });
+    void fetch(`/api/market/bars?${params.toString()}`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload: { bars?: unknown } | null) => {
+        if (cancelled) return;
+        const closes = closesFromBars(payload?.bars);
+        if (closes.length) setLiveHistory(closes);
+        setLoadingBars(false);
+      })
+      .catch(() => {
+        if (!cancelled) setLoadingBars(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchBars, history, row.ticker]);
+
+  const closes = tape ? [] : liveHistory.filter((bar) => Number.isFinite(bar.close));
+  const exitPrice = row.closePrice ?? row.mark;
 
   return (
     <section
@@ -79,7 +141,9 @@ export function PositionInspector({
             Lot blotter
           </p>
           <h3 id={headingId} className="mt-0.5 text-[13px] font-semibold">
-            {row.ticker}{" "}
+            <span title={occ ? occ.raw : row.ticker}>
+              {displayPositionTicker(row.ticker)}
+            </span>{" "}
             <span className="font-normal text-[var(--ib-text-muted)]">
               {ASSET_TYPE_LABELS[row.assetType]}
               {row.source === "snaptrade"
@@ -134,7 +198,11 @@ export function PositionInspector({
       >
         {tape ? null : (
         <div className="min-w-0">
-          {closes.length >= 2 ? (
+          {closedOption ? (
+            <div className="grid h-[168px] place-items-center rounded-[4px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-1)] px-4 text-center text-[12px] text-[var(--ib-text-muted)]">
+              No live series for a closed option fill.
+            </div>
+          ) : closes.length >= 2 ? (
             <PositionPriceChart
               ticker={row.ticker}
               closes={closes}
@@ -142,6 +210,10 @@ export function PositionInspector({
               side={row.side}
               className="h-[168px]"
             />
+          ) : loadingBars ? (
+            <div className="grid h-[168px] place-items-center rounded-[4px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-1)] text-[12px] text-[var(--ib-text-muted)]">
+              Loading daily series…
+            </div>
           ) : (
             <div className="grid h-[168px] place-items-center rounded-[4px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-1)] text-[12px] text-[var(--ib-text-muted)]">
               Daily series unavailable for {row.ticker}.
@@ -151,8 +223,18 @@ export function PositionInspector({
         )}
         <div className="min-w-0">
           <div className="grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3">
-            <Metric label="Last">{formatPrice(row.last, row.ticker)}</Metric>
-            <Metric label="Entry">{formatPrice(row.entryPrice, row.ticker)}</Metric>
+            {closed ? (
+              <Metric label="Exit">
+                <PriceValue value={exitPrice} ticker={row.ticker} />
+              </Metric>
+            ) : (
+              <Metric label="Last">
+                <PriceValue value={row.last} ticker={row.ticker} />
+              </Metric>
+            )}
+            <Metric label="Entry">
+              <PriceValue value={row.entryPrice} ticker={row.ticker} />
+            </Metric>
             <Metric label="Qty">
               {formatQuantity(row.quantity)}
               {row.multiplier !== 1 ? ` × ${formatQuantity(row.multiplier)}` : ""}
@@ -174,25 +256,33 @@ export function PositionInspector({
               </>
             ) : (
               <>
-            <Metric label="Market value">
-              <MoneyValue value={row.marketValue} compact />
-            </Metric>
+            {closed ? null : (
+              <Metric label="Market value">
+                <MoneyValue value={row.marketValue} compact />
+              </Metric>
+            )}
             <Metric label="Cost basis">
               <MoneyValue value={row.costBasis} compact />
             </Metric>
-            <Metric label="Weight">
-              <ShareValue value={row.weight} />
-            </Metric>
-            <Metric label="Day P&L">
-              <SignedValue value={row.dayPnl} compact />
-              <span className="ml-1 text-[11px]">
-                <SignedValue value={row.dayPercent} kind="percent" />
-              </span>
-            </Metric>
-            <Metric label="Total P&L">
-              <SignedValue value={row.totalPnl} compact />
-            </Metric>
-            {row.status === "closed" && row.fees > 0 ? (
+            {closed ? null : (
+              <Metric label="Weight">
+                <ShareValue value={row.weight} />
+              </Metric>
+            )}
+            {closed ? null : (
+              <Metric label="Day P&L">
+                <SignedValue value={row.dayPnl} compact />
+                <span className="ml-1 text-[11px]">
+                  <SignedValue value={row.dayPercent} kind="percent" />
+                </span>
+              </Metric>
+            )}
+            {closed ? null : (
+              <Metric label="Total P&L">
+                <SignedValue value={row.totalPnl} compact />
+              </Metric>
+            )}
+            {closed && row.fees > 0 ? (
               <>
                 <Metric label="Gross P&L">
                   <SignedValue value={row.grossRealizedPnl} compact />
@@ -210,23 +300,30 @@ export function PositionInspector({
                 </span>
               </Metric>
             ) : null}
-            {row.status === "closed" ? (
+            {closed ? (
               <Metric label="Realized">
                 <SignedValue value={row.realizedPnl} compact />
+                <span className="ml-1 text-[11px]">
+                  <SignedValue value={row.returnPercent} kind="percent" />
+                </span>
               </Metric>
             ) : null}
-            <Metric label="Since entry">
-              <SignedValue value={row.sinceEntry.percent} kind="percent" />
-            </Metric>
-            <Metric label="1D">
-              <SignedValue value={row.change1d.percent} kind="percent" />
-            </Metric>
-            <Metric label="1W">
-              <SignedValue value={row.change1w.percent} kind="percent" />
-            </Metric>
-            <Metric label="1M">
-              <SignedValue value={row.change1m.percent} kind="percent" />
-            </Metric>
+            {closedOption ? null : (
+              <>
+                <Metric label="Since entry">
+                  <SignedValue value={row.sinceEntry.percent} kind="percent" />
+                </Metric>
+                <Metric label="1D">
+                  <SignedValue value={row.change1d.percent} kind="percent" />
+                </Metric>
+                <Metric label="1W">
+                  <SignedValue value={row.change1w.percent} kind="percent" />
+                </Metric>
+                <Metric label="1M">
+                  <SignedValue value={row.change1m.percent} kind="percent" />
+                </Metric>
+              </>
+            )}
               </>
             )}
           </div>
@@ -235,18 +332,21 @@ export function PositionInspector({
               <dt className="text-[var(--ib-text-muted)]">Opened</dt>
               <dd className="font-mono">{formatEntryDate(row.entryDate)}</dd>
             </div>
-            {tape || row.status !== "closed" ? null : (
+            {tape || !closed ? null : (
               <div className="flex justify-between gap-3">
                 <dt className="text-[var(--ib-text-muted)]">Closed</dt>
                 <dd className="font-mono">
-                  {formatEntryDate(row.closeDate)} @ {formatPrice(row.closePrice, row.ticker)}
+                  {formatEntryDate(row.closeDate)} @{" "}
+                  <PriceValue value={exitPrice} ticker={row.ticker} />
                 </dd>
               </div>
             )}
             {tape ? null : (
             <div className="flex justify-between gap-3">
               <dt className="text-[var(--ib-text-muted)]">Updated</dt>
-              <dd className="font-mono">{formatMarketDateTime(row.updatedAt)}</dd>
+              <dd className="font-mono">
+                <ClientMarketTime value={row.updatedAt} />
+              </dd>
             </div>
             )}
           </dl>

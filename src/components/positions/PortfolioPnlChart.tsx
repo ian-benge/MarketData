@@ -1,16 +1,18 @@
 "use client";
 
-import { useId, useMemo, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useMemo, useState, type KeyboardEvent } from "react";
 import { cn } from "@/lib/utils/cn";
 import { formatSignedCurrency, marketTone } from "@/lib/utils/format";
 import { formatEntryDate, SignedValue } from "@/components/positions/display";
+import { BookPnlWindowToggle } from "@/components/positions/PositionsPrivacy";
 import { useHideValues } from "@/components/positions/privacy-context";
+import { sliceSeriesForBookWindow } from "@/lib/positions/pnl-range";
 import {
-  DEFAULT_PORTFOLIO_PNL_RANGE,
-  PORTFOLIO_PNL_RANGES,
-  slicePortfolioSeries,
-  type PortfolioPnlRange,
-} from "@/lib/positions/pnl-range";
+  BOOK_PNL_WINDOW_LABELS,
+  readStoredChartPnlWindow,
+  storeChartPnlWindow,
+  type BookPnlWindow,
+} from "@/lib/positions/value-privacy";
 import type {
   PortfolioEvent,
   PortfolioPoint,
@@ -46,42 +48,29 @@ function plotX(index: number, count: number) {
   return PAD_X + (index / (count - 1)) * (WIDTH - PAD_X * 2);
 }
 
-function PnlRangeToggle({
-  range,
-  onRange,
+function ChartHeading({
+  chartWindow,
+  onWindowChange,
 }: {
-  range: PortfolioPnlRange;
-  onRange: (range: PortfolioPnlRange) => void;
+  chartWindow: BookPnlWindow;
+  onWindowChange: (next: BookPnlWindow) => void;
 }) {
   return (
     <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
       <p className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
-        Cumulative book P&L
+        Cumulative book P&L · {BOOK_PNL_WINDOW_LABELS[chartWindow]}
       </p>
-      <div role="group" aria-label="P&L range" className="flex flex-wrap gap-1">
-        {PORTFOLIO_PNL_RANGES.map((item) => (
-          <button
-            key={item}
-            type="button"
-            aria-pressed={range === item}
-            onClick={() => onRange(item)}
-            className={cn(
-              "min-h-8 rounded-[3px] border px-2 font-mono text-[10px] max-sm:min-h-11",
-              range === item
-                ? "border-[var(--ib-border-control)] bg-[var(--ib-surface-3)] text-[var(--ib-text-primary)]"
-                : "border-[var(--ib-border-subtle)] bg-transparent text-[var(--ib-text-muted)] hover:text-[var(--ib-text-primary)]",
-            )}
-          >
-            {item}
-          </button>
-        ))}
-      </div>
+      <BookPnlWindowToggle
+        value={chartWindow}
+        onChange={onWindowChange}
+        aria-label="Chart P&L timeframe"
+      />
     </div>
   );
 }
 
 function layoutSeries(points: PortfolioPoint[]) {
-  if (points.length < 2) return null;
+  if (points.length < 1) return null;
   const values = points.map((point) => point.cumulativePnl ?? 0);
   const rawMin = Math.min(...values);
   const rawMax = Math.max(...values);
@@ -131,11 +120,27 @@ export function PortfolioPnlChart({
 }) {
   const gradientId = useId().replaceAll(":", "");
   const hideValues = useHideValues();
+  const [chartWindow, setChartWindowState] = useState<BookPnlWindow>("max");
   const [hover, setHover] = useState<number | null>(null);
-  const [range, setRange] = useState<PortfolioPnlRange>(DEFAULT_PORTFOLIO_PNL_RANGE);
+
+  useEffect(() => {
+    setChartWindowState(readStoredChartPnlWindow());
+  }, []);
+
+  function setChartWindow(next: BookPnlWindow) {
+    setChartWindowState(next);
+    storeChartPnlWindow(next);
+  }
+
   const windowed = useMemo(
-    () => slicePortfolioSeries(series, range, asOf ?? series.at(-1)?.date ?? "", positions),
-    [asOf, positions, range, series],
+    () =>
+      sliceSeriesForBookWindow(
+        series,
+        chartWindow,
+        asOf ?? series.at(-1)?.date ?? "",
+        positions,
+      ),
+    [asOf, chartWindow, positions, series],
   );
   const points = useMemo(
     () =>
@@ -149,13 +154,7 @@ export function PortfolioPnlChart({
   if (!layout) {
     return (
       <div className={cn("min-w-0", className)}>
-        <PnlRangeToggle
-          range={range}
-          onRange={(next) => {
-            setRange(next);
-            setHover(null);
-          }}
-        />
+        <ChartHeading chartWindow={chartWindow} onWindowChange={setChartWindow} />
         <div className="grid h-[208px] place-items-center rounded-[4px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-inset)] text-[12px] text-[var(--ib-text-muted)]">
           Not enough history to plot book P&L.
         </div>
@@ -166,13 +165,7 @@ export function PortfolioPnlChart({
   if (hideValues) {
     return (
       <div className={cn("min-w-0", className)}>
-        <PnlRangeToggle
-          range={range}
-          onRange={(next) => {
-            setRange(next);
-            setHover(null);
-          }}
-        />
+        <ChartHeading chartWindow={chartWindow} onWindowChange={setChartWindow} />
         <div className="grid h-[208px] place-items-center rounded-[4px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-inset)] text-[12px] text-[var(--ib-text-muted)]">
           P&L path hidden
         </div>
@@ -237,13 +230,7 @@ export function PortfolioPnlChart({
 
   return (
     <figure className={cn("min-w-0", className)}>
-      <PnlRangeToggle
-        range={range}
-        onRange={(next) => {
-          setRange(next);
-          setHover(null);
-        }}
-      />
+      <ChartHeading chartWindow={chartWindow} onWindowChange={setChartWindow} />
       <div
         aria-live="polite"
         className="mb-1.5 min-h-[34px] font-mono text-[11px] leading-snug text-[var(--ib-text-secondary)]"
@@ -277,7 +264,7 @@ export function PortfolioPnlChart({
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         role="img"
         tabIndex={0}
-        aria-label={`${range} cumulative book P&L from ${formatEntryDate(coords[0]!.point.date)} to ${formatEntryDate(last.point.date)}, ending at ${formatSignedCurrency(last.value)}. Use arrow keys to inspect sessions. Markers show when lots were opened or closed.`}
+        aria-label={`${BOOK_PNL_WINDOW_LABELS[chartWindow]} cumulative book P&L from ${formatEntryDate(coords[0]!.point.date)} to ${formatEntryDate(last.point.date)}, ending at ${formatSignedCurrency(last.value)}. Use arrow keys to inspect sessions. Markers show when lots were opened or closed.`}
         className="h-[208px] w-full rounded-[4px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-inset)] outline-none focus-visible:ring-1 focus-visible:ring-[var(--ib-border-control)]"
         onPointerLeave={() => setHover(null)}
         onPointerMove={(event) =>

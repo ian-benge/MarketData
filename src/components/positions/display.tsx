@@ -5,10 +5,12 @@ import { useHideValues } from "@/components/positions/privacy-context";
 import { cn } from "@/lib/utils/cn";
 import {
   formatCurrency,
+  formatPrice,
   formatSignedCurrency,
   formatSignedPercent,
   marketTone,
 } from "@/lib/utils/format";
+import { displayPositionTicker, parseOccOptionSymbol } from "@/lib/positions/option-symbol";
 import type { PositionAssetType, PositionSide } from "@/lib/positions/types";
 
 export const ASSET_TYPE_LABELS: Record<PositionAssetType, string> = {
@@ -74,6 +76,36 @@ export function HiddenValue({ className }: { className?: string }) {
       aria-label="Hidden"
     >
       ••••
+    </span>
+  );
+}
+
+export function PriceValue({
+  value,
+  ticker,
+  className,
+}: {
+  value: number | null | undefined;
+  ticker?: string;
+  className?: string;
+}) {
+  const hide = useHideValues();
+  if (hide) return <HiddenValue className={className} />;
+  return (
+    <span className={cn("font-mono tabular-nums", className)}>
+      {formatPrice(value, ticker)}
+    </span>
+  );
+}
+
+export function TickerLabel({ ticker }: { ticker: string }) {
+  const parsed = parseOccOptionSymbol(ticker);
+  return (
+    <span
+      className="block font-mono text-[13px] font-medium text-[var(--ib-text-primary)]"
+      title={parsed ? parsed.raw : ticker}
+    >
+      {displayPositionTicker(ticker)}
     </span>
   );
 }
