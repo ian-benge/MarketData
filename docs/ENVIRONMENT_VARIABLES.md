@@ -122,6 +122,17 @@ Seeded Research Desk firm id: `a0000000-0000-4000-8000-000000000001` (`supabase/
 
 ---
 
+## Brokerage sync (SnapTrade)
+
+Read-only holdings and past-trade import for Positions. Never put `SNAPTRADE_CONSUMER_KEY` in `NEXT_PUBLIC_*` vars. The app stores SnapTrade's `userSecret` per user; it does not store brokerage passwords and does not place trades.
+
+| Variable | Purpose | Secret? | Public? | L | Pr | P | Source | Verification |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `SNAPTRADE_CLIENT_ID` | SnapTrade Commercial client id | Sensitive | No | ○ | ○ | ○ | SnapTrade dashboard | Positions → Connect brokerage opens the portal |
+| `SNAPTRADE_CONSUMER_KEY` | SnapTrade Commercial consumer key | **Yes** | No | ○ | ○ | ○ | SnapTrade dashboard | Server-only; connect, sync, and Import past trades succeed |
+
+---
+
 ## Production posture (required)
 
 | Setting | Production requirement |

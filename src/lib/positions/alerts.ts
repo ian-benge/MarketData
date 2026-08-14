@@ -17,7 +17,7 @@ import {
   formatSignedPercent,
 } from "@/lib/utils/format";
 import { DEFAULT_BOOK_TITLE } from "./books";
-import { holdingDays, notional, signedPricePnl, signedReturnPercent } from "./math";
+import { holdingDays, notional, positionFees, signedPricePnl, signedReturnPercent } from "./math";
 import type { PositionAssetType, PositionRecord } from "./types";
 
 const ASSET_LABELS: Record<PositionAssetType, string> = {
@@ -138,13 +138,15 @@ function lotHeadline(position: PositionRecord): string {
 
 function realizedPnl(position: PositionRecord): number | null {
   if (position.status !== "closed" || position.closePrice == null) return null;
-  return signedPricePnl(
+  const gross = signedPricePnl(
     position.closePrice,
     position.entryPrice,
     position.quantity,
     position.multiplier,
     position.side,
   );
+  if (gross == null) return null;
+  return gross - positionFees(position);
 }
 
 function realizedPercent(position: PositionRecord): number | null {

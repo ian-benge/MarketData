@@ -6,6 +6,7 @@ import {
   enrichPosition,
   summarizePositions,
 } from "./math";
+import { EMPTY_BROKERAGE_SNAPSHOT } from "@/lib/brokerage/types";
 import type {
   DailyClose,
   PositionBook,
@@ -36,6 +37,11 @@ export function toPositionRecord(row: EnrichedPosition): PositionRecord {
     closedAt: row.closedAt,
     createdBy: row.createdBy,
     bookId: row.bookId,
+    source: row.source ?? "manual",
+    brokerageAccountId: row.brokerageAccountId ?? null,
+    externalId: row.externalId ?? null,
+    brokerageName: row.brokerageName ?? null,
+    fees: row.fees ?? 0,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -61,6 +67,8 @@ export type AssemblePositionsInput = {
   bookId?: string;
   viewerId?: string;
   canEdit?: boolean;
+  ownerLocked?: boolean;
+  brokerage?: PositionsSnapshot["brokerage"];
   accountValue?: number | null;
 };
 
@@ -78,7 +86,7 @@ export function assemblePositionsSnapshot(
   const accountValue =
     input.accountValue != null &&
     Number.isFinite(input.accountValue) &&
-    input.accountValue > 0
+    input.accountValue >= 0
       ? input.accountValue
       : null;
 
@@ -114,7 +122,12 @@ export function assemblePositionsSnapshot(
     quotesCovered,
     accountValue,
     summary: enriched.length
-      ? summarizePositions(enriched, input.asOf, accountValue)
+      ? summarizePositions(
+          enriched,
+          input.asOf,
+          accountValue,
+          input.books?.find((book) => book.id === input.bookId)?.fees ?? 0,
+        )
       : emptySummary(),
     positions: enriched,
     series: buildPortfolioSeries(input.positions, input.closes),
@@ -125,6 +138,8 @@ export function assemblePositionsSnapshot(
     bookId: input.bookId ?? "",
     viewerId: input.viewerId ?? "",
     canEdit: input.canEdit ?? false,
+    ownerLocked: input.ownerLocked ?? false,
+    brokerage: input.brokerage,
     error: input.error ?? null,
   };
 }
@@ -157,6 +172,8 @@ export function emptyPositionsSnapshot(
     bookId: extra?.bookId ?? "",
     viewerId: extra?.viewerId ?? "",
     canEdit: extra?.canEdit ?? false,
+    ownerLocked: extra?.ownerLocked ?? false,
+    brokerage: extra?.brokerage ?? EMPTY_BROKERAGE_SNAPSHOT,
     error,
     ...extra,
   };
@@ -168,7 +185,7 @@ export function applyAccountValueToSnapshot(
   accountValue: number | null | undefined,
 ): PositionsSnapshot {
   const normalized =
-    accountValue != null && Number.isFinite(accountValue) && accountValue > 0
+    accountValue != null && Number.isFinite(accountValue) && accountValue >= 0
       ? accountValue
       : null;
   if (normalized === (snapshot.accountValue ?? null)) {
@@ -184,6 +201,11 @@ export function applyAccountValueToSnapshot(
         : book,
     ),
     positions,
-    summary: summarizePositions(positions, snapshot.asOf, normalized),
+    summary: summarizePositions(
+      positions,
+      snapshot.asOf,
+      normalized,
+      snapshot.books.find((book) => book.id === snapshot.bookId)?.fees ?? 0,
+    ),
   };
 }

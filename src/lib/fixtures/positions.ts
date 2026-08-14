@@ -15,6 +15,7 @@ export const fixtureBooks: PositionBook[] = [
     accountValue: 350_000,
     openCount: 0,
     positionCount: 0,
+    sortOrder: 0,
   },
   {
     id: FIXTURE_BOOK_MEMBER_MAIN,
@@ -23,6 +24,7 @@ export const fixtureBooks: PositionBook[] = [
     accountValue: 175_000,
     openCount: 0,
     positionCount: 0,
+    sortOrder: 0,
   },
   {
     id: FIXTURE_BOOK_MEMBER_IRA,
@@ -31,6 +33,7 @@ export const fixtureBooks: PositionBook[] = [
     accountValue: 60_000,
     openCount: 0,
     positionCount: 0,
+    sortOrder: 1,
   },
 ];
 

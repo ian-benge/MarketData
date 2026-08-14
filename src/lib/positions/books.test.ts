@@ -12,6 +12,7 @@ import {
   overlayBookPositions,
   positionsForBook,
   resolveBookId,
+  moveBookInList,
 } from "./books";
 import type { PositionRecord } from "./types";
 
@@ -58,7 +59,7 @@ describe("named position books", () => {
     expect(positionsForBook(rows, "").map((row) => row.bookId)).toEqual([null]);
   });
 
-  it("sorts Main first and counts open lots per book", () => {
+  it("preserves incoming book order and counts open lots per book", () => {
     const books = decorateBooks(
       [
         {
@@ -76,10 +77,29 @@ describe("named position books", () => {
       ],
       [position("book-main"), position("book-main"), position("book-ira")],
     );
-    expect(books.map((book) => book.title)).toEqual(["Main", "IRA"]);
-    expect(books[0]?.openCount).toBe(2);
-    expect(books[1]?.openCount).toBe(1);
-    expect(books[1]?.positionCount).toBe(1);
+    expect(books.map((book) => book.title)).toEqual(["IRA", "Main"]);
+    expect(books[0]?.openCount).toBe(1);
+    expect(books[1]?.openCount).toBe(2);
+    expect(books[0]?.positionCount).toBe(1);
+  });
+
+  it("moves a book to another tab's slot", () => {
+    const books = [
+      { id: "main" },
+      { id: "roth" },
+      { id: "schwab" },
+    ];
+    expect(moveBookInList(books, "schwab", "main").map((book) => book.id)).toEqual([
+      "schwab",
+      "main",
+      "roth",
+    ]);
+    expect(moveBookInList(books, "main", "schwab").map((book) => book.id)).toEqual([
+      "roth",
+      "schwab",
+      "main",
+    ]);
+    expect(moveBookInList(books, "missing", "main")).toEqual(books);
   });
 
   it("resolves the requested book, then Main, then the first book", () => {

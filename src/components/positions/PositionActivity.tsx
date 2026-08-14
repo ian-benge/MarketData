@@ -1,10 +1,17 @@
 "use client";
 
+import { useEffect, useId, useState } from "react";
 import {
   SignedValue,
   SideLabel,
   formatEntryDate,
 } from "@/components/positions/display";
+import {
+  DEFAULT_TABLE_PAGE_SIZE,
+  paginate,
+  type TablePageSize,
+} from "@/components/positions/pagination";
+import { TablePager } from "@/components/positions/TablePager";
 import { cn } from "@/lib/utils/cn";
 import { formatPrice, formatQuantity } from "@/lib/utils/format";
 import type { PositionActivityEvent } from "@/lib/positions/types";
@@ -57,6 +64,14 @@ export function PositionActivity({
   const exits = events.filter((event) => event.kind === "exit").length;
   const latestEntry = events.find((event) => event.kind === "entry");
   const latestExit = events.find((event) => event.kind === "exit");
+  const pageSizeId = useId();
+  const [pageSize, setPageSize] = useState<TablePageSize>(DEFAULT_TABLE_PAGE_SIZE);
+  const [page, setPage] = useState(1);
+  const paged = paginate(events, page, pageSize);
+
+  useEffect(() => {
+    setPage(1);
+  }, [pageSize, events.length]);
 
   return (
     <div>
@@ -120,7 +135,7 @@ export function PositionActivity({
                 </td>
               </tr>
             ) : (
-              events.map((event) => {
+              paged.items.map((event) => {
                 const selected = event.positionId === selectedId;
                 return (
                   <tr
@@ -200,6 +215,16 @@ export function PositionActivity({
           </tbody>
         </table>
       </div>
+      <TablePager
+        total={events.length}
+        page={page}
+        pageSize={pageSize}
+        pageSizeId={pageSizeId}
+        navLabel="Entries and exits pages"
+        pageSizeLabel="Entries and exits per page"
+        onPageChange={setPage}
+        onPageSizeChange={setPageSize}
+      />
     </div>
   );
 }

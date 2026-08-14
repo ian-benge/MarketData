@@ -75,6 +75,7 @@ describe("assemblePositionsSnapshot", () => {
     expect(snapshot.bookId).toBe("");
     expect(snapshot.usingFixtures).toBe(false);
     expect(snapshot.persistence).toBe("unavailable");
+    expect(snapshot.ownerLocked).toBe(false);
   });
 
   it("applies account value to portfolio, cash, and weights without refetching marks", () => {

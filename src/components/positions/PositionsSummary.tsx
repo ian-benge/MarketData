@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Panel";
@@ -102,20 +102,40 @@ export function PositionsMetricsStrip({
   onAccountValueChange?: (value: number | null) => void;
   savingAccountValue?: boolean;
 }) {
+  return (
+    <PositionsMetricsStripInner
+      key={`${snapshot.bookId}:${snapshot.ownerId}:${String(snapshot.accountValue)}`}
+      snapshot={snapshot}
+      onAccountValueChange={onAccountValueChange}
+      savingAccountValue={savingAccountValue}
+    />
+  );
+}
+
+function PositionsMetricsStripInner({
+  snapshot,
+  onAccountValueChange,
+  savingAccountValue = false,
+}: {
+  snapshot: PositionsSnapshot;
+  onAccountValueChange?: (value: number | null) => void;
+  savingAccountValue?: boolean;
+}) {
   const summary = snapshot.summary;
   const hasAccountValue = snapshot.accountValue != null;
+  const activeBook = snapshot.books.find((book) => book.id === snapshot.bookId);
+  const brokerageBook = activeBook?.source === "snaptrade";
+  const canEditAccount =
+    Boolean(snapshot.canEdit && onAccountValueChange) && !brokerageBook;
   const [draft, setDraft] = useState(
     snapshot.accountValue != null ? String(snapshot.accountValue) : "",
   );
-  const [editingAccount, setEditingAccount] = useState(!hasAccountValue);
-
-  useEffect(() => {
-    setDraft(snapshot.accountValue != null ? String(snapshot.accountValue) : "");
-    setEditingAccount(snapshot.accountValue == null);
-  }, [snapshot.accountValue, snapshot.ownerId]);
+  const [editingAccount, setEditingAccount] = useState(
+    !hasAccountValue && !brokerageBook,
+  );
 
   function commitAccountValue() {
-    if (!onAccountValueChange || !snapshot.canEdit) return;
+    if (!onAccountValueChange || !canEditAccount) return;
     const trimmed = draft.trim();
     if (!trimmed) {
       onAccountValueChange(null);
@@ -146,7 +166,7 @@ export function PositionsMetricsStrip({
       }
       bodyClassName="p-0"
     >
-      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 2xl:grid-cols-9">
+      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6">
         <Metric
           label="Portfolio"
           hint={
@@ -197,19 +217,37 @@ export function PositionsMetricsStrip({
         >
           <SignedValue value={summary.dayPnl} compact />
         </Metric>
-        <Metric label="Total P&L" hint="Unrealized + realized">
-          <SignedValue value={summary.totalPnl} compact />
-        </Metric>
-        <Metric label="Unrealized" hint="Open lots vs entry" className="hidden sm:block">
-          <SignedValue value={summary.unrealizedPnl} compact />
-        </Metric>
-        <Metric
-          label="Realized"
-          hint={`${summary.closedCount} closed`}
-          className="hidden sm:block"
-        >
-          <SignedValue value={summary.realizedPnl} compact />
-        </Metric>
+      </div>
+
+      <div className="border-t border-[var(--ib-border-subtle)]">
+        <p className="px-3 pt-2 font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
+          Profits and losses
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-3">
+          <Metric
+            label="P&L (before fees)"
+            hint="Unrealized + realized, commissions excluded"
+          >
+            <SignedValue value={summary.pnlBeforeFees} compact />
+          </Metric>
+          <Metric
+            label="Total P&L (with fees)"
+            hint="Net result after commissions and account fees"
+          >
+            <SignedValue value={summary.totalPnl} compact />
+          </Metric>
+          <Metric
+            label="Total fees"
+            hint={
+              summary.fees && summary.fees > 0
+                ? "Commissions and account fees from brokerage history"
+                : "No brokerage fees on this book"
+            }
+            className="sm:last:border-r-0"
+          >
+            {formatCurrency(summary.fees, { compact: true })}
+          </Metric>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 border-t border-[var(--ib-border-subtle)] sm:grid-cols-3">
@@ -246,7 +284,23 @@ export function PositionsMetricsStrip({
         </Metric>
       </div>
 
-      {hasAccountValue && !editingAccount ? (
+      {brokerageBook ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--ib-border-subtle)] px-3 py-2">
+          <p className="text-[12px] text-[var(--ib-text-secondary)]">
+            <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
+              Account value
+            </span>
+            <span className="ml-2 font-mono tabular-nums text-[var(--ib-text-primary)]">
+              {hasAccountValue ? formatCurrency(snapshot.accountValue) : "—"}
+            </span>
+            <span className="ml-2 text-[11px] text-[var(--ib-text-muted)]">
+              {hasAccountValue
+                ? `From ${activeBook?.brokerageName || "brokerage"}`
+                : "No holdings and $0 in this brokerage account yet"}
+            </span>
+          </p>
+        </div>
+      ) : hasAccountValue && !editingAccount ? (
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--ib-border-subtle)] px-3 py-2">
           <p className="text-[12px] text-[var(--ib-text-secondary)]">
             <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
@@ -259,7 +313,7 @@ export function PositionsMetricsStrip({
               Cash = account − long market value
             </span>
           </p>
-          {snapshot.canEdit && onAccountValueChange ? (
+          {canEditAccount ? (
             <Button
               type="button"
               variant="ghost"
@@ -288,7 +342,7 @@ export function PositionsMetricsStrip({
               inputMode="decimal"
               placeholder="e.g. 250000"
               value={draft}
-              disabled={!snapshot.canEdit || !onAccountValueChange || savingAccountValue}
+              disabled={!canEditAccount || savingAccountValue}
               autoFocus={editingAccount && hasAccountValue}
               onChange={(event) => setDraft(event.target.value)}
               onBlur={commitAccountValue}
@@ -305,7 +359,7 @@ export function PositionsMetricsStrip({
               }}
             />
           </div>
-          {snapshot.canEdit && onAccountValueChange ? (
+          {canEditAccount ? (
             <Button
               type="button"
               variant="secondary"
@@ -350,10 +404,35 @@ export function PastPositionsMetrics({
   snapshot: PositionsSnapshot;
 }) {
   const summary = snapshot.summary;
+  const closedNetPnl =
+    summary.grossRealizedPnl == null
+      ? summary.fees
+        ? -(summary.fees ?? 0)
+        : null
+      : summary.grossRealizedPnl - (summary.fees ?? 0);
   return (
-    <div className="grid grid-cols-2 border-b border-[var(--ib-border-subtle)] sm:grid-cols-5">
-      <Metric label="Realized P&L" hint="Closed lots vs entry">
-        <SignedValue value={summary.realizedPnl} compact />
+    <div className="grid grid-cols-2 border-b border-[var(--ib-border-subtle)] sm:grid-cols-3 lg:grid-cols-6">
+      <Metric
+        label="P&L (before fees)"
+        hint="Closed lots vs entry, commissions excluded"
+      >
+        <SignedValue value={summary.grossRealizedPnl} compact />
+      </Metric>
+      <Metric
+        label="Total P&L (with fees)"
+        hint="Closed lots after commissions and account fees"
+      >
+        <SignedValue value={closedNetPnl} compact />
+      </Metric>
+      <Metric
+        label="Total fees"
+        hint={
+          summary.fees && summary.fees > 0
+            ? "Commissions and account fees from brokerage history"
+            : "No brokerage fees on this book"
+        }
+      >
+        {formatCurrency(summary.fees, { compact: true })}
       </Metric>
       <Metric
         label="Realized return"

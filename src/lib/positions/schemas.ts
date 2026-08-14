@@ -82,6 +82,17 @@ export const PositionBookPatchSchema = z.object({
   title: z.string().min(1).max(80),
 });
 
+export const PositionBookReorderSchema = z.object({
+  ownerId: z.string().trim().min(1).max(64).optional(),
+  bookIds: z.array(z.string().trim().min(1).max(64)).min(1).max(50),
+  bookId: z.string().trim().min(1).max(64).optional(),
+});
+
+export const OwnerUnlockSchema = z.object({
+  ownerId: z.string().trim().min(1).max(64),
+  password: z.string().min(1).max(200),
+});
+
 export function resolveMultiplier(
   assetType: z.infer<typeof PositionWriteSchema>["assetType"],
   multiplier: number | undefined,

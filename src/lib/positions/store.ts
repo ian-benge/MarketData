@@ -11,6 +11,7 @@ import {
   canCreateAdminClient,
   createAdminClient,
 } from "@/lib/supabase/admin";
+import { fetchAllRows } from "@/lib/supabase/fetch-all";
 import {
   canCreateServerClient,
   createClient,
@@ -20,8 +21,11 @@ import { isAssetType } from "./math";
 import {
   UNASSIGNED_OWNER_ID,
   canEditPositionBook,
+  ownerKey,
   type PositionTeamMember,
 } from "./owners";
+import { bookIsBrokerageLinked, loadPositionSource } from "@/lib/brokerage/store";
+import { BrokerageError } from "@/lib/brokerage/errors";
 import type {
   PositionAssetType,
   PositionRecord,
@@ -61,6 +65,11 @@ type DbRow = {
   closed_at: string | null;
   created_by: string | null;
   book_id: string | null;
+  source?: string | null;
+  brokerage_account_id?: string | null;
+  external_id?: string | null;
+  brokerage_name?: string | null;
+  fees?: number | string | null;
   created_at: string;
   updated_at: string;
 };
@@ -103,6 +112,11 @@ export function mapPositionRow(row: DbRow): PositionRecord {
     closedAt: row.closed_at,
     createdBy: row.created_by,
     bookId: row.book_id,
+    source: row.source === "snaptrade" ? "snaptrade" : "manual",
+    brokerageAccountId: row.brokerage_account_id ?? null,
+    externalId: row.external_id ?? null,
+    brokerageName: row.brokerage_name ?? null,
+    fees: asNumber(row.fees) ?? 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -133,6 +147,11 @@ export function buildSessionPosition(
     closedAt: extras.closedAt ?? null,
     createdBy: extras.createdBy ?? user.id,
     bookId: extras.bookId ?? null,
+    source: extras.source ?? "manual",
+    brokerageAccountId: extras.brokerageAccountId ?? null,
+    externalId: extras.externalId ?? null,
+    brokerageName: extras.brokerageName ?? null,
+    fees: extras.fees ?? 0,
     createdAt: extras.createdAt ?? now,
     updatedAt: now,
   };
@@ -159,16 +178,21 @@ export async function listStoredPositions(
 
   try {
     const supabase = await createClient();
-    const { data, error } = await supabase
-      .from("positions")
-      .select(
-        "id, firm_id, ticker, asset_type, side, quantity, multiplier, entry_price, entry_date, currency, strategy, notes, status, close_price, close_date, closed_at, created_by, book_id, created_at, updated_at",
-      )
-      .eq("firm_id", user.firmId)
-      .order("created_at", { ascending: true });
-    if (error) throw error;
+    const data = await fetchAllRows(async (from, to) => {
+      const { data: page, error } = await supabase
+        .from("positions")
+        .select(
+          "id, firm_id, ticker, asset_type, side, quantity, multiplier, entry_price, entry_date, currency, strategy, notes, status, close_price, close_date, closed_at, created_by, book_id, source, brokerage_account_id, external_id, brokerage_name, fees, created_at, updated_at",
+        )
+        .eq("firm_id", user.firmId)
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to);
+      if (error) throw error;
+      return (page as DbRow[] | null) ?? [];
+    });
     return {
-      positions: (data as DbRow[] | null)?.map(mapPositionRow) ?? [],
+      positions: data.map(mapPositionRow),
       persistence,
     };
   } catch {
@@ -230,9 +254,10 @@ function createdByForInsert(ownerId: string): string | null {
 }
 
 const POSITION_SELECT =
-  "id, firm_id, ticker, asset_type, side, quantity, multiplier, entry_price, entry_date, currency, strategy, notes, status, close_price, close_date, closed_at, created_by, book_id, created_at, updated_at";
+  "id, firm_id, ticker, asset_type, side, quantity, multiplier, entry_price, entry_date, currency, strategy, notes, status, close_price, close_date, closed_at, created_by, book_id, source, brokerage_account_id, external_id, brokerage_name, fees, created_at, updated_at";
 
-const BOOK_SELECT = "id, firm_id, owner_id, title, account_value";
+const BOOK_SELECT =
+  "id, firm_id, owner_id, title, account_value, source, fees, sort_order";
 
 type BookDbRow = {
   id: string;
@@ -240,6 +265,9 @@ type BookDbRow = {
   owner_id: string;
   title: string;
   account_value: number | string | null;
+  source?: string | null;
+  fees?: number | string | null;
+  sort_order?: number | string | null;
 };
 
 export type StoredBook = {
@@ -247,6 +275,9 @@ export type StoredBook = {
   ownerId: string;
   title: string;
   accountValue: number | null;
+  source: "manual" | "snaptrade";
+  fees: number;
+  sortOrder: number;
 };
 
 function mapBookRow(row: BookDbRow): StoredBook {
@@ -256,6 +287,9 @@ function mapBookRow(row: BookDbRow): StoredBook {
     ownerId: row.owner_id,
     title: row.title,
     accountValue: value != null && value > 0 ? value : null,
+    source: row.source === "snaptrade" ? "snaptrade" : "manual",
+    fees: asNumber(row.fees) ?? 0,
+    sortOrder: Math.max(0, Math.trunc(asNumber(row.sort_order) ?? 0)),
   };
 }
 
@@ -272,12 +306,17 @@ export async function listStoredBooks(
     const rows = ownerId
       ? fixtureBooks.filter((book) => book.ownerId === ownerId)
       : fixtureBooks;
-    return rows.map((book) => ({
-      id: book.id,
-      ownerId: book.ownerId,
-      title: book.title,
-      accountValue: book.accountValue,
-    }));
+    return rows
+      .map((book, index) => ({
+        id: book.id,
+        ownerId: book.ownerId,
+        title: book.title,
+        accountValue: book.accountValue,
+        source: book.source ?? "manual",
+        fees: book.fees ?? 0,
+        sortOrder: book.sortOrder ?? index,
+      }))
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.title.localeCompare(b.title));
   }
   if (persistence !== "supabase" || !user.firmId) return [];
 
@@ -287,11 +326,89 @@ export async function listStoredBooks(
       .from("position_books")
       .select(BOOK_SELECT)
       .eq("firm_id", user.firmId)
+      .order("sort_order", { ascending: true })
       .order("title", { ascending: true });
     if (ownerId && ownerId !== UNASSIGNED_OWNER_ID) {
       query = query.eq("owner_id", ownerId);
     }
     const { data, error } = await query;
+    if (error) throw error;
+    return (data as BookDbRow[] | null)?.map(mapBookRow) ?? [];
+  } catch {
+    return [];
+  }
+}
+
+function clientForOwnerRead() {
+  return canCreateAdminClient() ? createAdminClient() : null;
+}
+
+/** Loads one owner's lots after password unlock. Always scoped to firm_id. */
+export async function listStoredPositionsForOwner(
+  user: SessionUser,
+  ownerId: string,
+): Promise<PositionRecord[]> {
+  const persistence = resolvePersistenceMode(user);
+  if (persistence === "fixtures") {
+    return fixturePositions
+      .filter((row) => ownerKey(row.createdBy) === ownerId)
+      .map((row) => ({ ...row }));
+  }
+  if (
+    persistence !== "supabase" ||
+    !user.firmId ||
+    ownerId === UNASSIGNED_OWNER_ID
+  ) {
+    return [];
+  }
+
+  try {
+    if (!canCreateAdminClient() && user.role !== "admin") return [];
+    const supabase = clientForOwnerRead() ?? (await createClient());
+    const data = await fetchAllRows(async (from, to) => {
+      const { data: page, error } = await supabase
+        .from("positions")
+        .select(POSITION_SELECT)
+        .eq("firm_id", user.firmId)
+        .eq("created_by", ownerId)
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to);
+      if (error) throw error;
+      return (page as DbRow[] | null) ?? [];
+    });
+    return data.map(mapPositionRow);
+  } catch {
+    return [];
+  }
+}
+
+export async function listStoredBooksForOwner(
+  user: SessionUser,
+  ownerId: string,
+): Promise<StoredBook[]> {
+  const persistence = resolvePersistenceMode(user);
+  if (persistence === "fixtures") {
+    return listStoredBooks(user, ownerId);
+  }
+  if (
+    persistence !== "supabase" ||
+    !user.firmId ||
+    ownerId === UNASSIGNED_OWNER_ID
+  ) {
+    return [];
+  }
+
+  try {
+    if (!canCreateAdminClient() && user.role !== "admin") return [];
+    const supabase = clientForOwnerRead() ?? (await createClient());
+    const { data, error } = await supabase
+      .from("position_books")
+      .select(BOOK_SELECT)
+      .eq("firm_id", user.firmId)
+      .eq("owner_id", ownerId)
+      .order("sort_order", { ascending: true })
+      .order("title", { ascending: true });
     if (error) throw error;
     return (data as BookDbRow[] | null)?.map(mapBookRow) ?? [];
   } catch {
@@ -314,6 +431,9 @@ export async function ensureMainBook(
       ownerId,
       title: DEFAULT_BOOK_TITLE,
       accountValue: null,
+      source: "manual",
+      fees: 0,
+      sortOrder: 0,
     };
   }
   if (!canEditPositionBook(user, ownerId)) return null;
@@ -333,6 +453,9 @@ export async function insertStoredBook(
     throw new PositionBookError("You can only add books to your own account.", 403);
   }
   const normalized = normalizeBookTitle(title);
+  const siblings = await listStoredBooks(user, ownerId);
+  const sortOrder =
+    siblings.reduce((max, book) => Math.max(max, book.sortOrder), -1) + 1;
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("position_books")
@@ -340,6 +463,7 @@ export async function insertStoredBook(
       firm_id: user.firmId,
       owner_id: ownerId,
       title: normalized,
+      sort_order: sortOrder,
     })
     .select(BOOK_SELECT)
     .single();
@@ -394,6 +518,12 @@ export async function deleteStoredBook(
   if (siblings.length <= 1) {
     throw new PositionBookError("The last book cannot be deleted.", 409);
   }
+  if (await bookIsBrokerageLinked(user, bookId)) {
+    throw new PositionBookError(
+      "Disconnect the brokerage before deleting this book.",
+      409,
+    );
+  }
   const supabase = await createClient();
   const { count, error: countError } = await supabase
     .from("positions")
@@ -418,6 +548,45 @@ export async function deleteStoredBook(
     throw new Error(error.message);
   }
   return { ownerId: current.ownerId };
+}
+
+export async function reorderStoredBooks(
+  user: SessionUser,
+  ownerId: string,
+  orderedIds: string[],
+): Promise<StoredBook[]> {
+  if (!user.firmId) throw new Error("No firm is associated with this session.");
+  if (ownerId === UNASSIGNED_OWNER_ID) {
+    throw new PositionBookError("Unassigned lots cannot have named books.", 400);
+  }
+  if (!canEditPositionBook(user, ownerId)) {
+    throw new PositionBookError("You can only reorder your own books.", 403);
+  }
+  const existing = await listStoredBooks(user, ownerId);
+  const existingIds = new Set(existing.map((book) => book.id));
+  if (
+    existing.length !== orderedIds.length ||
+    new Set(orderedIds).size !== orderedIds.length ||
+    orderedIds.some((id) => !existingIds.has(id))
+  ) {
+    throw new PositionBookError("Book list does not match this owner.", 400);
+  }
+  const supabase = await createClient();
+  const results = await Promise.all(
+    orderedIds.map((id, index) =>
+      supabase
+        .from("position_books")
+        .update({ sort_order: index })
+        .eq("id", id)
+        .eq("firm_id", user.firmId)
+        .eq("owner_id", ownerId),
+    ),
+  );
+  const failed = results.find((row) => row.error);
+  if (failed?.error) {
+    throw new Error(failed.error.message);
+  }
+  return listStoredBooks(user, ownerId);
 }
 
 async function loadStoredBook(
@@ -458,6 +627,25 @@ export async function insertStoredPosition(
   if (resolvedBook.ownerId !== ownerId) {
     throw new PositionBookError("That book does not belong to this owner.", 400);
   }
+  if (resolvedBook.source === "snaptrade") {
+    const supabasePeek = await createClient();
+    const { data: synced } = await supabasePeek
+      .from("positions")
+      .select("ticker, side")
+      .eq("firm_id", user.firmId)
+      .eq("book_id", resolvedBook.id)
+      .eq("source", "snaptrade")
+      .eq("status", "open")
+      .eq("ticker", input.ticker)
+      .eq("side", input.side)
+      .limit(1);
+    if (synced?.length) {
+      throw new PositionBookError(
+        "That name is already synced from the brokerage on this book.",
+        409,
+      );
+    }
+  }
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("positions")
@@ -491,9 +679,25 @@ export async function updateStoredPosition(
   patch: Partial<PositionWrite>,
 ): Promise<PositionRecord> {
   if (!user.firmId) throw new Error("No firm is associated with this session.");
+  const source = await loadPositionSource(user, id);
+  if (source === "snaptrade") {
+    throw new BrokerageError(
+      "Synced lots are updated from the brokerage. Disconnect or wait for the next sync.",
+      409,
+    );
+  }
   const supabase = await createClient();
   const payload: Record<string, unknown> = {};
   if (patch.ticker != null) payload.ticker = patch.ticker;
+  if (patch.assetType != null) payload.asset_type = patch.assetType;
+  if (patch.side != null) payload.side = patch.side;
+  if (patch.quantity != null) payload.quantity = patch.quantity;
+  if (patch.multiplier != null) payload.multiplier = patch.multiplier;
+  if (patch.entryPrice != null) payload.entry_price = patch.entryPrice;
+  if (patch.entryDate != null) payload.entry_date = patch.entryDate;
+  if (patch.currency != null) payload.currency = patch.currency;
+  if (patch.strategy !== undefined) payload.strategy = patch.strategy;
+  if (patch.notes !== undefined) payload.notes = patch.notes;
   if (patch.assetType != null) payload.asset_type = patch.assetType;
   if (patch.side != null) payload.side = patch.side;
   if (patch.quantity != null) payload.quantity = patch.quantity;
@@ -546,6 +750,12 @@ export async function closeStoredPosition(
   }
 
   const current = mapPositionRow(currentRow as DbRow);
+  if (current.source === "snaptrade") {
+    throw new BrokerageError(
+      "Synced lots close when they leave the brokerage. Use Disconnect to stop syncing.",
+      409,
+    );
+  }
   const closedAt = new Date().toISOString();
   const result = applyCloseToBook([current], id, {
     closePrice: input.closePrice,
@@ -712,6 +922,12 @@ export async function upsertStoredAccountValue(
   const current = await loadStoredBook(user, bookId);
   if (!canEditPositionBook(user, current.ownerId)) {
     throw new Error("You can only edit account value on your own book.");
+  }
+  if (current.source === "snaptrade") {
+    throw new BrokerageError(
+      "Account value for this book comes from the brokerage.",
+      400,
+    );
   }
   const normalized =
     accountValue == null || !Number.isFinite(accountValue) || accountValue <= 0

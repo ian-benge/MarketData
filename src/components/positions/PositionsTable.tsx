@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useId, useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, ChevronRight } from "lucide-react";
 import { PositionInspector } from "@/components/positions/PositionInspector";
 import {
@@ -9,6 +9,12 @@ import {
   Sparkline,
   formatEntryDate,
 } from "@/components/positions/display";
+import {
+  DEFAULT_TABLE_PAGE_SIZE,
+  paginate,
+  type TablePageSize,
+} from "@/components/positions/pagination";
+import { TablePager } from "@/components/positions/TablePager";
 import { Badge } from "@/components/ui/Badge";
 import { cn } from "@/lib/utils/cn";
 import {
@@ -29,6 +35,7 @@ type SortKey =
   | "returnPercent"
   | "change1w"
   | "change1m"
+  | "entryDate"
   | "closeDate";
 
 function numeric(value: number | null | undefined) {
@@ -98,9 +105,12 @@ export function PositionsTable({
   emptyMessage?: string;
 }) {
   const closed = variant === "closed";
+  const pageSizeId = useId();
   const [sortKey, setSortKey] = useState<SortKey>(closed ? "closeDate" : "weight");
   const [descending, setDescending] = useState(true);
-  const colSpan = closed ? 9 : 14;
+  const [pageSize, setPageSize] = useState<TablePageSize>(DEFAULT_TABLE_PAGE_SIZE);
+  const [page, setPage] = useState(1);
+  const colSpan = closed ? 11 : 14;
 
   const sorted = useMemo(() => {
     const next = [...rows];
@@ -124,12 +134,26 @@ export function PositionsTable({
         result = numeric(a.change1w.pnl) - numeric(b.change1w.pnl);
       if (sortKey === "change1m")
         result = numeric(a.change1m.pnl) - numeric(b.change1m.pnl);
-      if (sortKey === "closeDate")
+      if (sortKey === "entryDate")
+        result = (a.entryDate ?? "").localeCompare(b.entryDate ?? "");
+      if (sortKey === "closeDate") {
         result = (a.closeDate ?? "").localeCompare(b.closeDate ?? "");
+        if (result === 0) {
+          result = (a.closedAt ?? "").localeCompare(b.closedAt ?? "");
+        }
+        if (result === 0) result = a.id.localeCompare(b.id);
+      }
       return descending ? -result : result;
     });
     return next;
   }, [closed, descending, rows, sortKey]);
+
+  const pagedClosed = paginate(sorted, page, pageSize);
+  const paged = closed ? pagedClosed.items : sorted;
+
+  useEffect(() => {
+    setPage(1);
+  }, [pageSize, sortKey, descending, rows.length]);
 
   function toggleSort(next: SortKey) {
     if (sortKey === next) setDescending((value) => !value);
@@ -137,6 +161,7 @@ export function PositionsTable({
       setSortKey(next);
       setDescending(next !== "ticker" && next !== "side");
     }
+    setPage(1);
   }
 
   function header(
@@ -177,6 +202,7 @@ export function PositionsTable({
   }
 
   return (
+    <div>
     <div
       className="w-full min-w-0 overflow-x-auto overscroll-x-contain terminal-scroll"
       tabIndex={0}
@@ -196,11 +222,15 @@ export function PositionsTable({
             <th className="sticky top-0 z-10 hidden h-8 bg-[var(--ib-surface-2)] px-2.5 font-medium md:table-cell">
               Qty
             </th>
+            {closed ? header("entryDate", "Date entered", "left") : null}
             <th className="sticky top-0 z-10 hidden h-8 bg-[var(--ib-surface-2)] px-2.5 text-right font-medium md:table-cell">
               Entry
             </th>
+            {closed ? header("closeDate", "Date closed", "left") : null}
             {closed ? (
-              header("closeDate", "Exit")
+              <th className="sticky top-0 z-10 h-8 bg-[var(--ib-surface-2)] px-2.5 text-right font-medium">
+                Exit
+              </th>
             ) : (
               <th className="sticky top-0 z-10 h-8 bg-[var(--ib-surface-2)] px-2.5 text-right font-medium">
                 Last
@@ -246,7 +276,7 @@ export function PositionsTable({
               </td>
             </tr>
           ) : (
-            sorted.map((row) => {
+            paged.map((row) => {
               const selected = row.id === selectedId;
               const detailId = `position-lot-${row.id}`;
               function toggle() {
@@ -287,7 +317,9 @@ export function PositionsTable({
                           <span className="md:hidden">
                             {row.side === "short" ? "Short · " : "Long · "}
                           </span>
-                          {row.strategy || row.assetType}
+                          {row.source === "snaptrade"
+                            ? row.brokerageName || "Brokerage"
+                            : row.strategy || row.assetType}
                           {row.status === "closed" ? " · closed" : ""}
                         </span>
                       </span>
@@ -304,18 +336,27 @@ export function PositionsTable({
                       </span>
                     ) : null}
                   </td>
-                  <td className="hidden px-2.5 text-right font-mono md:table-cell">
-                    <div>{formatPrice(row.entryPrice, row.ticker)}</div>
-                    <div className="text-[10px] text-[var(--ib-text-muted)]">
+                  {closed ? (
+                    <td className="whitespace-nowrap px-2.5 font-mono text-[var(--ib-text-secondary)]">
                       {formatEntryDate(row.entryDate)}
-                    </div>
+                    </td>
+                  ) : null}
+                  <td className="hidden px-2.5 text-right font-mono md:table-cell">
+                    {formatPrice(row.entryPrice, row.ticker)}
+                    {closed ? null : (
+                      <div className="text-[10px] text-[var(--ib-text-muted)]">
+                        {formatEntryDate(row.entryDate)}
+                      </div>
+                    )}
                   </td>
                   {closed ? (
+                    <td className="whitespace-nowrap px-2.5 font-mono text-[var(--ib-text-secondary)]">
+                      {formatEntryDate(row.closeDate)}
+                    </td>
+                  ) : null}
+                  {closed ? (
                     <td className="px-2.5 text-right font-mono">
-                      <div>{formatPrice(row.closePrice, row.ticker)}</div>
-                      <div className="text-[10px] text-[var(--ib-text-muted)]">
-                        {formatEntryDate(row.closeDate)}
-                      </div>
+                      {formatPrice(row.closePrice, row.ticker)}
                     </td>
                   ) : (
                     <td className="px-2.5 text-right font-mono">
@@ -401,13 +442,14 @@ export function PositionsTable({
                   <tr className="border-b border-[var(--ib-border-subtle)] last:border-b-0">
                     <td colSpan={colSpan} className="p-0" id={detailId}>
                       <PositionInspector
+                        key={`${row.id}:${row.last}:${row.entryPrice}:${row.quantity}`}
                         row={row}
                         history={history[row.ticker.toUpperCase()] ?? []}
                         onClose={() => onSelect(null)}
                         onEdit={onEdit}
                         onClosePosition={onClosePosition}
                         closing={closing}
-                        canEdit={canEdit}
+                        canEdit={canEdit && row.source !== "snaptrade"}
                       />
                     </td>
                   </tr>
@@ -418,6 +460,19 @@ export function PositionsTable({
           )}
         </tbody>
       </table>
+    </div>
+    {closed ? (
+      <TablePager
+        total={sorted.length}
+        page={page}
+        pageSize={pageSize}
+        pageSizeId={pageSizeId}
+        navLabel="Past positions pages"
+        pageSizeLabel="Past positions per page"
+        onPageChange={setPage}
+        onPageSizeChange={setPageSize}
+      />
+    ) : null}
     </div>
   );
 }

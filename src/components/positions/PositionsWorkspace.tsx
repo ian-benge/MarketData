@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { StaleBanner } from "@/components/ui/StaleBanner";
 import { StatePanel } from "@/components/ui/StatePanel";
+import { BrokerageConnect } from "@/components/positions/BrokerageConnect";
 import { PositionFormDialog, type PositionFormValues } from "@/components/positions/PositionFormDialog";
 import { PositionActivity } from "@/components/positions/PositionActivity";
 import {
@@ -16,6 +17,7 @@ import {
   PositionsMetricsStrip,
 } from "@/components/positions/PositionsSummary";
 import { PositionsOwnerTabs } from "@/components/positions/PositionsOwnerTabs";
+import { OwnerUnlockPanel } from "@/components/positions/OwnerUnlockPanel";
 import { PositionsBookTabs } from "@/components/positions/PositionsBookTabs";
 import { PositionsTable } from "@/components/positions/PositionsTable";
 import {
@@ -83,6 +85,8 @@ export function PositionsWorkspace({
   const [formMode, setFormMode] = useState<"add" | "edit" | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [closing, setClosing] = useState(false);
+  const [unlocking, setUnlocking] = useState(false);
+  const [unlockError, setUnlockError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{
     tone: "error" | "success";
     message: string;
@@ -231,6 +235,10 @@ export function PositionsWorkspace({
     const nextLots = recordsFromSnapshot(next);
     const resolved = { ...next, books: nextBooks, bookId: resolvedBookId };
     setSnapshot(resolved);
+    if (resolved.ownerLocked) {
+      setUnlockError(null);
+      return;
+    }
     rememberLots(resolved.bookId || next.ownerId, nextLots);
     rememberOwnerBooks(resolved.ownerId || ownerId, nextBooks);
     setLastBookByOwner((current) => ({
@@ -352,10 +360,13 @@ export function PositionsWorkspace({
       window.clearTimeout(timeout);
       window.clearInterval(interval);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- quotes poll keyed to book + owner; books array would retrigger
   }, [accountValueForBook, book, demo, snapshot.bookId, snapshot.ownerId]);
 
   useEffect(() => {
-    if (demo || snapshot.persistence !== "supabase") return;
+    if (demo || snapshot.persistence !== "supabase" || snapshot.ownerLocked) {
+      return;
+    }
     let cancelled = false;
     async function pull() {
       if (document.visibilityState === "hidden") return;
@@ -372,7 +383,9 @@ export function PositionsWorkspace({
         const next = (await response.json()) as PositionsSnapshot;
         if (!cancelled) {
           setSnapshot(next);
-          rememberLots(next.bookId || next.ownerId, recordsFromSnapshot(next));
+          if (!next.ownerLocked) {
+            rememberLots(next.bookId || next.ownerId, recordsFromSnapshot(next));
+          }
         }
       } catch {
         /* keep last valid snapshot */
@@ -385,7 +398,7 @@ export function PositionsWorkspace({
       window.clearTimeout(timeout);
       window.clearInterval(interval);
     };
-  }, [demo, snapshot.bookId, snapshot.ownerId, snapshot.persistence]);
+  }, [demo, snapshot.bookId, snapshot.ownerId, snapshot.ownerLocked, snapshot.persistence]);
 
   async function handleCreate(values: PositionFormValues) {
     setSubmitting(true);
@@ -720,6 +733,92 @@ export function PositionsWorkspace({
     }
   }
 
+  async function handleReorderBooks(bookIds: string[]) {
+    const previous = snapshot.books;
+    const nextBooks = bookIds
+      .map((id) => previous.find((book) => book.id === id))
+      .filter((book): book is PositionBook => Boolean(book));
+    if (nextBooks.length !== previous.length) return;
+    setSnapshot((current) => ({ ...current, books: nextBooks }));
+    rememberOwnerBooks(snapshot.ownerId, nextBooks);
+    try {
+      const response = await fetch("/api/positions/books/reorder", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ownerId: snapshot.ownerId,
+          bookIds,
+          bookId: snapshot.bookId,
+        }),
+      });
+      const payload = (await response.json()) as {
+        snapshot?: PositionsSnapshot;
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Unable to reorder books.");
+      }
+      if (payload.snapshot) {
+        const keepBookId =
+          snapshot.bookId &&
+          payload.snapshot.books.some((book) => book.id === snapshot.bookId)
+            ? snapshot.bookId
+            : payload.snapshot.bookId;
+        const resolved = { ...payload.snapshot, bookId: keepBookId };
+        setSnapshot(resolved);
+        rememberOwnerBooks(resolved.ownerId, resolved.books);
+        rememberLots(resolved.bookId, recordsFromSnapshot(resolved));
+      }
+    } catch (error) {
+      setSnapshot((current) => ({ ...current, books: previous }));
+      rememberOwnerBooks(snapshot.ownerId, previous);
+      setFeedback({
+        tone: "error",
+        message:
+          error instanceof Error ? error.message : "Unable to reorder books.",
+      });
+    }
+  }
+
+  async function handleUnlock(password: string) {
+    setUnlocking(true);
+    setUnlockError(null);
+    try {
+      const response = await fetch("/api/positions/unlock", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ownerId: snapshot.ownerId, password }),
+      });
+      const payload = (await response.json()) as PositionsSnapshot & {
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Unable to unlock that blotter.");
+      }
+      setSnapshot(payload);
+      if (payload.ownerLocked) return;
+      rememberLots(
+        payload.bookId || payload.ownerId,
+        recordsFromSnapshot(payload),
+      );
+      rememberOwnerBooks(payload.ownerId, payload.books);
+      rememberAccountValue(
+        payload.bookId || payload.ownerId,
+        payload.accountValue,
+      );
+      setLastBookByOwner((current) => ({
+        ...current,
+        [payload.ownerId]: payload.bookId,
+      }));
+    } catch (error) {
+      setUnlockError(
+        error instanceof Error ? error.message : "Unable to unlock that blotter.",
+      );
+    } finally {
+      setUnlocking(false);
+    }
+  }
+
   if (snapshot.persistence === "unavailable" && !snapshot.usingFixtures) {
     return (
       <StatePanel
@@ -738,19 +837,58 @@ export function PositionsWorkspace({
       <PageHeader
         eyebrow="Portfolio monitor"
         title="Positions"
-        description="Per-user blotters with live marks, exposure, and P&L. Manual lots only — research, not execution."
+        description="Per-user blotters with live marks, exposure, and P&L. Add lots by hand or connect a brokerage."
         actions={
-          snapshot.canEdit ? (
-            <Button variant="primary" size="sm" onClick={() => setFormMode("add")}>
-              <Plus aria-hidden="true" className="size-3.5" />
-              Add position
-            </Button>
-          ) : (
-            <Badge tone="neutral">View only</Badge>
+          snapshot.ownerLocked ? undefined : (
+          <div className="flex flex-wrap items-center gap-2">
+            <BrokerageConnect
+              brokerage={snapshot.brokerage}
+              canManage={snapshot.canEdit && snapshot.ownerId === snapshot.viewerId}
+              busy={submitting || closing || bookBusy}
+              usingFixtures={snapshot.usingFixtures}
+              bookId={snapshot.bookId}
+              onSnapshot={(next) => {
+                const keepBookId =
+                  snapshot.bookId &&
+                  next.books.some((book) => book.id === snapshot.bookId)
+                    ? snapshot.bookId
+                    : next.bookId;
+                rememberOwnerBooks(next.ownerId, next.books);
+                setLastBookByOwner((current) => ({
+                  ...current,
+                  [next.ownerId]: keepBookId,
+                }));
+                if (keepBookId && keepBookId !== next.bookId) {
+                  void loadNamedBook(next.ownerId, keepBookId);
+                  return;
+                }
+                const resolved = { ...next, bookId: keepBookId };
+                setSnapshot(resolved);
+                rememberLots(
+                  resolved.bookId || bookKey,
+                  recordsFromSnapshot(resolved),
+                );
+                rememberAccountValue(
+                  resolved.bookId || bookKey,
+                  resolved.accountValue,
+                );
+              }}
+              onFeedback={setFeedback}
+            />
+            {snapshot.canEdit ? (
+              <Button variant="primary" size="sm" onClick={() => setFormMode("add")}>
+                <Plus aria-hidden="true" className="size-3.5" />
+                Add position
+              </Button>
+            ) : (
+              <Badge tone="neutral">View only</Badge>
+            )}
+          </div>
           )
         }
       />
 
+      {!snapshot.ownerLocked ? (
       <div className="flex flex-wrap items-center gap-2 text-[11px] text-[var(--ib-text-muted)]">
         {snapshot.usingFixtures ? <Badge tone="mock">Mock data</Badge> : null}
         <span className="font-mono">
@@ -764,6 +902,7 @@ export function PositionsWorkspace({
           <span>Viewing {activeOwner.displayName}</span>
         ) : null}
       </div>
+      ) : null}
 
       {snapshot.owners.length > 0 ? (
         <div className="space-y-1.5">
@@ -771,6 +910,7 @@ export function PositionsWorkspace({
             owners={snapshot.owners}
             ownerId={snapshot.ownerId}
             onSelect={(id) => {
+              setUnlockError(null);
               void loadNamedBook(id).catch((error: unknown) => {
                 setFeedback({
                   tone: "error",
@@ -782,7 +922,8 @@ export function PositionsWorkspace({
               });
             }}
           />
-          {snapshot.books.length > 0 || snapshot.canEdit ? (
+          {!snapshot.ownerLocked &&
+          (snapshot.books.length > 0 || snapshot.canEdit) ? (
             <PositionsBookTabs
               books={snapshot.books}
               bookId={snapshot.bookId}
@@ -810,11 +951,24 @@ export function PositionsWorkspace({
               onDelete={(id) => {
                 void handleDeleteBook(id);
               }}
+              onReorder={(bookIds) => {
+                void handleReorderBooks(bookIds);
+              }}
             />
           ) : null}
         </div>
       ) : null}
 
+      {snapshot.ownerLocked ? (
+        <OwnerUnlockPanel
+          ownerId={snapshot.ownerId}
+          ownerName={activeOwner?.displayName || "this teammate"}
+          busy={unlocking}
+          error={unlockError}
+          onUnlock={handleUnlock}
+        />
+      ) : (
+        <>
       {snapshot.stale ? <StaleBanner asOf={snapshot.asOf} /> : null}
       {snapshot.error && snapshot.quotesCovered > 0 ? (
         <StatePanel
@@ -830,7 +984,11 @@ export function PositionsWorkspace({
           <PositionsMetricsStrip
             snapshot={displaySnapshot}
             onAccountValueChange={
-              snapshot.canEdit ? handleAccountValue : undefined
+              snapshot.canEdit &&
+              snapshot.books.find((book) => book.id === snapshot.bookId)
+                ?.source !== "snaptrade"
+                ? handleAccountValue
+                : undefined
             }
             savingAccountValue={savingAccountValue}
           />
@@ -843,7 +1001,7 @@ export function PositionsWorkspace({
         <div className="order-2 min-w-0 space-y-3 lg:order-3">
           <Panel
             title="Position blotter"
-            description="Open lots with live marks. Realized shows closed trims of the same name. Click a row for the lot blotter."
+            description="Open lots with live marks. Brokerage lots stay in their linked book. Click a row for the lot blotter."
             actions={<Badge tone="neutral">{openRows.length} shown</Badge>}
             bodyClassName="p-0"
           >
@@ -898,8 +1056,11 @@ export function PositionsWorkspace({
                   kind="empty"
                   title="No open positions on the book"
                   description={
-                    snapshot.canEdit
-                      ? "Add a ticker, side, quantity, and entry to start the live monitor."
+                    snapshot.books.find((book) => book.id === snapshot.bookId)
+                      ?.source === "snaptrade"
+                      ? "This brokerage account has no holdings yet. Sync again after positions appear at the broker."
+                      : snapshot.canEdit
+                      ? "Add a ticker by hand, or connect a brokerage to import holdings."
                       : `${activeOwner?.displayName ?? "This user"} has no open positions on the book.`
                   }
                   actions={
@@ -933,7 +1094,7 @@ export function PositionsWorkspace({
           <Panel
             title="Past positions"
             description="Closed lots and realized return versus entry. Remaining sleeves of the same name stay in the blotter above."
-            actions={<Badge tone="neutral">{closedRows.length} shown</Badge>}
+            actions={<Badge tone="neutral">{closedRows.length} closed</Badge>}
             bodyClassName="p-0"
           >
             <PastPositionsMetrics snapshot={displaySnapshot} />
@@ -958,7 +1119,7 @@ export function PositionsWorkspace({
           <Panel
             title="Entries & exits"
             description="Every open and close on this book, newest first. Click a row to inspect the lot."
-            actions={<Badge tone="neutral">{activity.length} shown</Badge>}
+            actions={<Badge tone="neutral">{activity.length} events</Badge>}
             bodyClassName="p-0"
           >
             <PositionActivity
@@ -969,6 +1130,8 @@ export function PositionsWorkspace({
           </Panel>
         </div>
       </div>
+        </>
+      )}
 
       {formMode ? (
         <PositionFormDialog

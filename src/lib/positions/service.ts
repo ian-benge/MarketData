@@ -17,13 +17,22 @@ import {
   resolveOwnerId,
 } from "./owners";
 import {
+  applyOwnerUnlockFlags,
+  listUnlockedOwnerIds,
+  ownerViewRequiresUnlock,
+} from "./owner-unlock";
+import {
   ensureMainBook,
   listPositionOwners,
   listStoredBooks,
+  listStoredBooksForOwner,
   listStoredPositions,
+  listStoredPositionsForOwner,
   getStoredAccountValue,
   resolvePersistenceMode,
 } from "./store";
+import { loadBrokerageSnapshot } from "@/lib/brokerage/sync";
+import { EMPTY_BROKERAGE_SNAPSHOT } from "@/lib/brokerage/types";
 import type { PositionBook, PositionRecord, PositionsSnapshot } from "./types";
 
 export async function buildPositionsSnapshot(options: {
@@ -39,8 +48,11 @@ export async function buildPositionsSnapshot(options: {
     accountValue?: number | null;
     openCount?: number;
     positionCount?: number;
+    source?: "manual" | "snaptrade";
+    sortOrder?: number;
   }>;
   accountValue?: number | null;
+  unlockedOwnerIds?: ReadonlySet<string>;
 }): Promise<PositionsSnapshot> {
   const persistence = resolvePersistenceMode(options.user);
   let records = options.positions;
@@ -67,31 +79,77 @@ export async function buildPositionsSnapshot(options: {
     );
   }
 
+  const skipUnlock =
+    storePersistence === "fixtures" || options.user.isDemo;
+  const unlockedOwnerIds = skipUnlock
+    ? new Set<string>()
+    : (options.unlockedOwnerIds ??
+      (await listUnlockedOwnerIds(options.user.id)));
+
   const team = await listPositionOwners(options.user);
   const countSource = overlayBookPositions(
     allPositions,
     options.bookId ?? undefined,
     options.positions,
   );
-  const owners = buildOwnerList(team, countSource, options.user.id);
+  const ownersRaw = buildOwnerList(team, countSource, options.user.id);
   const inferredOwner =
     options.ownerId ??
     (options.positions?.[0] ? ownerKey(options.positions[0].createdBy) : null);
-  const ownerId = resolveOwnerId(inferredOwner, options.user.id, owners);
+  const ownerId = resolveOwnerId(inferredOwner, options.user.id, ownersRaw);
+  const owners = skipUnlock
+    ? ownersRaw
+    : applyOwnerUnlockFlags(ownersRaw, options.user.id, unlockedOwnerIds);
+
+  if (
+    !skipUnlock &&
+    ownerViewRequiresUnlock(options.user.id, ownerId, unlockedOwnerIds)
+  ) {
+    return emptyPositionsSnapshot(null, {
+      persistence: storePersistence,
+      usingFixtures: false,
+      owners,
+      ownerId,
+      viewerId: options.user.id,
+      canEdit: false,
+      ownerLocked: true,
+      books: [],
+      bookId: "",
+      brokerage: EMPTY_BROKERAGE_SNAPSHOT,
+    });
+  }
+
+  const viewingOther =
+    !skipUnlock &&
+    ownerId !== options.user.id &&
+    ownerId !== UNASSIGNED_OWNER_ID;
+
+  if (viewingOther && !options.positions) {
+    records = await listStoredPositionsForOwner(options.user, ownerId);
+    allPositions = records;
+  }
 
   const storedBooks: Array<{
     id: string;
     ownerId: string;
     title: string;
     accountValue: number | null;
+    source?: "manual" | "snaptrade";
+    sortOrder?: number;
   }> = options.books?.length
-    ? options.books.map((book) => ({
+    ? options.books.map((book, index) => ({
         id: book.id,
         ownerId: book.ownerId,
         title: book.title,
         accountValue: book.accountValue ?? null,
+        source: book.source,
+        sortOrder: book.sortOrder ?? index,
       }))
-    : [...(await listStoredBooks(options.user, ownerId))];
+    : [
+        ...(viewingOther
+          ? await listStoredBooksForOwner(options.user, ownerId)
+          : await listStoredBooks(options.user, ownerId)),
+      ];
 
   if (
     !storedBooks.length &&
@@ -102,10 +160,15 @@ export async function buildPositionsSnapshot(options: {
     if (main) storedBooks.push(main);
   }
 
+  const lotSource = viewingOther && !options.positions ? records : allPositions;
   const scopedBooks = booksForOwner(storedBooks, ownerId);
   const ownerBooks = decorateBooks(
     scopedBooks.length ? scopedBooks : storedBooks,
-    countSource,
+    overlayBookPositions(
+      lotSource,
+      options.bookId ?? undefined,
+      options.positions,
+    ),
   );
   const bookId = resolveBookId(options.bookId, ownerBooks);
 
@@ -126,20 +189,50 @@ export async function buildPositionsSnapshot(options: {
       : bookLots;
 
   const market = await loadPositionMarketContext(visible.map((row) => row.ticker));
+  const brokerage =
+    ownerId === options.user.id
+      ? await loadBrokerageSnapshot(options.user, ownerId).catch(
+          () => EMPTY_BROKERAGE_SNAPSHOT,
+        )
+      : EMPTY_BROKERAGE_SNAPSHOT;
+  const accountByBook = new Map(
+    brokerage.connections.flatMap((connection) =>
+      connection.accounts
+        .filter((account) => account.bookId)
+        .map((account) => [
+          account.bookId as string,
+          {
+            brokerageName: connection.brokerageName,
+            connectionStatus: connection.status,
+            lastSyncAt: account.lastSyncAt ?? connection.lastSyncAt,
+          },
+        ] as const),
+    ),
+  );
   const activeBook = ownerBooks.find((book) => book.id === bookId) ?? null;
   const accountValue =
     options.accountValue !== undefined
       ? options.accountValue
       : bookId
         ? (activeBook?.accountValue ??
-          (await getStoredAccountValue(options.user, bookId)))
+          (ownerId === options.user.id
+            ? await getStoredAccountValue(options.user, bookId)
+            : null))
         : null;
 
-  const books: PositionBook[] = ownerBooks.map((book) =>
-    book.id === bookId
-      ? { ...book, accountValue: accountValue ?? book.accountValue }
-      : book,
-  );
+  const books: PositionBook[] = ownerBooks.map((book) => {
+    const linked = accountByBook.get(book.id);
+    const next = {
+      ...book,
+      source: linked ? ("snaptrade" as const) : (book.source ?? "manual"),
+      brokerageName: linked?.brokerageName ?? null,
+      connectionStatus: linked?.connectionStatus ?? null,
+      lastSyncAt: linked?.lastSyncAt ?? null,
+    };
+    return book.id === bookId
+      ? { ...next, accountValue: accountValue ?? book.accountValue }
+      : next;
+  });
 
   return assemblePositionsSnapshot({
     positions: visible,
@@ -161,6 +254,8 @@ export async function buildPositionsSnapshot(options: {
     bookId,
     viewerId: options.user.id,
     canEdit: canEditPositionBook(options.user, ownerId),
+    ownerLocked: false,
+    brokerage,
     accountValue,
   });
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { LockKeyhole } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { cn } from "@/lib/utils/cn";
 import type { PositionBookOwner } from "@/lib/positions/types";
@@ -43,9 +44,16 @@ export function PositionsOwnerTabs({
                 You
               </Badge>
             ) : null}
-            <span className="font-mono text-[10px] text-[var(--ib-text-muted)]">
-              {owner.openCount}
-            </span>
+            {owner.needsUnlock ? (
+              <LockKeyhole
+                aria-label="Password required"
+                className="size-3 text-[var(--ib-text-muted)]"
+              />
+            ) : (
+              <span className="font-mono text-[10px] text-[var(--ib-text-muted)]">
+                {owner.openCount}
+              </span>
+            )}
           </button>
         );
       })}

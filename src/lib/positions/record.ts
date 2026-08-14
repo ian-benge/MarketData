@@ -30,6 +30,11 @@ export const PositionRecordSchema = z.object({
   closedAt: z.string().nullable(),
   createdBy: z.string().nullable(),
   bookId: z.string().nullable(),
+  source: z.enum(["manual", "snaptrade"]).default("manual"),
+  brokerageAccountId: z.string().nullable().optional(),
+  externalId: z.string().nullable().optional(),
+  brokerageName: z.string().nullable().optional(),
+  fees: z.number().finite().min(0).optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

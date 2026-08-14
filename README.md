@@ -68,6 +68,7 @@ See [`.env.example`](.env.example) and [docs/ENVIRONMENT_VARIABLES.md](docs/ENVI
 - **AI:** OpenAI / Anthropic / Gemini keys + models, `AI_DEFAULT_PROVIDER`
 - **Email:** `RESEND_API_KEY`, `EMAIL_FROM`
 - **Storage:** `STORAGE_BUCKET` (default `reports`)
+- **Brokerage (optional):** `SNAPTRADE_CLIENT_ID`, `SNAPTRADE_CONSUMER_KEY` (server-only; read-only SnapTrade linking, live holdings sync, and Import past trades)
 
 ## Documentation
 

@@ -153,9 +153,11 @@ test.describe("research workspace interactions", () => {
 
     await expect(page.getByRole("heading", { name: "Positions", exact: true })).toBeVisible();
     await expect(page.getByText("Book snapshot")).toBeVisible();
-    await expect(page.getByLabel("Account value (incl. cash)")).toHaveValue(
-      "175000",
-    );
+    await expect(page.getByRole("button", { name: "Connect brokerage" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Import past trades" })).toHaveCount(0);
+    await expect(page.getByText("Brokerage sync needs SnapTrade keys")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Add position" })).toBeVisible();
+    await expect(page.getByText("$175,000.00")).toBeVisible();
     await expect(
       page.getByRole("tab", { name: /Demo Member/ }),
     ).toHaveAttribute("aria-selected", "true");
@@ -172,6 +174,22 @@ test.describe("research workspace interactions", () => {
       page.getByRole("region", { name: "Past positions table" }),
     ).toContainText("AAPL");
     await expect(
+      page
+        .getByRole("region", { name: "Past positions table" })
+        .getByRole("columnheader", { name: "Date entered" }),
+    ).toBeVisible();
+    await expect(
+      page
+        .getByRole("region", { name: "Past positions table" })
+        .getByRole("columnheader", { name: "Date closed" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("navigation", { name: "Past positions pages" }),
+    ).toBeVisible();
+    await expect(
+      page.getByLabel("Past positions per page"),
+    ).toHaveValue("10");
+    await expect(
       page.getByRole("region", { name: "Past positions table" }),
     ).toContainText("−$122.00");
     await expect(
@@ -183,6 +201,12 @@ test.describe("research workspace interactions", () => {
     await expect(
       page.getByRole("region", { name: "Entries and exits" }),
     ).toContainText("Exit");
+    await expect(
+      page.getByRole("navigation", { name: "Entries and exits pages" }),
+    ).toBeVisible();
+    await expect(
+      page.getByLabel("Entries and exits per page"),
+    ).toHaveValue("10");
     await expect(page.getByText(/Mock data/i).first()).toBeVisible();
 
     await page.getByRole("button", { name: "Add position" }).click();

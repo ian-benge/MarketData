@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { AuthError } from "@/lib/auth/session";
+import { TeamAccessError } from "@/lib/auth/team-error";
 import { getEnv } from "@/lib/env";
 import { isDemoAuthEnabled } from "@/lib/auth/demo";
 import { PositionBookError } from "@/lib/positions/books";
+import { BrokerageError } from "@/lib/brokerage/errors";
 
 export function jsonOk<T>(data: T, init?: ResponseInit) {
   return NextResponse.json(data, { status: 200, ...init });
@@ -17,6 +19,12 @@ export function handleRouteError(error: unknown) {
     return jsonError(error.message, error.status);
   }
   if (error instanceof PositionBookError) {
+    return jsonError(error.message, error.status);
+  }
+  if (error instanceof BrokerageError) {
+    return jsonError(error.message, error.status);
+  }
+  if (error instanceof TeamAccessError) {
     return jsonError(error.message, error.status);
   }
   console.error(error);

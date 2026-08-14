@@ -48,29 +48,40 @@ export function decorateBooks(
     accountValue: number | null;
     openCount?: number;
     positionCount?: number;
+    source?: "manual" | "snaptrade";
+    fees?: number;
+    sortOrder?: number;
   }>,
   positions: PositionRecord[],
 ): PositionBook[] {
-  const decorated = books.map((book) => ({
+  return books.map((book, index) => ({
     id: book.id,
     ownerId: book.ownerId,
     title: book.title,
     accountValue: book.accountValue,
+    source: book.source ?? "manual",
+    fees: book.fees ?? 0,
+    sortOrder: book.sortOrder ?? index,
     openCount: positions.filter(
       (row) => row.bookId === book.id && row.status === "open",
     ).length,
     positionCount: positions.filter((row) => row.bookId === book.id).length,
   }));
-  decorated.sort((a, b) => {
-    if (a.title === DEFAULT_BOOK_TITLE && b.title !== DEFAULT_BOOK_TITLE) {
-      return -1;
-    }
-    if (b.title === DEFAULT_BOOK_TITLE && a.title !== DEFAULT_BOOK_TITLE) {
-      return 1;
-    }
-    return a.title.localeCompare(b.title);
-  });
-  return decorated;
+}
+
+export function moveBookInList<T extends { id: string }>(
+  books: T[],
+  fromId: string,
+  toId: string,
+): T[] {
+  const fromIndex = books.findIndex((book) => book.id === fromId);
+  const toIndex = books.findIndex((book) => book.id === toId);
+  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return books;
+  const next = [...books];
+  const [moved] = next.splice(fromIndex, 1);
+  if (!moved) return books;
+  next.splice(toIndex, 0, moved);
+  return next;
 }
 
 export function resolveBookId(

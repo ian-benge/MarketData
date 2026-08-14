@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useId, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui/Badge";
 import { PositionPriceChart } from "@/components/positions/PositionPriceChart";
 import {
   ASSET_TYPE_LABELS,
@@ -61,13 +62,6 @@ export function PositionInspector({
   const [closeDate, setCloseDate] = useState(chicagoDateInput());
   const [closeQuantity, setCloseQuantity] = useState(row.quantity);
 
-  useEffect(() => {
-    setConfirmClose(false);
-    setClosePrice(row.last ?? row.entryPrice);
-    setCloseDate(chicagoDateInput());
-    setCloseQuantity(row.quantity);
-  }, [row.id, row.last, row.entryPrice, row.quantity]);
-
   const closes = history.filter((bar) => Number.isFinite(bar.close));
 
   return (
@@ -84,7 +78,11 @@ export function PositionInspector({
             {row.ticker}{" "}
             <span className="font-normal text-[var(--ib-text-muted)]">
               {ASSET_TYPE_LABELS[row.assetType]}
-              {row.strategy ? ` · ${row.strategy}` : ""}
+              {row.source === "snaptrade"
+                ? ` · ${row.brokerageName || "Brokerage"}`
+                : row.strategy
+                  ? ` · ${row.strategy}`
+                  : ""}
               {row.holdingDays != null ? ` · ${row.holdingDays}d held` : ""}
             </span>
           </h3>
@@ -105,6 +103,12 @@ export function PositionInspector({
                 Close position
               </Button>
             </>
+          ) : row.source === "snaptrade" ? (
+            <Badge tone="brand">
+              {row.externalId?.startsWith("hist:")
+                ? "Imported history"
+                : "Brokerage lot"}
+            </Badge>
           ) : null}
           <button
             type="button"
@@ -159,6 +163,16 @@ export function PositionInspector({
             <Metric label="Total P&L">
               <SignedValue value={row.totalPnl} compact />
             </Metric>
+            {row.status === "closed" && row.fees > 0 ? (
+              <>
+                <Metric label="Gross P&L">
+                  <SignedValue value={row.grossRealizedPnl} compact />
+                </Metric>
+                <Metric label="Fees">
+                  {formatCurrency(row.fees, { compact: true })}
+                </Metric>
+              </>
+            ) : null}
             {row.status === "open" && row.relatedRealizedPnl != null ? (
               <Metric label="Realized">
                 <SignedValue value={row.relatedRealizedPnl} compact />

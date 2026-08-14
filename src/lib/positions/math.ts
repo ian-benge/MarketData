@@ -57,6 +57,11 @@ export function signedReturnPercent(
   return move * sideSign(side);
 }
 
+export function positionFees(position: Pick<PositionRecord, "fees">): number {
+  const value = finite(position.fees);
+  return value != null && value > 0 ? value : 0;
+}
+
 function dateOnly(value: string | null | undefined): string | null {
   if (!value) return null;
   const match = value.match(/^(\d{4}-\d{2}-\d{2})/);
@@ -211,7 +216,8 @@ export function enrichPosition(
     position.status === "open"
       ? signedPricePnl(last, entry, position.quantity, position.multiplier, position.side)
       : null;
-  const realizedPnl =
+  const fees = positionFees(position);
+  const grossRealizedPnl =
     position.status === "closed"
       ? signedPricePnl(
           closePrice,
@@ -221,6 +227,8 @@ export function enrichPosition(
           position.side,
         )
       : null;
+  const realizedPnl =
+    grossRealizedPnl == null ? null : grossRealizedPnl - fees;
   const totalPnl = position.status === "closed" ? realizedPnl : unrealizedPnl;
   const returnPercent = signedReturnPercent(mark, entry, position.side);
   const closedToday =
@@ -297,6 +305,8 @@ export function enrichPosition(
     sparkline: positionSparkline(position, closes),
     relatedRealizedPnl: null,
     relatedRealizedPercent: null,
+    fees,
+    grossRealizedPnl,
   };
   row.missing = missingFields(row);
   return row;
@@ -377,6 +387,7 @@ export function summarizePositions(
   rows: EnrichedPosition[],
   asOf: string,
   accountValue: number | null = null,
+  extraFees = 0,
 ): PortfolioSummary {
   const open = rows.filter((row) => row.status === "open");
   const closed = rows.filter((row) => row.status === "closed");
@@ -395,7 +406,14 @@ export function summarizePositions(
   const costBasis = sum(open.map((row) => row.costBasis));
   const closedCostBasis = sum(closed.map((row) => row.costBasis));
   const unrealizedPnl = sum(open.map((row) => row.unrealizedPnl));
-  const realizedPnl = sum(closed.map((row) => row.realizedPnl));
+  const grossRealizedPnl = sum(closed.map((row) => row.grossRealizedPnl));
+  const lotFees = closed.reduce((acc, row) => acc + positionFees(row), 0);
+  const otherFees = extraFees > 0 ? extraFees : 0;
+  const fees = lotFees + otherFees;
+  const realizedPnl =
+    grossRealizedPnl == null ? null : grossRealizedPnl - lotFees;
+  const pnlBeforeFees = sum([unrealizedPnl, grossRealizedPnl]);
+  const totalPnl = sum([unrealizedPnl, realizedPnl, otherFees ? -otherFees : null]);
   const dayPnl = sum(open.map((row) => row.dayPnl));
   const quotedCount = open.filter((row) => row.last != null).length;
   const weights = open
@@ -413,7 +431,7 @@ export function summarizePositions(
   const asOfDate = dateOnly(asOf);
   const investedValue = longExposure;
   const normalizedAccount =
-    accountValue != null && Number.isFinite(accountValue) && accountValue > 0
+    accountValue != null && Number.isFinite(accountValue) && accountValue >= 0
       ? accountValue
       : null;
   const cash =
@@ -474,7 +492,10 @@ export function summarizePositions(
         .map((row) => holdingDays(row, asOfDate ?? row.closeDate ?? row.entryDate))
         .filter((value): value is number => value != null),
     ),
-    totalPnl: sum([unrealizedPnl, realizedPnl]),
+    totalPnl,
+    pnlBeforeFees,
+    fees: fees > 0 ? fees : closed.length ? 0 : extraFees > 0 ? extraFees : null,
+    grossRealizedPnl,
     bookReturnPercent:
       costBasis && costBasis > 0 && unrealizedPnl != null
         ? (unrealizedPnl / costBasis) * 100
@@ -621,7 +642,7 @@ export function applyWeights(
       .map((row) => row.marketValue),
   );
   const base =
-    accountValue != null && Number.isFinite(accountValue) && accountValue > 0
+    accountValue != null && Number.isFinite(accountValue) && accountValue >= 0
       ? accountValue
       : gross;
   return rows.map((row) => ({
@@ -759,6 +780,9 @@ export function emptySummary(): PortfolioSummary {
     closedHitRate: null,
     closedAverageHoldingDays: null,
     totalPnl: null,
+    pnlBeforeFees: null,
+    fees: null,
+    grossRealizedPnl: null,
     bookReturnPercent: null,
     dayPnl: null,
     dayPercent: null,

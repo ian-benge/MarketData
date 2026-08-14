@@ -1,3 +1,5 @@
+import type { BrokerageSnapshot } from "@/lib/brokerage/types";
+
 export const POSITION_ASSET_TYPES = [
   "equity",
   "etf",
@@ -34,6 +36,11 @@ export type PositionRecord = {
   closedAt: string | null;
   createdBy: string | null;
   bookId: string | null;
+  source?: "manual" | "snaptrade";
+  brokerageAccountId?: string | null;
+  externalId?: string | null;
+  brokerageName?: string | null;
+  fees?: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -91,6 +98,8 @@ export type EnrichedPosition = PositionRecord & {
   sparkline: number[];
   relatedRealizedPnl: number | null;
   relatedRealizedPercent: number | null;
+  fees: number;
+  grossRealizedPnl: number | null;
 };
 
 export type NamedContributor = {
@@ -175,6 +184,10 @@ export type PortfolioSummary = {
   closedHitRate: number | null;
   closedAverageHoldingDays: number | null;
   totalPnl: number | null;
+  /** Unrealized + gross realized, before commissions and account fees. */
+  pnlBeforeFees: number | null;
+  fees: number | null;
+  grossRealizedPnl: number | null;
   bookReturnPercent: number | null;
   dayPnl: number | null;
   dayPercent: number | null;
@@ -200,6 +213,7 @@ export type PositionBookOwner = {
   role: "admin" | "member" | "unassigned";
   openCount: number;
   isViewer: boolean;
+  needsUnlock?: boolean;
 };
 
 export type PositionBook = {
@@ -209,6 +223,12 @@ export type PositionBook = {
   accountValue: number | null;
   openCount: number;
   positionCount: number;
+  source?: "manual" | "snaptrade";
+  brokerageName?: string | null;
+  connectionStatus?: "connected" | "disabled" | "reconnect_required" | null;
+  lastSyncAt?: string | null;
+  fees?: number;
+  sortOrder?: number;
 };
 
 export type PositionsSnapshot = {
@@ -234,5 +254,8 @@ export type PositionsSnapshot = {
   bookId: string;
   viewerId: string;
   canEdit: boolean;
+  /** True when the viewer must enter this owner's password to see the blotter. */
+  ownerLocked: boolean;
+  brokerage?: BrokerageSnapshot;
   error: string | null;
 };

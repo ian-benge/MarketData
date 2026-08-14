@@ -107,6 +107,10 @@ export const envSchema = z.object({
   RESEND_API_KEY: optionalString,
   EMAIL_FROM: optionalString,
 
+  /** SnapTrade Commercial API — read-only brokerage linking. Never expose to the client. */
+  SNAPTRADE_CLIENT_ID: optionalString,
+  SNAPTRADE_CONSUMER_KEY: optionalString,
+
   STORAGE_BUCKET: z.string().default("reports"),
 
   FIRM_ID: z.preprocess(emptyToUndefined, z.string().uuid().optional()),

@@ -73,6 +73,7 @@ import {
   GET as getInvitations,
   POST as createInvitation,
 } from "@/app/api/admin/invitations/route";
+import { POST as createUser } from "@/app/api/admin/users/route";
 import { POST as resendDelivery } from "@/app/api/admin/deliveries/[id]/resend/route";
 import { GET as getDashboard } from "@/app/api/dashboard/route";
 import {
@@ -248,6 +249,7 @@ describe("fixture-backed API safety", () => {
       createProposal(request("/api/proposals", "POST")),
       createReport(request("/api/reports", "POST")),
       createInvitation(request("/api/admin/invitations", "POST")),
+      createUser(request("/api/admin/users", "POST")),
       resendDelivery(request("/api/admin/deliveries/del-1/resend", "POST"), {
         params: Promise.resolve({ id: "del-1" }),
       }),

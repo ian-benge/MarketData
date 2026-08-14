@@ -34,6 +34,7 @@ function position(
     closedAt: overrides.closedAt ?? null,
     createdBy: null,
     bookId: null,
+    fees: overrides.fees ?? 0,
     createdAt: "2026-07-01T14:00:00.000Z",
     updatedAt: "2026-07-01T14:00:00.000Z",
   };
@@ -148,6 +149,7 @@ describe("position math", () => {
     expect(summary.grossExposure).toBeCloseTo(5_624);
     expect(summary.realizedPnl).toBeCloseTo(505);
     expect(summary.unrealizedPnl).toBeCloseTo(624);
+    expect(summary.pnlBeforeFees).toBeCloseTo(1_129);
     expect(summary.totalPnl).toBeCloseTo(1_129);
     expect(summary.closedCostBasis).toBeCloseTo(11_750);
     expect(summary.realizedReturnPercent).toBeCloseTo(4.297, 2);
@@ -167,6 +169,55 @@ describe("position math", () => {
     expect(funded.overnightBuyingPower).toBe(40_000);
     expect(funded.optionBuyingPower).toBeCloseTo(14_376);
     expect(funded.dayPercent).toBeCloseTo(((562.4 - 560.1) * 10) / 20_000 * 100, 4);
+  });
+
+  it("nets brokerage fees out of realized and total P&L", () => {
+    const closed = enrichPosition(
+      position({
+        ticker: "QQQ",
+        side: "long",
+        quantity: 25,
+        entryPrice: 470,
+        status: "closed",
+        closePrice: 490.2,
+        closeDate: "2026-08-05",
+        fees: 5,
+      }),
+      quote(492.15, 488.9),
+      undefined,
+      "2026-08-13T15:00:00.000Z",
+    );
+    expect(closed.grossRealizedPnl).toBeCloseTo(505);
+    expect(closed.fees).toBe(5);
+    expect(closed.realizedPnl).toBeCloseTo(500);
+    expect(closed.totalPnl).toBeCloseTo(500);
+
+    const option = enrichPosition(
+      position({
+        ticker: "AAPL250117C00150000",
+        assetType: "option",
+        side: "long",
+        quantity: 2,
+        multiplier: 100,
+        entryPrice: 3.25,
+        status: "closed",
+        closePrice: 4.1,
+        closeDate: "2026-08-05",
+        fees: 1.3,
+      }),
+      undefined,
+      undefined,
+      "2026-08-13T15:00:00.000Z",
+    );
+    expect(option.grossRealizedPnl).toBeCloseTo(170);
+    expect(option.realizedPnl).toBeCloseTo(168.7);
+
+    const summary = summarizePositions([closed, option], "2026-08-13T15:00:00.000Z", null, 2);
+    expect(summary.grossRealizedPnl).toBeCloseTo(675);
+    expect(summary.pnlBeforeFees).toBeCloseTo(675);
+    expect(summary.fees).toBeCloseTo(8.3);
+    expect(summary.realizedPnl).toBeCloseTo(668.7);
+    expect(summary.totalPnl).toBeCloseTo(666.7);
   });
 
   it("attaches realized P&L from closed lots onto the remaining open name", () => {
