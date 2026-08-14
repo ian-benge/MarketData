@@ -43,6 +43,7 @@ export function PositionInspector({
   onClosePosition,
   closing,
   canEdit = true,
+  privacy = "full",
 }: {
   row: EnrichedPosition;
   history: DailyClose[];
@@ -55,14 +56,16 @@ export function PositionInspector({
   }) => void;
   closing: boolean;
   canEdit?: boolean;
+  privacy?: "full" | "tape";
 }) {
   const headingId = useId();
   const [confirmClose, setConfirmClose] = useState(false);
   const [closePrice, setClosePrice] = useState(row.last ?? row.entryPrice);
   const [closeDate, setCloseDate] = useState(chicagoDateInput());
   const [closeQuantity, setCloseQuantity] = useState(row.quantity);
+  const tape = privacy === "tape";
 
-  const closes = history.filter((bar) => Number.isFinite(bar.close));
+  const closes = tape ? [] : history.filter((bar) => Number.isFinite(bar.close));
 
   return (
     <section
@@ -83,7 +86,7 @@ export function PositionInspector({
                 : row.strategy
                   ? ` · ${row.strategy}`
                   : ""}
-              {row.holdingDays != null ? ` · ${row.holdingDays}d held` : ""}
+              {!tape && row.holdingDays != null ? ` · ${row.holdingDays}d held` : ""}
             </span>
           </h3>
         </div>
@@ -121,7 +124,14 @@ export function PositionInspector({
         </div>
       </div>
 
-      <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+      <div
+        className={
+          tape
+            ? "mt-3"
+            : "mt-3 grid gap-3 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]"
+        }
+      >
+        {tape ? null : (
         <div className="min-w-0">
           {closes.length >= 2 ? (
             <PositionPriceChart
@@ -137,6 +147,7 @@ export function PositionInspector({
             </div>
           )}
         </div>
+        )}
         <div className="min-w-0">
           <div className="grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3">
             <Metric label="Last">{formatPrice(row.last, row.ticker)}</Metric>
@@ -145,6 +156,8 @@ export function PositionInspector({
               {formatQuantity(row.quantity)}
               {row.multiplier !== 1 ? ` × ${formatQuantity(row.multiplier)}` : ""}
             </Metric>
+            {tape ? null : (
+              <>
             <Metric label="Market value">
               {formatCurrency(row.marketValue, { compact: true })}
             </Metric>
@@ -198,33 +211,37 @@ export function PositionInspector({
             <Metric label="1M">
               <SignedValue value={row.change1m.percent} kind="percent" />
             </Metric>
+              </>
+            )}
           </div>
           <dl className="mt-3 space-y-1 text-[12px]">
             <div className="flex justify-between gap-3">
               <dt className="text-[var(--ib-text-muted)]">Opened</dt>
               <dd className="font-mono">{formatEntryDate(row.entryDate)}</dd>
             </div>
-            {row.status === "closed" ? (
+            {tape || row.status !== "closed" ? null : (
               <div className="flex justify-between gap-3">
                 <dt className="text-[var(--ib-text-muted)]">Closed</dt>
                 <dd className="font-mono">
                   {formatEntryDate(row.closeDate)} @ {formatPrice(row.closePrice, row.ticker)}
                 </dd>
               </div>
-            ) : null}
+            )}
+            {tape ? null : (
             <div className="flex justify-between gap-3">
               <dt className="text-[var(--ib-text-muted)]">Updated</dt>
               <dd className="font-mono">{formatMarketDateTime(row.updatedAt)}</dd>
             </div>
+            )}
           </dl>
         </div>
       </div>
 
-      {row.notes ? (
+      {tape || !row.notes ? null : (
         <p className="mt-3 rounded-[4px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-2)] p-2.5 text-[12px] leading-5 text-[var(--ib-text-secondary)]">
           {row.notes}
         </p>
-      ) : null}
+      )}
 
       {row.missing.length ? (
         <p className="mt-2 text-[11px] text-[var(--state-warning)]">

@@ -21,6 +21,7 @@ import {
   listUnlockedOwnerIds,
   ownerViewRequiresUnlock,
 } from "./owner-unlock";
+import { redactLockedOwnerSnapshot } from "./privacy";
 import {
   ensureMainBook,
   listPositionOwners,
@@ -101,10 +102,11 @@ export async function buildPositionsSnapshot(options: {
     ? ownersRaw
     : applyOwnerUnlockFlags(ownersRaw, options.user.id, unlockedOwnerIds);
 
-  if (
+  const metricsLocked =
     !skipUnlock &&
-    ownerViewRequiresUnlock(options.user.id, ownerId, unlockedOwnerIds)
-  ) {
+    ownerViewRequiresUnlock(options.user.id, ownerId, unlockedOwnerIds);
+
+  if (metricsLocked && ownerId === UNASSIGNED_OWNER_ID) {
     return emptyPositionsSnapshot(null, {
       persistence: storePersistence,
       usingFixtures: false,
@@ -184,17 +186,17 @@ export async function buildPositionsSnapshot(options: {
       : matchedBookLots;
 
   const visible =
-    options.includeClosed === false
+    metricsLocked || options.includeClosed === false
       ? bookLots.filter((row) => row.status === "open")
       : bookLots;
 
   const market = await loadPositionMarketContext(visible.map((row) => row.ticker));
   const brokerage =
-    ownerId === options.user.id
-      ? await loadBrokerageSnapshot(options.user, ownerId).catch(
+    metricsLocked || ownerId !== options.user.id
+      ? EMPTY_BROKERAGE_SNAPSHOT
+      : await loadBrokerageSnapshot(options.user, ownerId).catch(
           () => EMPTY_BROKERAGE_SNAPSHOT,
-        )
-      : EMPTY_BROKERAGE_SNAPSHOT;
+        );
   const accountByBook = new Map(
     brokerage.connections.flatMap((connection) =>
       connection.accounts
@@ -210,8 +212,9 @@ export async function buildPositionsSnapshot(options: {
     ),
   );
   const activeBook = ownerBooks.find((book) => book.id === bookId) ?? null;
-  const accountValue =
-    options.accountValue !== undefined
+  const accountValue = metricsLocked
+    ? null
+    : options.accountValue !== undefined
       ? options.accountValue
       : bookId
         ? (activeBook?.accountValue ??
@@ -234,7 +237,7 @@ export async function buildPositionsSnapshot(options: {
       : next;
   });
 
-  return assemblePositionsSnapshot({
+  const snapshot = assemblePositionsSnapshot({
     positions: visible,
     quotes: market.quotes,
     closes: market.closes,
@@ -253,9 +256,10 @@ export async function buildPositionsSnapshot(options: {
     books,
     bookId,
     viewerId: options.user.id,
-    canEdit: canEditPositionBook(options.user, ownerId),
-    ownerLocked: false,
+    canEdit: metricsLocked ? false : canEditPositionBook(options.user, ownerId),
+    ownerLocked: metricsLocked,
     brokerage,
     accountValue,
   });
+  return metricsLocked ? redactLockedOwnerSnapshot(snapshot) : snapshot;
 }

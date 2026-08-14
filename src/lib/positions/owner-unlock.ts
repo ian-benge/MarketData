@@ -37,7 +37,6 @@ export function applyOwnerUnlockFlags(
     return {
       ...owner,
       needsUnlock,
-      openCount: needsUnlock ? 0 : owner.openCount,
     };
   });
 }

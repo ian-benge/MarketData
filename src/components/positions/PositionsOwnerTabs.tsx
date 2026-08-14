@@ -44,16 +44,15 @@ export function PositionsOwnerTabs({
                 You
               </Badge>
             ) : null}
+            <span className="font-mono text-[10px] text-[var(--ib-text-muted)]">
+              {owner.openCount}
+            </span>
             {owner.needsUnlock ? (
               <LockKeyhole
-                aria-label="Password required"
+                aria-label="Account value and P&L locked"
                 className="size-3 text-[var(--ib-text-muted)]"
               />
-            ) : (
-              <span className="font-mono text-[10px] text-[var(--ib-text-muted)]">
-                {owner.openCount}
-              </span>
-            )}
+            ) : null}
           </button>
         );
       })}

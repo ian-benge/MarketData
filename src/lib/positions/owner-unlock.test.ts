@@ -34,7 +34,7 @@ describe("ownerViewRequiresUnlock", () => {
 });
 
 describe("applyOwnerUnlockFlags", () => {
-  it("hides open counts on locked teammates", () => {
+  it("keeps open counts on locked teammates", () => {
     const flagged = applyOwnerUnlockFlags(
       [
         {
@@ -58,7 +58,7 @@ describe("applyOwnerUnlockFlags", () => {
       new Set(),
     );
     expect(flagged[0]).toMatchObject({ needsUnlock: false, openCount: 3 });
-    expect(flagged[1]).toMatchObject({ needsUnlock: true, openCount: 0 });
+    expect(flagged[1]).toMatchObject({ needsUnlock: true, openCount: 8 });
   });
 });
 

@@ -254,7 +254,7 @@ export type PositionsSnapshot = {
   bookId: string;
   viewerId: string;
   canEdit: boolean;
-  /** True when the viewer must enter this owner's password to see the blotter. */
+  /** True when the viewer must enter this owner's password to see account value, P&L, and closed lots. */
   ownerLocked: boolean;
   brokerage?: BrokerageSnapshot;
   error: string | null;

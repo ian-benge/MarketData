@@ -343,7 +343,7 @@ function clientForOwnerRead() {
   return canCreateAdminClient() ? createAdminClient() : null;
 }
 
-/** Loads one owner's lots after password unlock. Always scoped to firm_id. */
+/** Loads one owner's lots for a teammate view. Always scoped to firm_id. */
 export async function listStoredPositionsForOwner(
   user: SessionUser,
   ownerId: string,

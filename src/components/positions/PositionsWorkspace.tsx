@@ -26,6 +26,7 @@ import {
 } from "@/lib/positions/assemble";
 import { applyCloseToBook, PositionCloseError } from "@/lib/positions/close";
 import { buildPositionActivity } from "@/lib/positions/math";
+import { UNASSIGNED_OWNER_ID } from "@/lib/positions/owners";
 import type {
   PositionBook,
   PositionRecord,
@@ -96,6 +97,8 @@ export function PositionsWorkspace({
   const activeOwner =
     snapshot.owners.find((owner) => owner.id === snapshot.ownerId) ?? null;
   const bookKey = snapshot.bookId || snapshot.ownerId;
+  const unassignedLocked =
+    snapshot.ownerLocked && snapshot.ownerId === UNASSIGNED_OWNER_ID;
 
   function rememberLots(id: string, nextBook: PositionRecord[]) {
     setBook(nextBook);
@@ -117,7 +120,10 @@ export function PositionsWorkspace({
 
   /** Metrics/weights always reflect the session account value, even if DB save fails. */
   const displaySnapshot = useMemo(
-    () => applyAccountValueToSnapshot(snapshot, accountValueForBook),
+    () =>
+      snapshot.ownerLocked
+        ? snapshot
+        : applyAccountValueToSnapshot(snapshot, accountValueForBook),
     [accountValueForBook, snapshot],
   );
   const selected =
@@ -235,16 +241,16 @@ export function PositionsWorkspace({
     const nextLots = recordsFromSnapshot(next);
     const resolved = { ...next, books: nextBooks, bookId: resolvedBookId };
     setSnapshot(resolved);
-    if (resolved.ownerLocked) {
-      setUnlockError(null);
-      return;
-    }
-    rememberLots(resolved.bookId || next.ownerId, nextLots);
     rememberOwnerBooks(resolved.ownerId || ownerId, nextBooks);
     setLastBookByOwner((current) => ({
       ...current,
       [resolved.ownerId || ownerId]: resolved.bookId,
     }));
+    if (resolved.ownerLocked) {
+      setUnlockError(null);
+      return;
+    }
+    rememberLots(resolved.bookId || next.ownerId, nextLots);
     if (sessionAccountValues[resolved.bookId] === undefined) {
       rememberAccountValue(resolved.bookId, resolved.accountValue);
     }
@@ -364,7 +370,7 @@ export function PositionsWorkspace({
   }, [accountValueForBook, book, demo, snapshot.bookId, snapshot.ownerId]);
 
   useEffect(() => {
-    if (demo || snapshot.persistence !== "supabase" || snapshot.ownerLocked) {
+    if (demo || snapshot.persistence !== "supabase") {
       return;
     }
     let cancelled = false;
@@ -839,7 +845,9 @@ export function PositionsWorkspace({
         title="Positions"
         description="Per-user blotters with live marks, exposure, and P&L. Add lots by hand or connect a brokerage."
         actions={
-          snapshot.ownerLocked ? undefined : (
+          unassignedLocked ? undefined : snapshot.ownerLocked ? (
+            <Badge tone="neutral">View only</Badge>
+          ) : (
           <div className="flex flex-wrap items-center gap-2">
             <BrokerageConnect
               brokerage={snapshot.brokerage}
@@ -888,7 +896,7 @@ export function PositionsWorkspace({
         }
       />
 
-      {!snapshot.ownerLocked ? (
+      {!unassignedLocked ? (
       <div className="flex flex-wrap items-center gap-2 text-[11px] text-[var(--ib-text-muted)]">
         {snapshot.usingFixtures ? <Badge tone="mock">Mock data</Badge> : null}
         <span className="font-mono">
@@ -922,7 +930,7 @@ export function PositionsWorkspace({
               });
             }}
           />
-          {!snapshot.ownerLocked &&
+          {!unassignedLocked &&
           (snapshot.books.length > 0 || snapshot.canEdit) ? (
             <PositionsBookTabs
               books={snapshot.books}
@@ -959,7 +967,7 @@ export function PositionsWorkspace({
         </div>
       ) : null}
 
-      {snapshot.ownerLocked ? (
+      {unassignedLocked ? (
         <OwnerUnlockPanel
           ownerId={snapshot.ownerId}
           ownerName={activeOwner?.displayName || "this teammate"}
@@ -969,6 +977,15 @@ export function PositionsWorkspace({
         />
       ) : (
         <>
+      {snapshot.ownerLocked ? (
+        <OwnerUnlockPanel
+          ownerId={snapshot.ownerId}
+          ownerName={activeOwner?.displayName || "this teammate"}
+          busy={unlocking}
+          error={unlockError}
+          onUnlock={handleUnlock}
+        />
+      ) : null}
       {snapshot.stale ? <StaleBanner asOf={snapshot.asOf} /> : null}
       {snapshot.error && snapshot.quotesCovered > 0 ? (
         <StatePanel
@@ -980,6 +997,8 @@ export function PositionsWorkspace({
       ) : null}
 
       <div className="flex min-w-0 flex-col gap-3">
+        {snapshot.ownerLocked ? null : (
+          <>
         <div className="order-1 min-w-0">
           <PositionsMetricsStrip
             snapshot={displaySnapshot}
@@ -997,11 +1016,17 @@ export function PositionsWorkspace({
         <div className="order-3 min-w-0 lg:order-2">
           <PositionsAttribution snapshot={displaySnapshot} />
         </div>
+          </>
+        )}
 
         <div className="order-2 min-w-0 space-y-3 lg:order-3">
           <Panel
             title="Position blotter"
-            description="Open lots with live marks. Brokerage lots stay in their linked book. Click a row for the lot blotter."
+            description={
+              snapshot.ownerLocked
+                ? "Open lots with live marks. Account value, P&L, and closed lots stay hidden until unlocked."
+                : "Open lots with live marks. Brokerage lots stay in their linked book. Click a row for the lot blotter."
+            }
             actions={<Badge tone="neutral">{openRows.length} shown</Badge>}
             bodyClassName="p-0"
           >
@@ -1078,6 +1103,7 @@ export function PositionsWorkspace({
               </div>
             ) : (
               <PositionsTable
+                key={snapshot.ownerLocked ? "tape" : "full"}
                 rows={openRows}
                 selectedId={selectedId}
                 onSelect={setSelectedId}
@@ -1086,11 +1112,14 @@ export function PositionsWorkspace({
                 onEdit={() => setFormMode("edit")}
                 onClosePosition={handleClose}
                 closing={closing}
+                privacy={snapshot.ownerLocked ? "tape" : "full"}
                 emptyMessage="No open lots match the current filters."
               />
             )}
           </Panel>
 
+          {snapshot.ownerLocked ? null : (
+            <>
           <Panel
             title="Past positions"
             description="Closed lots and realized return versus entry. Linked accounts refresh automatically while this page is open."
@@ -1130,6 +1159,8 @@ export function PositionsWorkspace({
               onSelect={setSelectedId}
             />
           </Panel>
+            </>
+          )}
         </div>
       </div>
         </>

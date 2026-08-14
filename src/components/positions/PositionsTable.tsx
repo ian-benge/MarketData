@@ -87,6 +87,7 @@ export function PositionsTable({
   onClosePosition,
   closing = false,
   variant = "open",
+  privacy = "full",
   emptyMessage,
 }: {
   rows: EnrichedPosition[];
@@ -102,15 +103,19 @@ export function PositionsTable({
   }) => void;
   closing?: boolean;
   variant?: "open" | "closed";
+  privacy?: "full" | "tape";
   emptyMessage?: string;
 }) {
   const closed = variant === "closed";
+  const tape = privacy === "tape";
   const pageSizeId = useId();
-  const [sortKey, setSortKey] = useState<SortKey>(closed ? "closeDate" : "weight");
-  const [descending, setDescending] = useState(true);
+  const [sortKey, setSortKey] = useState<SortKey>(
+    tape ? "ticker" : closed ? "closeDate" : "weight",
+  );
+  const [descending, setDescending] = useState(!tape);
   const [pageSize, setPageSize] = useState<TablePageSize>(DEFAULT_TABLE_PAGE_SIZE);
   const [page, setPage] = useState(1);
-  const colSpan = closed ? 11 : 14;
+  const colSpan = tape ? 5 : closed ? 11 : 14;
 
   const sorted = useMemo(() => {
     const next = [...rows];
@@ -211,9 +216,11 @@ export function PositionsTable({
     >
       <table className="w-full min-w-0 border-collapse text-left text-[12px] tabular-nums md:min-w-[760px] xl:min-w-[1100px]">
         <caption className="sr-only">
-          {closed
-            ? "Closed lots with realized P&L and exit marks"
-            : "Open lots with live marks, unrealized P&L, and realized trims"}
+          {tape
+            ? "Open lots with ticker, size, entry, and last mark"
+            : closed
+              ? "Closed lots with realized P&L and exit marks"
+              : "Open lots with live marks, unrealized P&L, and realized trims"}
         </caption>
         <thead>
           <tr className="border-b border-[var(--ib-border-strong)] font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
@@ -236,18 +243,20 @@ export function PositionsTable({
                 Last
               </th>
             )}
-            {closed ? null : header("marketValue", "Mkt value", "right", "hidden md:table-cell")}
-            {closed ? null : header("weight", "Wt")}
-            {closed ? null : header("dayPnl", "Day P&L")}
-            {closed ? null : header("totalPnl", "Total P&L")}
-            {header("realizedPnl", "Realized")}
-            {header(
-              "returnPercent",
-              "Return",
-              "right",
-              closed ? "hidden md:table-cell" : "hidden xl:table-cell",
-            )}
-            {closed ? (
+            {tape || closed ? null : header("marketValue", "Mkt value", "right", "hidden md:table-cell")}
+            {tape || closed ? null : header("weight", "Wt")}
+            {tape || closed ? null : header("dayPnl", "Day P&L")}
+            {tape || closed ? null : header("totalPnl", "Total P&L")}
+            {tape ? null : header("realizedPnl", "Realized")}
+            {tape
+              ? null
+              : header(
+                  "returnPercent",
+                  "Return",
+                  "right",
+                  closed ? "hidden md:table-cell" : "hidden xl:table-cell",
+                )}
+            {tape ? null : closed ? (
               <th className="sticky top-0 z-10 hidden h-8 bg-[var(--ib-surface-2)] px-2.5 text-right font-medium md:table-cell">
                 Hold
               </th>
@@ -257,9 +266,11 @@ export function PositionsTable({
                 {header("change1m", "1M")}
               </>
             )}
-            <th className="sticky top-0 z-10 hidden h-8 bg-[var(--ib-surface-2)] px-2.5 font-medium xl:table-cell">
-              Path
-            </th>
+            {tape ? null : (
+              <th className="sticky top-0 z-10 hidden h-8 bg-[var(--ib-surface-2)] px-2.5 font-medium xl:table-cell">
+                Path
+              </th>
+            )}
           </tr>
         </thead>
         <tbody>
@@ -368,17 +379,17 @@ export function PositionsTable({
                       ) : null}
                     </td>
                   )}
-                  {closed ? null : (
+                  {tape ? null : closed ? null : (
                     <td className="hidden px-2.5 text-right font-mono md:table-cell">
                       {formatCurrency(row.marketValue, { compact: true })}
                     </td>
                   )}
-                  {closed ? null : (
+                  {tape ? null : closed ? null : (
                     <td className="hidden px-2.5 text-right font-mono xl:table-cell">
                       {row.weight == null ? "—" : `${row.weight.toFixed(1)}%`}
                     </td>
                   )}
-                  {closed ? null : (
+                  {tape ? null : closed ? null : (
                     <td className="px-2.5 text-right">
                       <div>
                         <SignedValue value={row.dayPnl} compact />
@@ -388,7 +399,7 @@ export function PositionsTable({
                       </div>
                     </td>
                   )}
-                  {closed ? null : (
+                  {tape ? null : closed ? null : (
                     <td className="px-2.5 text-right">
                       <div>
                         <SignedValue value={row.totalPnl} compact />
@@ -398,26 +409,30 @@ export function PositionsTable({
                       </div>
                     </td>
                   )}
-                  <td className="px-2.5 text-right">
-                    <div>
-                      <SignedValue
-                        value={closed ? row.realizedPnl : row.relatedRealizedPnl}
-                        compact
-                      />
-                    </div>
-                    <div className="text-[10px]">
-                      <SignedValue
-                        value={
-                          closed ? row.returnPercent : row.relatedRealizedPercent
-                        }
-                        kind="percent"
-                      />
-                    </div>
-                  </td>
-                  <td className="hidden px-2.5 text-right xl:table-cell">
-                    <SignedValue value={row.returnPercent} kind="percent" />
-                  </td>
-                  {closed ? (
+                  {tape ? null : (
+                    <td className="px-2.5 text-right">
+                      <div>
+                        <SignedValue
+                          value={closed ? row.realizedPnl : row.relatedRealizedPnl}
+                          compact
+                        />
+                      </div>
+                      <div className="text-[10px]">
+                        <SignedValue
+                          value={
+                            closed ? row.returnPercent : row.relatedRealizedPercent
+                          }
+                          kind="percent"
+                        />
+                      </div>
+                    </td>
+                  )}
+                  {tape ? null : (
+                    <td className="hidden px-2.5 text-right xl:table-cell">
+                      <SignedValue value={row.returnPercent} kind="percent" />
+                    </td>
+                  )}
+                  {tape ? null : closed ? (
                     <td className="hidden px-2.5 text-right font-mono md:table-cell">
                       {row.holdingDays == null ? "—" : `${row.holdingDays}d`}
                     </td>
@@ -431,12 +446,14 @@ export function PositionsTable({
                       </td>
                     </>
                   )}
-                  <td className="hidden px-2.5 xl:table-cell">
-                    <Sparkline
-                      values={row.sparkline}
-                      label={`${row.ticker} cumulative P&L path`}
-                    />
-                  </td>
+                  {tape ? null : (
+                    <td className="hidden px-2.5 xl:table-cell">
+                      <Sparkline
+                        values={row.sparkline}
+                        label={`${row.ticker} cumulative P&L path`}
+                      />
+                    </td>
+                  )}
                 </tr>
                 {selected ? (
                   <tr className="border-b border-[var(--ib-border-subtle)] last:border-b-0">
@@ -449,7 +466,8 @@ export function PositionsTable({
                         onEdit={onEdit}
                         onClosePosition={onClosePosition}
                         closing={closing}
-                        canEdit={canEdit && row.source !== "snaptrade"}
+                        canEdit={canEdit && row.source !== "snaptrade" && !tape}
+                        privacy={privacy}
                       />
                     </td>
                   </tr>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useState, type FormEvent } from "react";
+import { LockKeyhole } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { StatePanel } from "@/components/ui/StatePanel";
 import { UNASSIGNED_OWNER_ID } from "@/lib/positions/owners";
@@ -37,37 +38,46 @@ export function OwnerUnlockPanel({
   }
 
   return (
-    <StatePanel
-      kind="forbidden"
-      title={`Enter ${ownerName}'s password`}
-      description="This blotter stays hidden until that teammate's sign-in password is entered. Email alerts still go out without it."
-      actions={
-        <form
-          onSubmit={handleSubmit}
-          className="flex w-full max-w-sm flex-col items-stretch gap-2"
-        >
-          <label htmlFor={passwordId} className="sr-only">
-            Password for {ownerName}
-          </label>
-          <input
-            id={passwordId}
-            type="password"
-            autoComplete="off"
-            className="field-control"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            placeholder="Teammate password"
-            disabled={busy}
-            required
-          />
+    <section className="flex flex-col gap-3 rounded-[6px] border border-[var(--ib-border-strong)] bg-[var(--ib-surface-1)] px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 items-start gap-2.5">
+        <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-[6px] border border-[var(--ib-border-strong)] bg-[var(--ib-surface-2)] text-[var(--ib-text-secondary)]">
+          <LockKeyhole aria-hidden="true" className="size-4" />
+        </span>
+        <div className="min-w-0">
+          <h2 className="text-[13px] font-semibold text-[var(--ib-text-primary)]">
+            Account value and P&L are locked
+          </h2>
+          <p className="mt-0.5 text-[12px] leading-5 text-[var(--ib-text-secondary)]">
+            Open lots stay visible. Enter {ownerName}&apos;s sign-in password to
+            see account value, P&L, and closed lots.
+          </p>
           {error ? (
-            <p className="text-left text-[12px] text-[var(--danger)]">{error}</p>
+            <p className="mt-1 text-[12px] text-[var(--danger)]">{error}</p>
           ) : null}
-          <Button type="submit" variant="primary" size="sm" disabled={busy}>
-            {busy ? "Checking…" : "Unlock blotter"}
-          </Button>
-        </form>
-      }
-    />
+        </div>
+      </div>
+      <form
+        onSubmit={handleSubmit}
+        className="flex w-full max-w-sm shrink-0 flex-col items-stretch gap-2 sm:w-auto sm:flex-row sm:items-center"
+      >
+        <label htmlFor={passwordId} className="sr-only">
+          Password for {ownerName}
+        </label>
+        <input
+          id={passwordId}
+          type="password"
+          autoComplete="off"
+          className="field-control"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          placeholder="Teammate password"
+          disabled={busy}
+          required
+        />
+        <Button type="submit" variant="primary" size="sm" disabled={busy}>
+          {busy ? "Checking…" : "Unlock P&L"}
+        </Button>
+      </form>
+    </section>
   );
 }
