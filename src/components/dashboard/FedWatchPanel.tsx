@@ -106,8 +106,8 @@ function ProbabilityChart({
     .filter((bin) => bin.probability > 0)
     .sort((a, b) => a.lowerBps - b.lowerBps);
   return (
-    <div className="rounded-[4px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-inset)] p-3">
-      <div className="mb-3 flex items-start justify-between gap-3">
+    <div className="overflow-x-auto rounded-[4px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-inset)] p-3">
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="text-[13px] font-semibold text-[var(--ib-text-primary)]">
             Target Rate Probabilities for {meeting.label} Fed Meeting
@@ -135,9 +135,9 @@ function ProbabilityChart({
             <span className="h-px w-full bg-[var(--ib-border-subtle)]" />
           </div>
         ))}
-        <div className="absolute inset-y-0 left-8 right-0 flex items-end justify-center gap-10 px-6">
+        <div className="absolute inset-y-0 left-8 right-0 flex min-w-[12rem] items-end justify-center gap-4 px-2 sm:gap-10 sm:px-6">
           {bins.map((bin) => (
-            <div key={bin.label} className="relative flex h-full w-16 items-end justify-center">
+            <div key={bin.label} className="relative flex h-full w-12 shrink-0 items-end justify-center sm:w-16">
               <div
                 className="relative w-10 rounded-t-[2px]"
                 style={{
@@ -154,11 +154,11 @@ function ProbabilityChart({
           ))}
         </div>
       </div>
-      <div className="mt-2 flex justify-center gap-10 pl-8">
+      <div className="mt-2 flex min-w-[12rem] justify-center gap-4 pl-8 sm:gap-10">
         {bins.map((bin) => (
           <span
             key={`label-${bin.label}`}
-            className="w-16 text-center font-mono text-[10px] tabular-nums text-[var(--ib-text-secondary)]"
+            className="w-12 shrink-0 text-center font-mono text-[10px] tabular-nums text-[var(--ib-text-secondary)] sm:w-16"
           >
             {bin.label}
           </span>
@@ -288,7 +288,7 @@ export function FedWatchPanel() {
       }
       bodyClassName="space-y-3 p-3"
       actions={
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {data ? (
             <Badge
               tone={
@@ -331,7 +331,7 @@ export function FedWatchPanel() {
       ) : null}
 
       {data && meeting && !expanded ? (
-        <div className="space-y-2">
+        <div className="space-y-3">
           <p className="text-[13px] font-semibold text-[var(--ib-text-primary)]">
             {meeting.label}
             <span className="ml-2 font-mono text-[11px] font-normal text-[var(--ib-text-muted)]">
@@ -362,6 +362,10 @@ export function FedWatchPanel() {
               </div>
             ))}
           </dl>
+          <ProbabilityChart
+            meeting={meeting}
+            targetLabel={data.currentTarget?.label ?? null}
+          />
         </div>
       ) : null}
 

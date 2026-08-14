@@ -504,7 +504,7 @@ export function EarningsCalendar({
       }
       bodyClassName="space-y-3 p-3"
       actions={
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {data ? <SourceHealth data={data} /> : null}
           {expanded ? (
             <>
@@ -596,18 +596,18 @@ export function EarningsCalendar({
           type="button"
           aria-label="Previous week"
           onClick={() => setWeekStart((current) => addChicagoDays(current, -7))}
-          className="rounded-[3px] border border-[var(--ib-border-subtle)] p-1 text-[var(--ib-text-secondary)] hover:text-[var(--ib-text-primary)]"
+          className="shrink-0 rounded-[3px] border border-[var(--ib-border-subtle)] p-1 text-[var(--ib-text-secondary)] hover:text-[var(--ib-text-primary)]"
         >
           <ChevronLeft className="size-3.5" />
         </button>
-        <p className="text-center text-[13px] font-semibold text-[var(--ib-text-primary)]">
+        <p className="min-w-0 flex-1 text-center text-[13px] font-semibold text-[var(--ib-text-primary)]">
           Earnings scheduled for {formatLongDay(activeDay)}
         </p>
         <button
           type="button"
           aria-label="Next week"
           onClick={() => setWeekStart((current) => addChicagoDays(current, 7))}
-          className="rounded-[3px] border border-[var(--ib-border-subtle)] p-1 text-[var(--ib-text-secondary)] hover:text-[var(--ib-text-primary)]"
+          className="shrink-0 rounded-[3px] border border-[var(--ib-border-subtle)] p-1 text-[var(--ib-text-secondary)] hover:text-[var(--ib-text-primary)]"
         >
           <ChevronRight className="size-3.5" />
         </button>

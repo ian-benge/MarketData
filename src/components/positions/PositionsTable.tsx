@@ -268,7 +268,7 @@ export function PositionsTable({
           sortKey === key ? (descending ? "descending" : "ascending") : "none"
         }
         className={cn(
-          "sticky top-0 z-10 h-8 bg-[var(--ib-surface-2)] px-2.5 font-medium",
+          "sticky top-0 z-10 h-8 whitespace-nowrap bg-[var(--ib-surface-2)] px-2.5 font-medium",
           align === "right" && "text-right",
           visibility ??
             (key === "weight" ||
@@ -320,7 +320,7 @@ export function PositionsTable({
     >
       <table
         className={cn(
-          "w-full min-w-0 border-collapse text-left text-[12px] tabular-nums",
+          "w-full min-w-[640px] border-collapse text-left text-[12px] tabular-nums",
           tape ? "md:min-w-[680px]" : "md:min-w-[760px] xl:min-w-[1100px]",
         )}
       >
@@ -412,14 +412,14 @@ export function PositionsTable({
                   onClick={toggle}
                   onKeyDown={onRowKey}
                 >
-                  <td className="h-[34px] px-2.5">
+                  <td className="whitespace-nowrap px-2.5">
                     <button
                       type="button"
                       onClick={(event) => {
                         event.stopPropagation();
                         toggle();
                       }}
-                      className="flex min-w-0 items-center gap-2 text-left"
+                      className="flex items-center gap-2 text-left"
                       aria-expanded={selected}
                       aria-controls={detailId}
                     >
@@ -430,9 +430,9 @@ export function PositionsTable({
                           selected && "rotate-90 text-[var(--ib-maroon-300)]",
                         )}
                       />
-                      <span>
+                      <span className="whitespace-nowrap">
                         <TickerLabel ticker={row.ticker} />
-                        <span className="block text-[10px] text-[var(--ib-text-muted)]">
+                        <span className="block whitespace-nowrap text-[10px] text-[var(--ib-text-muted)]">
                           <span className="md:hidden">
                             {row.side === "short" ? "Short · " : "Long · "}
                           </span>

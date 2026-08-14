@@ -102,7 +102,7 @@ export function TickerLabel({ ticker }: { ticker: string }) {
   const parsed = parseOccOptionSymbol(ticker);
   return (
     <span
-      className="block font-mono text-[13px] font-medium text-[var(--ib-text-primary)]"
+      className="block whitespace-nowrap font-mono text-[13px] font-medium text-[var(--ib-text-primary)]"
       title={parsed ? parsed.raw : ticker}
     >
       {displayPositionTicker(ticker)}
