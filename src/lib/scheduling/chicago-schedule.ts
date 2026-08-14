@@ -109,6 +109,16 @@ export function isUsEquityTradingDay(
   return true;
 }
 
+/** Regular session plus a pre/post buffer (America/New_York). Used for live brokerage polls. */
+export function isUsEquityMonitorWindow(
+  now = new Date(),
+  overrides?: CalendarOverrides,
+): boolean {
+  if (!isUsEquityTradingDay(now, overrides)) return false;
+  const hm = formatInTimeZone(now, NEW_YORK_TZ, "HH:mm");
+  return hm >= "04:00" && hm < "20:00";
+}
+
 export { buildIdempotencyKey, SCHEDULE_VERSION };
 
 export type DuePhase = "collect" | "publish";

@@ -1,6 +1,11 @@
 import type { SessionUser } from "@/lib/auth/session";
+import type { PositionRecord } from "@/lib/positions/types";
 import { chicagoDateString } from "@/lib/scheduling/chicago-schedule";
 import { fetchAllRows } from "@/lib/supabase/fetch-all";
+import {
+  canCreateAdminClient,
+  createAdminClient,
+} from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { BrokerageError } from "./errors";
 import {
@@ -83,6 +88,62 @@ const CONNECTION_SELECT =
 const ACCOUNT_SELECT =
   "id, connection_id, user_id, firm_id, snaptrade_account_id, name, number_masked, account_type, book_id, sync_enabled, cash_balance, last_sync_at";
 
+const ALERT_POSITION_SELECT =
+  "id, firm_id, ticker, asset_type, side, quantity, multiplier, entry_price, entry_date, currency, strategy, notes, status, close_price, close_date, closed_at, created_by, book_id, source, brokerage_account_id, external_id, brokerage_name, fees, created_at, updated_at";
+
+async function brokerageDb() {
+  if (canCreateAdminClient()) return createAdminClient();
+  return createClient();
+}
+
+function asFinite(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function mapAlertPosition(row: Record<string, unknown>): PositionRecord {
+  return {
+    id: String(row.id),
+    firmId: String(row.firm_id),
+    ticker: String(row.ticker ?? "").toUpperCase(),
+    assetType:
+      row.asset_type === "etf" ||
+      row.asset_type === "option" ||
+      row.asset_type === "future" ||
+      row.asset_type === "crypto" ||
+      row.asset_type === "other"
+        ? row.asset_type
+        : "equity",
+    side: row.side === "short" ? "short" : "long",
+    quantity: asFinite(row.quantity) ?? 0,
+    multiplier: asFinite(row.multiplier) ?? 1,
+    entryPrice: asFinite(row.entry_price) ?? 0,
+    entryDate: String(row.entry_date ?? "").slice(0, 10),
+    currency: String(row.currency ?? "USD"),
+    strategy: row.strategy ? String(row.strategy) : null,
+    notes: row.notes ? String(row.notes) : null,
+    status: row.status === "closed" ? "closed" : "open",
+    closePrice: asFinite(row.close_price),
+    closeDate: row.close_date ? String(row.close_date).slice(0, 10) : null,
+    closedAt: row.closed_at ? String(row.closed_at) : null,
+    createdBy: row.created_by ? String(row.created_by) : null,
+    bookId: row.book_id ? String(row.book_id) : null,
+    source: row.source === "snaptrade" ? "snaptrade" : "manual",
+    brokerageAccountId: row.brokerage_account_id
+      ? String(row.brokerage_account_id)
+      : null,
+    externalId: row.external_id ? String(row.external_id) : null,
+    brokerageName: row.brokerage_name ? String(row.brokerage_name) : null,
+    fees: asFinite(row.fees) ?? 0,
+    createdAt: String(row.created_at ?? new Date().toISOString()),
+    updatedAt: String(row.updated_at ?? new Date().toISOString()),
+  };
+}
+
 function mapConnection(row: ConnectionRow): StoredBrokerageConnection {
   return {
     id: row.id,
@@ -115,7 +176,7 @@ export async function loadSnapTradeCreds(
   user: SessionUser,
 ): Promise<SnapTradeUserCreds | null> {
   if (!user.firmId) return null;
-  const supabase = await createClient();
+  const supabase = await brokerageDb();
   const { data, error } = await supabase
     .from("snaptrade_users")
     .select("snaptrade_user_id, user_secret")
@@ -132,7 +193,7 @@ export async function saveSnapTradeCreds(
   creds: SnapTradeUserCreds,
 ): Promise<void> {
   if (!user.firmId) throw new BrokerageError("No firm is associated with this session.", 400);
-  const supabase = await createClient();
+  const supabase = await brokerageDb();
   const { error } = await supabase.from("snaptrade_users").upsert({
     user_id: user.id,
     firm_id: user.firmId,
@@ -149,7 +210,7 @@ export async function listStoredConnections(
   ownerId = user.id,
 ): Promise<StoredBrokerageConnection[]> {
   if (!user.firmId) return [];
-  const supabase = await createClient();
+  const supabase = await brokerageDb();
   const { data, error } = await supabase
     .from("brokerage_connections")
     .select(CONNECTION_SELECT)
@@ -165,7 +226,7 @@ export async function listStoredAccounts(
   ownerId = user.id,
 ): Promise<StoredBrokerageAccount[]> {
   if (!user.firmId) return [];
-  const supabase = await createClient();
+  const supabase = await brokerageDb();
   const { data, error } = await supabase
     .from("brokerage_accounts")
     .select(ACCOUNT_SELECT)
@@ -181,7 +242,7 @@ export async function loadStoredConnection(
   id: string,
 ): Promise<StoredBrokerageConnection> {
   if (!user.firmId) throw new BrokerageError("No firm is associated with this session.", 400);
-  const supabase = await createClient();
+  const supabase = await brokerageDb();
   const { data, error } = await supabase
     .from("brokerage_connections")
     .select(CONNECTION_SELECT)
@@ -234,7 +295,7 @@ export async function upsertStoredConnection(
   },
 ): Promise<StoredBrokerageConnection> {
   if (!user.firmId) throw new BrokerageError("No firm is associated with this session.", 400);
-  const supabase = await createClient();
+  const supabase = await brokerageDb();
   const { data: existing } = await supabase
     .from("brokerage_connections")
     .select(CONNECTION_SELECT)
@@ -285,7 +346,7 @@ export async function markConnectionSync(
     pending?: boolean;
   },
 ): Promise<void> {
-  const supabase = await createClient();
+  const supabase = await brokerageDb();
   await supabase
     .from("brokerage_connections")
     .update({
@@ -306,7 +367,7 @@ async function ensureBrokerageBook(
   title: string,
 ): Promise<string> {
   if (!user.firmId) throw new BrokerageError("No firm is associated with this session.", 400);
-  const supabase = await createClient();
+  const supabase = await brokerageDb();
   const { data: existing } = await supabase
     .from("position_books")
     .select("id, title, sort_order")
@@ -359,7 +420,7 @@ export async function upsertStoredAccount(
   },
 ): Promise<StoredBrokerageAccount> {
   if (!user.firmId) throw new BrokerageError("No firm is associated with this session.", 400);
-  const supabase = await createClient();
+  const supabase = await brokerageDb();
   const masked = maskAccountNumber(input.number);
   const { data: existing } = await supabase
     .from("brokerage_accounts")
@@ -425,7 +486,7 @@ export async function listOpenSyncedPositions(
   brokerageAccountId: string,
 ): Promise<SyncedPositionRow[]> {
   if (!user.firmId) return [];
-  const supabase = await createClient();
+  const supabase = await brokerageDb();
   const { data, error } = await supabase
     .from("positions")
     .select("id, ticker, quantity, entry_price, entry_date, status, external_id, brokerage_account_id")
@@ -451,7 +512,7 @@ export async function listManualOpenKeys(
   bookId: string,
 ): Promise<Set<string>> {
   if (!user.firmId) return new Set();
-  const supabase = await createClient();
+  const supabase = await brokerageDb();
   const { data } = await supabase
     .from("positions")
     .select("ticker, side")
@@ -468,6 +529,11 @@ export async function listManualOpenKeys(
   return keys;
 }
 
+export type UpsertSyncedResult = {
+  inserted: boolean;
+  position: PositionRecord;
+};
+
 export async function upsertSyncedPosition(
   user: SessionUser,
   account: StoredBrokerageAccount,
@@ -483,9 +549,9 @@ export async function upsertSyncedPosition(
     currency: string;
   },
   existingId?: string,
-): Promise<void> {
-  if (!user.firmId || !account.bookId) return;
-  const supabase = await createClient();
+): Promise<UpsertSyncedResult | null> {
+  if (!user.firmId || !account.bookId) return null;
+  const supabase = await brokerageDb();
   const payload = {
     ticker: holding.ticker,
     asset_type: holding.assetType,
@@ -503,7 +569,7 @@ export async function upsertSyncedPosition(
     status: "open",
   };
   if (existingId) {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("positions")
       .update({
         ticker: payload.ticker,
@@ -517,20 +583,65 @@ export async function upsertSyncedPosition(
       })
       .eq("id", existingId)
       .eq("firm_id", user.firmId)
-      .eq("status", "open");
+      .eq("status", "open")
+      .select(ALERT_POSITION_SELECT)
+      .maybeSingle();
     if (error) {
       throw new BrokerageError("Unable to update a synced position.", 500);
     }
-    return;
+    return data
+      ? { inserted: false, position: mapAlertPosition(data as Record<string, unknown>) }
+      : null;
   }
-  const { error } = await supabase.from("positions").insert({
-    ...payload,
-    firm_id: user.firmId,
-    entry_date: chicagoDateString(new Date()),
-  });
-  if (error) {
+  const { data, error } = await supabase
+    .from("positions")
+    .insert({
+      ...payload,
+      firm_id: user.firmId,
+      entry_date: chicagoDateString(new Date()),
+    })
+    .select(ALERT_POSITION_SELECT)
+    .single();
+  if (error || !data) {
     throw new BrokerageError("Unable to import a synced position.", 500);
   }
+  return {
+    inserted: true,
+    position: mapAlertPosition(data as Record<string, unknown>),
+  };
+}
+
+export async function loadSyncedPositionRecord(
+  user: SessionUser,
+  positionId: string,
+): Promise<PositionRecord | null> {
+  if (!user.firmId) return null;
+  const supabase = await brokerageDb();
+  const { data, error } = await supabase
+    .from("positions")
+    .select(ALERT_POSITION_SELECT)
+    .eq("id", positionId)
+    .eq("firm_id", user.firmId)
+    .maybeSingle();
+  if (error || !data) return null;
+  return mapAlertPosition(data as Record<string, unknown>);
+}
+
+export async function listConnectedBrokerageUserIds(): Promise<string[]> {
+  if (!canCreateAdminClient()) return [];
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("brokerage_connections")
+    .select("user_id")
+    .eq("status", "connected");
+  if (error || !data) return [];
+  return [
+    ...new Set(
+      data
+        .map((row) => String((row as { user_id?: string }).user_id ?? ""))
+        .filter(Boolean),
+    ),
+  ];
 }
 
 export async function listImportedHistoryIds(
@@ -538,7 +649,7 @@ export async function listImportedHistoryIds(
   brokerageAccountId: string,
 ): Promise<Map<string, string>> {
   if (!user.firmId) return new Map();
-  const supabase = await createClient();
+  const supabase = await brokerageDb();
   const data = await fetchAllRows(async (from, to) => {
     const { data: page, error } = await supabase
       .from("positions")
@@ -569,7 +680,7 @@ export async function insertImportedClosedLot(
   existingId?: string,
 ): Promise<boolean> {
   if (!user.firmId || !account.bookId) return false;
-  const supabase = await createClient();
+  const supabase = await brokerageDb();
   const payload = {
     ticker: lot.ticker,
     asset_type: lot.assetType,
@@ -623,7 +734,7 @@ export async function updateBookImportedFees(
   fees: number,
 ): Promise<void> {
   if (!user.firmId || !bookId) return;
-  const supabase = await createClient();
+  const supabase = await brokerageDb();
   await supabase
     .from("position_books")
     .update({ fees: fees > 0 ? fees : 0 })
@@ -637,7 +748,7 @@ export async function closeSyncedPosition(
   closePrice: number,
 ): Promise<void> {
   if (!user.firmId) return;
-  const supabase = await createClient();
+  const supabase = await brokerageDb();
   const closeDate = chicagoDateString(new Date());
   const price = closePrice > 0 ? closePrice : position.entryPrice;
   const { error } = await supabase
@@ -656,12 +767,100 @@ export async function closeSyncedPosition(
   }
 }
 
+export async function deleteSyncedPosition(
+  user: SessionUser,
+  position: SyncedPositionRow,
+): Promise<void> {
+  if (!user.firmId) return;
+  const supabase = await brokerageDb();
+  const { error } = await supabase
+    .from("positions")
+    .delete()
+    .eq("id", position.id)
+    .eq("firm_id", user.firmId)
+    .eq("source", "snaptrade")
+    .eq("status", "open");
+  if (error) {
+    throw new BrokerageError("Unable to remove a departed brokerage holding.", 500);
+  }
+}
+
+const DELETE_CHUNK = 100;
+
+/** Drop holdings-sourced closed lots (not `hist:` FIFO fills). Those rows are
+ *  placeholders closed at average cost when a SnapTrade holding disappeared. */
+export async function deleteHoldingsSourcedClosedLots(
+  user: SessionUser,
+  brokerageAccountId: string,
+  filter: {
+    tickers?: string[];
+    excludeTickers?: Iterable<string>;
+  } = {},
+): Promise<number> {
+  if (!user.firmId) return 0;
+  const tickerAllow =
+    filter.tickers != null
+      ? new Set(filter.tickers.map((ticker) => ticker.toUpperCase()))
+      : null;
+  if (tickerAllow && tickerAllow.size === 0) return 0;
+  const tickerDeny = new Set(
+    [...(filter.excludeTickers ?? [])].map((ticker) => ticker.toUpperCase()),
+  );
+
+  const supabase = await brokerageDb();
+  const rows = await fetchAllRows(async (from, to) => {
+    const { data: page, error } = await supabase
+      .from("positions")
+      .select("id, ticker, external_id")
+      .eq("firm_id", user.firmId)
+      .eq("brokerage_account_id", brokerageAccountId)
+      .eq("source", "snaptrade")
+      .eq("status", "closed")
+      .order("id", { ascending: true })
+      .range(from, to);
+    if (error) throw error;
+    return page ?? [];
+  }).catch(() => []);
+
+  const ids: string[] = [];
+  for (const row of rows) {
+    const externalId = (row as { external_id?: string | null }).external_id;
+    if (externalId?.startsWith(HISTORY_EXTERNAL_PREFIX)) continue;
+    const ticker = String((row as { ticker?: string }).ticker ?? "").toUpperCase();
+    if (tickerAllow && !tickerAllow.has(ticker)) continue;
+    if (tickerDeny.has(ticker)) continue;
+    const id = (row as { id?: string }).id;
+    if (id) ids.push(id);
+  }
+  if (!ids.length) return 0;
+
+  let removed = 0;
+  for (let index = 0; index < ids.length; index += DELETE_CHUNK) {
+    const chunk = ids.slice(index, index + DELETE_CHUNK);
+    const { error, count } = await supabase
+      .from("positions")
+      .delete({ count: "exact" })
+      .in("id", chunk)
+      .eq("firm_id", user.firmId)
+      .eq("source", "snaptrade")
+      .eq("status", "closed");
+    if (error) {
+      throw new BrokerageError(
+        "Unable to replace averaged brokerage closes with fill history.",
+        500,
+      );
+    }
+    removed += count ?? chunk.length;
+  }
+  return removed;
+}
+
 export async function deleteStoredConnection(
   user: SessionUser,
   connection: StoredBrokerageConnection,
 ): Promise<void> {
   if (!user.firmId) return;
-  const supabase = await createClient();
+  const supabase = await brokerageDb();
   const accounts = (await listStoredAccounts(user, user.id)).filter(
     (account) => account.connectionId === connection.id,
   );
@@ -693,7 +892,7 @@ export async function loadPositionSource(
   positionId: string,
 ): Promise<"manual" | "snaptrade" | null> {
   if (!user.firmId) return null;
-  const supabase = await createClient();
+  const supabase = await brokerageDb();
   const { data } = await supabase
     .from("positions")
     .select("source")
@@ -709,7 +908,7 @@ export async function bookIsBrokerageLinked(
   bookId: string,
 ): Promise<boolean> {
   if (!user.firmId || !bookId) return false;
-  const supabase = await createClient();
+  const supabase = await brokerageDb();
   const { data } = await supabase
     .from("brokerage_accounts")
     .select("id")

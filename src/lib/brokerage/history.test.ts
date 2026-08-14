@@ -179,6 +179,54 @@ describe("matchClosedLots", () => {
     expect(unmatched).toBe(2);
   });
 
+  it("FIFO-matches interleaved same-day partial fills into one lot per closed share", () => {
+    const day = "2026-08-14";
+    function at(
+      timeUtc: string,
+      extra: Partial<NormalizedFill> & Pick<NormalizedFill, "id" | "side">,
+    ): NormalizedFill {
+      return fill({
+        ticker: "SURG",
+        date: day,
+        closedAt: `${day}T${timeUtc}.000Z`,
+        quantity: extra.quantity ?? 1,
+        fee: 0,
+        ...extra,
+      });
+    }
+
+    const { lots, unmatched } = matchClosedLots([
+      at("11:47:22", { id: "b1", side: "buy", price: 0.3116 }),
+      at("11:47:36", { id: "b2", side: "buy", price: 0.3236 }),
+      at("11:47:51", { id: "b3", side: "buy", price: 0.3249 }),
+      at("11:48:36", { id: "s1", side: "sell", price: 0.3541 }),
+      at("11:49:23", { id: "s2", side: "sell", price: 0.362 }),
+      at("11:56:41", { id: "s3", side: "sell", price: 0.39816 }),
+      at("12:00:26", { id: "b4", side: "buy", price: 0.3719, quantity: 3 }),
+      at("12:07:40", { id: "s4", side: "sell", price: 0.4644 }),
+      at("12:08:42", { id: "s5", side: "sell", price: 0.444 }),
+      at("14:24:31", { id: "s6", side: "sell", price: 0.3449 }),
+    ]);
+
+    expect(unmatched).toBe(0);
+    expect(lots).toHaveLength(6);
+    expect(lots.every((lot) => lot.quantity === 1)).toBe(true);
+    expect(lots.map((lot) => lot.entryPrice)).toEqual([
+      0.3116, 0.3236, 0.3249, 0.3719, 0.3719, 0.3719,
+    ]);
+    expect(lots.map((lot) => lot.closePrice)).toEqual([
+      0.3541, 0.362, 0.39816, 0.4644, 0.444, 0.3449,
+    ]);
+    expect(lots.map((lot) => lot.externalId)).toEqual([
+      "hist:b1:s1",
+      "hist:b2:s2",
+      "hist:b3:s3",
+      "hist:b4:s4",
+      "hist:b4:s5",
+      "hist:b4:s6",
+    ]);
+  });
+
   it("does not invent open lots from unmatched leftover buys", () => {
     const { lots, unmatched } = matchClosedLots([
       fill({ id: "b1", ticker: "AAPL", side: "buy", quantity: 5, price: 10, date: "2025-01-01" }),

@@ -4,6 +4,8 @@ import { buildPositionsSnapshot } from "@/lib/positions/service";
 import { resolvePersistenceMode } from "@/lib/positions/store";
 import { loadBrokerageSnapshot, syncBrokerageHoldings } from "@/lib/brokerage/sync";
 
+export const maxDuration = 60;
+
 export async function POST(request: Request) {
   try {
     const user = await requirePermission("editPositions");
@@ -19,7 +21,11 @@ export async function POST(request: Request) {
       return jsonError("You can only sync your own brokerage accounts.", 403);
     }
     const bookId = url.searchParams.get("book");
-    const result = await syncBrokerageHoldings(user);
+    const live = url.searchParams.get("live") === "1";
+    const result = await syncBrokerageHoldings(
+      user,
+      live ? { historyLookback: false, live: true } : undefined,
+    );
     const snapshot = await buildPositionsSnapshot({
       user,
       includeClosed: true,

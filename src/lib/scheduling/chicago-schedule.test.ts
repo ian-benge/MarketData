@@ -3,8 +3,10 @@ import { fromZonedTime } from "date-fns-tz";
 import {
   buildIdempotencyKey,
   CHICAGO_TZ,
+  NEW_YORK_TZ,
   canPublish,
   getDueEditions,
+  isUsEquityMonitorWindow,
   isUsEquityTradingDay,
   nextEditionLabel,
   sessionTimingFor,
@@ -31,6 +33,16 @@ describe("chicago-schedule", () => {
       false,
     );
     expect(isUsEquityTradingDay(chicagoLocal("2026-08-10", 12, 0))).toBe(true);
+  });
+
+  it("opens the brokerage monitor window on NYSE weekdays including premarket", () => {
+    function nyLocal(date: string, hour: number, minute: number): Date {
+      const local = `${date}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00`;
+      return fromZonedTime(local, NEW_YORK_TZ);
+    }
+    expect(isUsEquityMonitorWindow(nyLocal("2026-08-14", 9, 0))).toBe(true);
+    expect(isUsEquityMonitorWindow(nyLocal("2026-08-14", 3, 0))).toBe(false);
+    expect(isUsEquityMonitorWindow(nyLocal("2026-08-15", 12, 0))).toBe(false);
   });
 
   it("returns due editions within grace window (CDT)", () => {

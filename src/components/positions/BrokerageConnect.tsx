@@ -11,9 +11,12 @@ import {
   type HistoryLookback,
 } from "@/lib/brokerage/history-lookback";
 import { FEATURED_BROKERS, type BrokerageSnapshot } from "@/lib/brokerage/types";
+import { isUsEquityMonitorWindow } from "@/lib/scheduling/chicago-schedule";
 import type { PositionsSnapshot } from "@/lib/positions/types";
 
 type PortalState = "picker" | "portal" | "manage" | "import" | null;
+
+const BROKERAGE_REFRESH_MS = 15_000;
 
 export function BrokerageConnect({
   brokerage,
@@ -54,9 +57,10 @@ export function BrokerageConnect({
   const onSnapshotRef = useRef(onSnapshot);
   const onFeedbackRef = useRef(onFeedback);
   const syncingRef = useRef(false);
-  const pullHoldingsRef = useRef<(announce: boolean) => Promise<void>>(
-    async () => undefined,
-  );
+  const pendingAnnounceRef = useRef(false);
+  const pullHoldingsRef = useRef<
+    (announce: boolean, silent?: boolean, holdingsOnly?: boolean) => Promise<void>
+  >(async () => undefined);
   const importing = snapshot.connections.some((row) =>
     Boolean(row.lastSyncError && /import/i.test(row.lastSyncError)),
   );
@@ -67,29 +71,45 @@ export function BrokerageConnect({
     return `${path}${separator}book=${encodeURIComponent(bookId)}`;
   }
 
-  async function pullHoldings(announce: boolean) {
+  async function pullHoldings(
+    announce: boolean,
+    silent = false,
+    holdingsOnly = false,
+  ) {
+    if (announce) pendingAnnounceRef.current = true;
     if (syncingRef.current) return;
     syncingRef.current = true;
-    setWorking(true);
+    if (!silent) setWorking(true);
     try {
-      const response = await fetch(withBook("/api/brokerage/sync"), {
-        method: "POST",
-      });
+      const response = await fetch(
+        withBook(
+          holdingsOnly ? "/api/brokerage/sync?live=1" : "/api/brokerage/sync",
+        ),
+        {
+          method: "POST",
+        },
+      );
       const payload = (await response.json()) as {
         snapshot?: PositionsSnapshot;
         pending?: boolean;
+        historyImported?: number;
         error?: string;
         warnings?: string[];
       };
+      const shouldAnnounce = pendingAnnounceRef.current;
+      pendingAnnounceRef.current = false;
       if (!response.ok) {
-        onFeedbackRef.current({
-          tone: "error",
-          message: payload.error ?? "Unable to sync brokerage holdings.",
-        });
+        if (shouldAnnounce || !silent) {
+          onFeedbackRef.current({
+            tone: "error",
+            message: payload.error ?? "Unable to sync brokerage holdings.",
+          });
+        }
         return;
       }
       if (payload.snapshot) onSnapshotRef.current(payload.snapshot);
-      if (announce) {
+      const historyImported = payload.historyImported ?? 0;
+      if (shouldAnnounce) {
         const warning = payload.warnings?.find(Boolean);
         onFeedbackRef.current({
           tone: payload.pending ? "success" : warning ? "error" : "success",
@@ -98,17 +118,28 @@ export function BrokerageConnect({
               "Connected. Holdings are still importing — sync again in a moment."
             : warning && !payload.snapshot?.positions.length
               ? warning
-              : "Brokerage holdings updated.",
+              : historyImported > 0
+                ? `Brokerage updated. Imported ${historyImported} closed lot${historyImported === 1 ? "" : "s"} from recent fills.`
+                : "Brokerage holdings updated.",
+        });
+      } else if (historyImported > 0) {
+        onFeedbackRef.current({
+          tone: "success",
+          message: `Imported ${historyImported} closed lot${historyImported === 1 ? "" : "s"} from brokerage fills.`,
         });
       }
     } catch (error) {
-      onFeedbackRef.current({
-        tone: "error",
-        message:
-          error instanceof Error
-            ? error.message
-            : "Unable to sync brokerage holdings.",
-      });
+      const shouldAnnounce = pendingAnnounceRef.current;
+      pendingAnnounceRef.current = false;
+      if (shouldAnnounce || !silent) {
+        onFeedbackRef.current({
+          tone: "error",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Unable to sync brokerage holdings.",
+        });
+      }
     } finally {
       syncingRef.current = false;
       setWorking(false);
@@ -246,23 +277,44 @@ export function BrokerageConnect({
 
   useEffect(() => {
     if (!snapshot.connectable || !connected || needsReconnect) return;
-    if (importing) {
-      if (importRetryRef.current) return;
-      importRetryRef.current = true;
-      const timer = window.setTimeout(() => {
-        void pullHoldingsRef.current(false);
-      }, 12_000);
-      return () => window.clearTimeout(timer);
-    }
-    if (!lastSyncAt) {
-      void pullHoldingsRef.current(false);
+    if (!importing) {
+      importRetryRef.current = false;
       return;
     }
-    const age = Date.now() - Date.parse(lastSyncAt);
-    if (Number.isFinite(age) && age > 15 * 60 * 1000) {
-      void pullHoldingsRef.current(false);
+    if (importRetryRef.current) return;
+    importRetryRef.current = true;
+    const timer = window.setTimeout(() => {
+      void pullHoldingsRef.current(false, true);
+    }, 12_000);
+    return () => window.clearTimeout(timer);
+  }, [connected, importing, needsReconnect, snapshot.connectable]);
+
+  useEffect(() => {
+    if (!snapshot.connectable || !connected || needsReconnect) return;
+
+    let ticks = 0;
+    function tick() {
+      if (document.visibilityState === "hidden") return;
+      ticks += 1;
+      const session = isUsEquityMonitorWindow();
+      if (!session && ticks % 4 !== 0) return;
+      const holdingsOnly = session && ticks % 4 !== 0;
+      void pullHoldingsRef.current(false, true, holdingsOnly);
     }
-  }, [connected, importing, lastSyncAt, needsReconnect, snapshot.connectable]);
+
+    tick();
+    const interval = window.setInterval(tick, BROKERAGE_REFRESH_MS);
+    function onVisible() {
+      if (document.visibilityState === "visible") tick();
+    }
+    window.addEventListener("focus", onVisible);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", onVisible);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [connected, needsReconnect, snapshot.connectable]);
 
   async function startConnect(broker: string | null, reconnectId?: string) {
     setWorking(true);
@@ -595,7 +647,8 @@ export function BrokerageConnect({
                 <p className="text-[13px] text-[var(--ib-text-secondary)]">
                   Choose how far back to pull SnapTrade fills. Closed lots need
                   both the entry and the exit in this window — use All history
-                  for older entries. Current holdings stay on Sync.
+                  for older entries. Sync already refreshes holdings and the
+                  last week of fills while this page is open.
                 </p>
                 <p className="text-[13px] text-[var(--ib-text-secondary)]">
                   SnapTrade order history can lag about a day after you connect.

@@ -339,6 +339,11 @@ function matchAgainstQueue(
 }
 
 export function matchClosedLots(fills: NormalizedFill[]): MatchClosedLotsResult {
+  const ordered = [...fills].sort((a, b) => {
+    if (a.date !== b.date) return a.date.localeCompare(b.date);
+    if (a.closedAt !== b.closedAt) return a.closedAt.localeCompare(b.closedAt);
+    return a.id.localeCompare(b.id);
+  });
   const longs = new Map<string, OpenFill[]>();
   const shorts = new Map<string, OpenFill[]>();
   const lots: ImportedClosedLot[] = [];
@@ -352,7 +357,7 @@ export function matchClosedLots(fills: NormalizedFill[]): MatchClosedLotsResult 
     return next;
   }
 
-  for (const fill of fills) {
+  for (const fill of ordered) {
     const open: OpenFill = {
       id: fill.id,
       qty: fill.quantity,

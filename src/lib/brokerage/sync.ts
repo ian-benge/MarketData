@@ -39,12 +39,19 @@ import {
   upsertStoredAccount,
   upsertStoredConnection,
   upsertSyncedPosition,
-  closeSyncedPosition,
+  deleteSyncedPosition,
+  deleteHoldingsSourcedClosedLots,
+  loadSyncedPositionRecord,
   type StoredBrokerageAccount,
   type StoredBrokerageConnection,
 } from "./store";
 import { EMPTY_BROKERAGE_SNAPSHOT, type BrokerageSnapshot } from "./types";
 import { getEnv } from "@/lib/env";
+import {
+  preparePositionAlert,
+  schedulePositionAlert,
+} from "@/lib/positions/alerts";
+import { chicagoDateString } from "@/lib/scheduling/chicago-schedule";
 
 export type SyncResult = {
   pending: boolean;
@@ -52,6 +59,8 @@ export type SyncResult = {
   updated: number;
   closed: number;
   skipped: number;
+  historyImported: number;
+  historyUpdated: number;
   warnings: string[];
 };
 
@@ -68,6 +77,19 @@ export type HistoryImportResult = {
   warnings: string[];
   lookback: HistoryLookback;
 };
+
+function emptySyncResult(warnings: string[] = []): SyncResult {
+  return {
+    pending: false,
+    imported: 0,
+    updated: 0,
+    closed: 0,
+    skipped: 0,
+    historyImported: 0,
+    historyUpdated: 0,
+    warnings,
+  };
+}
 
 function emptyHistoryResult(
   warnings: string[] = [],
@@ -203,7 +225,8 @@ async function syncAccountHoldings(
   connection: StoredBrokerageConnection,
   account: StoredBrokerageAccount,
   remote: SnapTradeAccount,
-): Promise<Omit<SyncResult, "pending">> {
+  notify: boolean,
+): Promise<Omit<SyncResult, "pending" | "historyImported" | "historyUpdated">> {
   const warnings: string[] = [];
   if (!account.bookId) {
     return { imported: 0, updated: 0, closed: 0, skipped: 0, warnings: ["Account has no book."] };
@@ -239,18 +262,55 @@ async function syncAccountHoldings(
     );
   }
 
+  const qtyEps = 1e-8;
   for (const holding of plan.upserts) {
     const current = existingByExternal.get(holding.externalId);
-    await upsertSyncedPosition(user, account, connection, holding, current?.id);
+    const result = await upsertSyncedPosition(
+      user,
+      account,
+      connection,
+      holding,
+      current?.id,
+    );
     if (current) updated += 1;
     else imported += 1;
+    if (!notify || !result) continue;
+    const qtyUp = current != null && holding.quantity > current.quantity + qtyEps;
+    if (result.inserted || qtyUp) {
+      schedulePositionAlert(
+        preparePositionAlert(user, "opened", result.position, {
+          bookTitle: account.name,
+        }),
+      );
+    }
   }
 
   let closed = 0;
   for (const lot of plan.closes) {
-    await closeSyncedPosition(user, lot, lot.entryPrice);
+    const record = notify ? await loadSyncedPositionRecord(user, lot.id) : null;
+    await deleteSyncedPosition(user, lot);
     closed += 1;
+    if (record) {
+      schedulePositionAlert(
+        preparePositionAlert(
+          user,
+          "closed",
+          {
+            ...record,
+            status: "closed",
+            closePrice: null,
+            closeDate: chicagoDateString(new Date()),
+            closedAt: new Date().toISOString(),
+          },
+          { bookTitle: account.name },
+        ),
+      );
+    }
   }
+
+  await deleteHoldingsSourcedClosedLots(user, account.id, {
+    excludeTickers: holdings.map((row) => row.ticker),
+  });
 
   for (const skip of skipped) {
     if (skip.ticker) warnings.push(`${skip.ticker}: ${skip.reason}`);
@@ -261,6 +321,7 @@ async function syncAccountHoldings(
 
 export async function syncBrokerageHoldings(
   user: SessionUser,
+  options?: { historyLookback?: HistoryLookback | false; live?: boolean },
 ): Promise<SyncResult> {
   if (user.isDemo) {
     throw new BrokerageError(
@@ -276,21 +337,17 @@ export async function syncBrokerageHoldings(
   }
   const creds = await loadSnapTradeCreds(user);
   if (!creds) {
-    return {
-      pending: false,
-      imported: 0,
-      updated: 0,
-      closed: 0,
-      skipped: 0,
-      warnings: [],
-    };
+    return emptySyncResult();
   }
 
+  const live = Boolean(options?.live);
   const remoteConnections = await listSnapTradeConnections(creds);
   let remoteAccounts = await collectRemoteAccounts(creds, remoteConnections);
-  for (let attempt = 0; attempt < 3 && accountsStillImporting(remoteAccounts); attempt += 1) {
-    await sleep(2_000);
-    remoteAccounts = await collectRemoteAccounts(creds, remoteConnections);
+  if (!live) {
+    for (let attempt = 0; attempt < 3 && accountsStillImporting(remoteAccounts); attempt += 1) {
+      await sleep(2_000);
+      remoteAccounts = await collectRemoteAccounts(creds, remoteConnections);
+    }
   }
   const warnings: string[] = [];
   let imported = 0;
@@ -326,7 +383,10 @@ export async function syncBrokerageHoldings(
 
     let accounts = remoteAccounts.filter((account) => account.connectionId === remote.id);
     try {
-      if (accountsStillImporting(accounts) || accounts.length === 0) {
+      if (
+        !live &&
+        (accountsStillImporting(accounts) || accounts.length === 0)
+      ) {
         await refreshSnapTradeHoldings(creds, remote.id);
         await sleep(2_500);
         remoteAccounts = await collectRemoteAccounts(creds, remoteConnections);
@@ -355,6 +415,7 @@ export async function syncBrokerageHoldings(
           stored,
           storedAccount,
           remoteAccount,
+          Boolean(stored.lastSyncAt),
         );
         imported += result.imported;
         updated += result.updated;
@@ -402,12 +463,46 @@ export async function syncBrokerageHoldings(
     }
   }
 
-  return { pending, imported, updated, closed, skipped, warnings: [...new Set(warnings)] };
+  const historyLookback =
+    options?.historyLookback !== undefined
+      ? options.historyLookback
+      : live
+        ? false
+        : "1w";
+  let historyImported = 0;
+  let historyUpdated = 0;
+  if (historyLookback) {
+    try {
+      const history = await importBrokerageHistory(user, historyLookback, {
+        quiet: true,
+      });
+      historyImported = history.imported;
+      historyUpdated = history.updated;
+      pending = pending || history.pending;
+      warnings.push(...history.warnings);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Past-trade import failed.";
+      warnings.push(message);
+    }
+  }
+
+  return {
+    pending,
+    imported,
+    updated,
+    closed,
+    skipped,
+    historyImported,
+    historyUpdated,
+    warnings: [...new Set(warnings)],
+  };
 }
 
 export async function importBrokerageHistory(
   user: SessionUser,
   lookback: HistoryLookback = "all",
+  options?: { quiet?: boolean },
 ): Promise<HistoryImportResult> {
   if (user.isDemo) {
     throw new BrokerageError(
@@ -421,10 +516,11 @@ export async function importBrokerageHistory(
       503,
     );
   }
+  const quiet = Boolean(options?.quiet);
   const creds = await loadSnapTradeCreds(user);
   if (!creds) {
     return emptyHistoryResult(
-      ["Connect a brokerage before importing past trades."],
+      quiet ? [] : ["Connect a brokerage before importing past trades."],
       lookback,
     );
   }
@@ -508,10 +604,12 @@ export async function importBrokerageHistory(
           }
           if (!transactionsReady) {
             pending = true;
-            warnings.push(
-              `${account.name} is still importing trade history from the brokerage. SnapTrade refreshes this about once a day — try again later.`,
-            );
-          } else {
+            if (!quiet) {
+              warnings.push(
+                `${account.name} is still importing trade history from the brokerage. SnapTrade refreshes this about once a day — try again later.`,
+              );
+            }
+          } else if (!quiet) {
             warnings.push(
               startDate
                 ? `No BUY/SELL fills in that window for ${account.name}.`
@@ -542,6 +640,11 @@ export async function importBrokerageHistory(
             skipped += 1;
           }
         }
+        if (matched.lots.length > 0) {
+          await deleteHoldingsSourcedClosedLots(user, account.id, {
+            tickers: [...new Set(matched.lots.map((lot) => lot.ticker))],
+          });
+        }
         if (lookback === "all") {
           await updateBookImportedFees(
             user,
@@ -549,7 +652,7 @@ export async function importBrokerageHistory(
             residualActivityFees(normalized.activityFees, matched.lots),
           );
         }
-        if (matched.unmatched > 0 && matched.lots.length === 0) {
+        if (matched.unmatched > 0 && matched.lots.length === 0 && !quiet) {
           warnings.push(
             lookback === "all"
               ? `${account.name}: fills are still open inventory. Use Sync for current holdings; Import past trades only creates closed lots.`

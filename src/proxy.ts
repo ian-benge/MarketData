@@ -9,7 +9,7 @@ import { updateSession } from "@/lib/supabase/middleware";
 /**
  * Next.js 16 file convention: `proxy` (replaces deprecated `middleware.ts`).
  * Protects authenticated app routes. Public: /login, /invite, /api/cron,
- * /api/health, /api/auth/demo, /denied
+ * /api/health, /api/auth/demo, /api/brokerage/webhook, /denied
  */
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -20,6 +20,7 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith("/invite") ||
     pathname.startsWith("/api/cron") ||
     pathname.startsWith("/api/health") ||
+    pathname.startsWith("/api/brokerage/webhook") ||
     pathname.startsWith("/api/auth/demo") ||
     pathname.startsWith("/api/auth/invite") ||
     pathname.startsWith("/denied") ||

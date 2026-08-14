@@ -1093,7 +1093,7 @@ export function PositionsWorkspace({
 
           <Panel
             title="Past positions"
-            description="Closed lots and realized return versus entry. Remaining sleeves of the same name stay in the blotter above."
+            description="Closed lots and realized return versus entry. Linked accounts refresh automatically while this page is open."
             actions={<Badge tone="neutral">{closedRows.length} closed</Badge>}
             bodyClassName="p-0"
           >
@@ -1110,7 +1110,9 @@ export function PositionsWorkspace({
               variant="closed"
               emptyMessage={
                 snapshot.summary.closedCount === 0
-                  ? "No closed lots on this book."
+                  ? snapshot.brokerage?.connections.length
+                    ? "No closed lots yet. Linked accounts keep checking for fills; same-day history can lag the brokerage."
+                    : "No closed lots on this book."
                   : "No closed lots match the current filters."
               }
             />
@@ -1118,7 +1120,7 @@ export function PositionsWorkspace({
 
           <Panel
             title="Entries & exits"
-            description="Every open and close on this book, newest first. Click a row to inspect the lot."
+            description="Every open and close on this book, newest first. Brokerage fills stay as separate lots — partials are not collapsed into one round-trip."
             actions={<Badge tone="neutral">{activity.length} events</Badge>}
             bodyClassName="p-0"
           >
