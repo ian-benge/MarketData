@@ -165,7 +165,7 @@ Mock limitations: two demo 8-K / 10-Q rows.
 | **Models** | `DESK_INTEL_MODEL_FAST` (default `google/gemini-3.7-flash`) and `DESK_INTEL_MODEL_STRONG` (default `anthropic/claude-sonnet-5`) |
 | **Honesty** | Generated text cannot invent prices, events, or citations. Unknown attribution is never sent to the model for a causal story. Failed grounding falls back to the rules compilation |
 | **Cache** | `desk_intelligence_briefs` keyed by firm + kind + subject + evidence hash. `ai_usage_events` records provider/model/latency |
-| **Cron** | `/api/cron/intel` every 15 minutes; `/api/cron/tick` also refreshes a session brief after news ingest |
+| **Cron** | `/api/cron/tick` (daily) refreshes news ingest and a session brief. `/api/cron/intel` stays callable with `CRON_SECRET` — a 15-minute Vercel schedule needs Pro |
 
 ## Resend (email)
 
