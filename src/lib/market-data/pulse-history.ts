@@ -78,20 +78,45 @@ export function chicagoMonthStart(now = new Date()): string {
   return formatInTimeZone(now, CHICAGO_TZ, "yyyy-MM-01");
 }
 
+/**
+ * NY session date for 1D reconstruction. Before the open (and on weekends)
+ * this is the prior weekday so Pulse Path is not an empty Saturday/premarket
+ * tape with a live overlay painted across the chart.
+ */
+export function pulseSessionDate(now = new Date()): string {
+  let date = formatInTimeZone(now, NY_TZ, "yyyy-MM-dd");
+  const open = fromZonedTime(`${date}T09:30:00`, NY_TZ);
+  if (now.getTime() < open.getTime()) {
+    date = addChicagoDays(date, -1);
+  }
+  for (let step = 0; step < 7; step += 1) {
+    const weekday = Number(
+      formatInTimeZone(
+        fromZonedTime(`${date}T12:00:00`, NY_TZ),
+        NY_TZ,
+        "i",
+      ),
+    );
+    if (weekday >= 1 && weekday <= 5) return date;
+    date = addChicagoDays(date, -1);
+  }
+  return date;
+}
+
 export function pulseHistorySpec(
   range: PulseHistoryRange,
   now = new Date(),
 ): PulseHistorySpec {
-  const today = formatInTimeZone(now, CHICAGO_TZ, "yyyy-MM-dd");
   if (range === "1D") {
+    const sessionDate = pulseSessionDate(now);
     return {
       range,
       mode: "session",
       interval: "5m",
       // Include the prior session so each 5m print can be scored vs that close.
-      start: fromZonedTime(`${addChicagoDays(today, -4)}T08:00:00`, CHICAGO_TZ).toISOString(),
+      start: fromZonedTime(`${addChicagoDays(sessionDate, -4)}T08:00:00`, CHICAGO_TZ).toISOString(),
       limit: 400,
-      fromDate: today,
+      fromDate: sessionDate,
       takeLast: null,
       through: now.toISOString(),
     };

@@ -38,6 +38,7 @@ import { freezeReportMarketSnapshot } from "@/lib/market-data/report-snapshot";
 import { defaultSurfacesForScope } from "@/lib/market-data/licensing";
 import { getEnv } from "@/lib/env";
 import type { LicenseScope } from "@/lib/market-data/schemas";
+import { loadDefaultSharedWatchlistTickers } from "@/lib/watchlists/firm-coverage";
 import {
   canPublish,
   isPublishGatedStage,
@@ -337,11 +338,12 @@ export class ReportPipeline {
         ctx.input.tradingDate,
       );
       const news = demoNewsItems(ctx.input.edition);
+      const watchlistTickers = await loadDefaultSharedWatchlistTickers();
       return {
         mode: "fixtures" as const,
         quoteSymbols: market.quotes.map((q) => q.ticker),
         newsCount: news.length,
-        market,
+        market: { ...market, watchlistTickers },
         news,
       };
     }
@@ -363,6 +365,7 @@ export class ReportPipeline {
       "VIXY",
       "IBIT",
     ];
+    const watchlistTickers = await loadDefaultSharedWatchlistTickers();
     const [quotes, movers, breadth, news] = await Promise.all([
       this.providers.marketData.getQuotes(symbols),
       this.providers.marketData.getTopMovers({
@@ -395,7 +398,7 @@ export class ReportPipeline {
           delayStatus: "unknown" as const,
           sourceQuality: "estimated" as const,
         },
-        watchlistTickers: ["SPY", "QQQ", "NVDA", "AAPL", "MSFT", "TLT"],
+        watchlistTickers,
       },
       news,
     };
@@ -423,6 +426,7 @@ export class ReportPipeline {
         licenseScope: scope,
         licenseScopeId: `market_data:${scope}`,
         permittedSurfaces: defaultSurfacesForScope(scope),
+        watchlistTickers: collected.market.watchlistTickers,
       });
     }
 

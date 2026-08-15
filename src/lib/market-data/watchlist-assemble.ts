@@ -36,7 +36,12 @@ export function assembleWatchlistRows(
     const volume = quote?.volume ?? null;
     const avgVolume = extra.avgVolume ?? null;
     const changeFromOpenPercent = roundPct(percentChange(last, open));
+    const change1dPercent = roundPct(
+      quote?.changePercent ?? percentChange(last, extra.previousClose ?? null),
+    );
     const change1wPercent = roundPct(percentChange(last, extra.weekAgoClose ?? null));
+    const change1mPercent = roundPct(percentChange(last, extra.monthAgoClose ?? null));
+    const changeYtdPercent = roundPct(percentChange(last, extra.ytdClose ?? null));
     const relativeVolume =
       volume != null && avgVolume != null && avgVolume !== 0
         ? roundRvol(volume / avgVolume)
@@ -45,12 +50,21 @@ export function assembleWatchlistRows(
       ticker,
       name: extra.name ?? null,
       last,
-      change1dPercent: roundPct(quote?.changePercent ?? null),
+      change1dPercent,
       changeFromOpenPercent,
       change1wPercent,
+      change1mPercent,
+      changeYtdPercent,
+      preMarketChangePercent: roundPct(extra.preMarketChangePercent ?? null),
+      afterHoursChangePercent: roundPct(extra.afterHoursChangePercent ?? null),
       relativeVolume,
       marketCap: extra.marketCap ?? null,
       volume,
+      avgVolume,
+      dayHigh: extra.dayHigh ?? null,
+      dayLow: extra.dayLow ?? null,
+      priorClose: extra.previousClose ?? null,
+      volatility: extra.volatility ?? null,
       missing: [],
     };
     row.missing = missingFields(row);

@@ -7,9 +7,15 @@ import {
   ArrowUp,
   ArrowUpRight,
 } from "lucide-react";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
+import { buttonStyles } from "@/components/ui/Button";
+import { ChipToggle } from "@/components/ui/ChipToggle";
 import { Panel } from "@/components/ui/Panel";
+import { EmptyHint } from "@/components/ui/StatePanel";
+import { WhyMovingBadge } from "@/components/news/WhyMovingBadge";
+import type { MoveExplanation } from "@/lib/intelligence/types";
 import type {
   DashboardWatchlistRow,
   DashboardWatchlistSnapshot,
@@ -22,7 +28,9 @@ import {
   formatSignedPercent,
   formatVolume,
   marketTone,
+  marketToneClass,
 } from "@/lib/utils/format";
+import { RVOL_FLAG_THRESHOLD } from "@/lib/watchlists/analytics";
 
 type SortKey =
   | "list"
@@ -59,18 +67,8 @@ function ToneIcon({ value }: { value: number | null }) {
 }
 
 function percentCell(value: number | null) {
-  const tone = marketTone(value);
   return (
-    <td
-      className={cn(
-        "px-3 text-right font-mono",
-        tone === "positive"
-          ? "text-[var(--market-positive)]"
-          : tone === "negative"
-            ? "text-[var(--market-negative)]"
-            : "text-[var(--market-unchanged)]",
-      )}
-    >
+    <td className={cn("px-3 text-right font-mono", marketToneClass(value))}>
       {formatSignedPercent(value)}
     </td>
   );
@@ -80,14 +78,32 @@ export function WatchlistTable({
   data,
   onSelectSymbol,
   onSelectList,
+  inBookTickers,
+  selectedSymbol,
+  explanations,
 }: {
   data: DashboardWatchlistSnapshot | null | undefined;
   onSelectSymbol?: (ticker: string) => void;
   onSelectList?: (listId: string) => void;
+  inBookTickers?: readonly string[];
+  selectedSymbol?: string;
+  explanations?: MoveExplanation[];
 }) {
   const [sortKey, setSortKey] = useState<SortKey>("rvol");
   const [descending, setDescending] = useState(true);
   const rows = data?.rows;
+  const inBook = useMemo(
+    () => new Set((inBookTickers ?? []).map((ticker) => ticker.toUpperCase())),
+    [inBookTickers],
+  );
+  const whyByTicker = useMemo(() => {
+    const map = new Map<string, MoveExplanation>();
+    for (const row of explanations ?? []) map.set(row.ticker.toUpperCase(), row);
+    return map;
+  }, [explanations]);
+  const manageHref = data?.listId
+    ? `/watchlists?listId=${encodeURIComponent(data.listId)}`
+    : "/watchlists";
 
   const sorted = useMemo(() => {
     const next = [...(rows ?? [])];
@@ -129,28 +145,37 @@ export function WatchlistTable({
       }
       bodyClassName="p-0"
       actions={
-        <div className="flex flex-wrap items-center gap-1">
-          {(data?.lists ?? []).map((list) => (
-            <button
-              key={list.id}
-              type="button"
-              onClick={() => onSelectList?.(list.id)}
-              aria-pressed={data?.listId === list.id}
-              className={cn(
-                "inline-flex h-7 items-center rounded-[3px] border px-2 font-mono text-[10px]",
-                data?.listId === list.id
-                  ? "border-[var(--ib-border-control)] bg-[var(--ib-surface-3)] text-[var(--ib-text-primary)]"
-                  : "border-[var(--ib-border-subtle)] text-[var(--ib-text-muted)] hover:text-[var(--ib-text-primary)]",
-              )}
-            >
-              {list.name}
-            </button>
-          ))}
+        <div className="flex min-w-0 flex-wrap items-center justify-end gap-1">
+          <div className="flex min-w-0 flex-1 flex-nowrap gap-1 overflow-x-auto terminal-scroll">
+            {(data?.lists ?? []).map((list) => (
+              <ChipToggle
+                key={list.id}
+                onClick={() => onSelectList?.(list.id)}
+                pressed={data?.listId === list.id}
+                className="normal-case tracking-[0.04em]"
+              >
+                {list.visibility === "personal" ? (
+                  <span className="text-[var(--ib-maroon-300)]">Personal</span>
+                ) : null}
+                {list.name}
+              </ChipToggle>
+            ))}
+          </div>
+          <Link
+            href={manageHref}
+            className={buttonStyles({
+              variant: "ghost",
+              size: "sm",
+              className: "h-7 px-2 text-[10px]",
+            })}
+          >
+            Manage lists
+          </Link>
         </div>
       }
     >
       <div
-        className="w-full min-w-0 overflow-x-auto terminal-scroll"
+        className="w-full min-w-0 overflow-x-auto xl:max-h-[min(32rem,calc(100dvh-14rem))] xl:overflow-y-auto terminal-scroll"
         tabIndex={0}
         role="region"
         aria-label="Watchlist table"
@@ -159,7 +184,7 @@ export function WatchlistTable({
           <caption className="sr-only">
             Watchlist rows with last price, one-day change, change from open, one-week
             change, relative volume, market cap, and session volume. Select a symbol to
-            inspect its chart.
+            highlight it across the overview.
           </caption>
           <thead>
             <tr className="border-b border-[var(--ib-border-strong)] bg-[var(--ib-surface-2)] font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
@@ -182,7 +207,7 @@ export function WatchlistTable({
                     sortKey === key ? (descending ? "descending" : "ascending") : "none"
                   }
                   className={cn(
-                    "h-8 px-3 font-medium",
+                    "sticky top-0 z-10 h-8 bg-[var(--ib-surface-2)] px-3 font-medium",
                     align === "right" && "text-right",
                     key === "symbol" && "w-24",
                   )}
@@ -198,6 +223,9 @@ export function WatchlistTable({
                   </button>
                 </th>
               ))}
+              <th className="sticky top-0 z-10 h-8 bg-[var(--ib-surface-2)] px-3 font-medium">
+                Why
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -207,15 +235,23 @@ export function WatchlistTable({
                   key={row.ticker}
                   row={row}
                   onSelectSymbol={onSelectSymbol}
+                  inBook={inBook.has(row.ticker.toUpperCase())}
+                  selected={selectedSymbol?.toUpperCase() === row.ticker.toUpperCase()}
+                  explanation={whyByTicker.get(row.ticker.toUpperCase())}
                 />
               ))
             ) : (
               <tr>
-                <td
-                  colSpan={8}
-                  className="px-3 py-10 text-center text-[13px] text-[var(--ib-text-muted)]"
-                >
-                  {data?.error ?? "No watchlist names are configured."}
+                <td colSpan={9}>
+                  <EmptyHint className="py-10">
+                    {data?.error ?? "No watchlists are configured."}{" "}
+                    <Link
+                      href="/watchlists"
+                      className="text-[var(--ib-maroon-300)] hover:underline"
+                    >
+                      Open Watchlists & Sectors
+                    </Link>
+                  </EmptyHint>
                 </td>
               </tr>
             )}
@@ -236,24 +272,40 @@ export function WatchlistTable({
 function WatchlistRow({
   row,
   onSelectSymbol,
+  inBook,
+  selected,
+  explanation,
 }: {
   row: DashboardWatchlistRow;
   onSelectSymbol?: (ticker: string) => void;
+  inBook?: boolean;
+  selected?: boolean;
+  explanation?: MoveExplanation;
 }) {
+  const abnormalRvol =
+    row.relativeVolume != null && row.relativeVolume >= RVOL_FLAG_THRESHOLD;
   return (
-    <tr className="border-b border-[var(--ib-border-subtle)] last:border-0 hover:bg-[var(--ib-surface-hover)]">
+    <tr
+      className={cn(
+        "border-b border-[var(--ib-border-subtle)] last:border-0 hover:bg-[var(--ib-surface-hover)]",
+        onSelectSymbol && "cursor-pointer",
+        selected && "bg-[var(--ib-surface-selected)]",
+        abnormalRvol && !selected && "bg-[color-mix(in_oklab,var(--state-warning)_6%,transparent)]",
+      )}
+      onClick={() => onSelectSymbol?.(row.ticker)}
+    >
       <td className="h-9 px-3">
         <button
           type="button"
           onClick={() => onSelectSymbol?.(row.ticker)}
-          className="inline-flex items-center gap-1.5 font-mono font-medium text-[var(--ib-text-primary)] hover:text-[var(--ib-maroon-300)]"
-          aria-label={`Inspect ${row.ticker} chart`}
+          className="inline-flex min-h-8 max-sm:min-h-11 items-center gap-1.5 font-mono font-medium text-[var(--ib-text-primary)] hover:text-[var(--ib-maroon-300)]"
+          aria-current={selected ? "true" : undefined}
+          aria-label={`Select ${row.ticker}`}
         >
           {row.ticker}
           <ToneIcon value={row.change1dPercent} />
-          {row.relativeVolume != null && row.relativeVolume >= 2 ? (
-            <Badge tone="warn">Abn RVOL</Badge>
-          ) : null}
+          {abnormalRvol ? <Badge tone="warn">Abn RVOL</Badge> : null}
+          {inBook ? <Badge tone="info">In book</Badge> : null}
         </button>
       </td>
       <td className="px-3 text-right font-mono text-[var(--ib-text-primary)]">
@@ -270,6 +322,13 @@ function WatchlistRow({
       </td>
       <td className="px-3 text-right font-mono text-[var(--ib-text-secondary)]">
         {formatVolume(row.volume)}
+      </td>
+      <td className="max-w-[14rem] px-3">
+        <WhyMovingBadge
+          explanation={explanation}
+          compact
+          href={`/news?q=${encodeURIComponent(`why is ${row.ticker} moving today`)}`}
+        />
       </td>
     </tr>
   );

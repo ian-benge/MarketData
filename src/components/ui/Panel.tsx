@@ -35,8 +35,8 @@ export function Panel({
       )}
     >
       {(title || actions) && (
-        <header className="flex flex-col gap-2 border-b border-[var(--ib-border-subtle)] px-3 py-2.5 sm:min-h-10 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
-          <div className="min-w-0">
+        <header className="flex flex-wrap items-start justify-between gap-2 border-b border-[var(--ib-border-subtle)] px-3 py-2">
+          <div className="min-w-[10rem] flex-1">
             {title ? (
               <h2 className="text-[13px] font-semibold tracking-[-0.01em] text-[var(--ib-text-primary)]">
                 {title}
@@ -48,7 +48,11 @@ export function Panel({
               </p>
             ) : null}
           </div>
-          {actions ? <div className="min-w-0 sm:shrink-0">{actions}</div> : null}
+          {actions ? (
+            <div className="flex min-w-0 flex-[1_1_12rem] justify-end">
+              {actions}
+            </div>
+          ) : null}
         </header>
       )}
       <div className={cn("p-3", bodyClassName)}>{children}</div>

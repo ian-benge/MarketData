@@ -1,16 +1,15 @@
-import { cookies } from "next/headers";
 import { LiveMarketOverview } from "@/components/dashboard/LiveMarketOverview";
 import { OnDemandReportButton } from "@/components/dashboard/OnDemandReportButton";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { StatePanel } from "@/components/ui/StatePanel";
 import { fixturesEnabled } from "@/lib/api/http";
+import { requirePermission } from "@/lib/auth/authorize";
+import { AuthError } from "@/lib/auth/session";
+import { loadDashboardSnapshot } from "@/lib/dashboard/snapshot";
 import {
-  fixtureDashboard,
   type DashboardSnapshot,
 } from "@/lib/fixtures/dashboard";
 import { emptyWatchlistSnapshot } from "@/lib/market-data/watchlist-service";
-import { MockMarketDataProvider } from "@/lib/providers/mock";
-import type { NormalizedBar } from "@/lib/providers/types";
 
 export const metadata = {
   title: "Market Overview",
@@ -140,6 +139,14 @@ function unavailableDashboard(reason: string): DashboardView {
     tape: [],
     movers: [],
     watchlist: emptyWatchlistSnapshot(reason),
+    coverage: {
+      lists: [],
+      selectedListId: null,
+      exceptions: [],
+      deskSectors: [],
+      coverageSymbolSet: [],
+      inBookTickers: [],
+    },
     headlines: [],
     calendar: [],
     providers: [],
@@ -156,70 +163,21 @@ function unavailableDashboard(reason: string): DashboardView {
   };
 }
 
-async function loadDashboard(): Promise<DashboardView> {
-  if (fixturesEnabled()) {
-    return {
-      ...fixtureDashboard,
-      latencyCoverageLabel: "Mock data",
-      feedCoverage: "unknown",
-      latencyClass: "mock",
-      marketSession: "regular",
-      licenseWarning:
-        "License scope is single_user_development — shared production surfaces are not authorized.",
-      breadthSupported: true,
-      breadthExplanation: null,
-      unavailableReason: null,
-    };
-  }
-
+async function loadDashboard(
+  listId?: string | null,
+): Promise<DashboardView> {
   try {
-    const base = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-    const cookieHeader = (await cookies())
-      .getAll()
-      .map(({ name, value }) => `${name}=${value}`)
-      .join("; ");
-    const response = await fetch(`${base}/api/dashboard`, {
-      cache: "no-store",
-      headers: cookieHeader ? { cookie: cookieHeader } : undefined,
-    });
-    if (!response.ok) {
-      return unavailableDashboard(
-        `Market snapshot request failed (${response.status}). No fixture values were substituted.`,
-      );
-    }
-    return (await response.json()) as DashboardSnapshot;
-  } catch {
+    const user = await requirePermission("viewDashboard");
+    const snapshot = await loadDashboardSnapshot({ user, listId, live: false });
+    return { ...snapshot, unavailableReason: null };
+  } catch (error) {
+    if (error instanceof AuthError) throw error;
     return unavailableDashboard(
-      "The market snapshot service is unreachable. No fixture values were substituted.",
+      error instanceof Error
+        ? `${error.message} No fixture values were substituted.`
+        : "The market snapshot service is unreachable. No fixture values were substituted.",
     );
   }
-}
-
-async function loadFixtureChartSeries(
-  symbols: string[],
-  quoteByTicker: Map<string, DashboardSnapshot["tape"][number]>,
-) {
-  if (!fixturesEnabled()) return {} as Record<string, NormalizedBar[]>;
-  const provider = new MockMarketDataProvider();
-  const entries = await Promise.all(
-    symbols.map(async (symbol) => {
-      const bars = await provider.getTimeSeries({
-        symbol,
-        interval: "1d",
-        limit: 90,
-      });
-      const lastBar = bars.at(-1);
-      const quote = quoteByTicker.get(symbol);
-      if (lastBar && quote?.last != null) {
-        lastBar.close = quote.last;
-        lastBar.high = Math.max(lastBar.high ?? quote.last, quote.last);
-        lastBar.low = Math.min(lastBar.low ?? quote.last, quote.last);
-        lastBar.value = quote.last;
-      }
-      return [symbol, bars] as const;
-    }),
-  );
-  return Object.fromEntries(entries);
 }
 
 function normalizedSymbol(raw: string | undefined, available: Set<string>) {
@@ -233,9 +191,15 @@ function normalizedSymbol(raw: string | undefined, available: Set<string>) {
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ symbol?: string; generate?: string; state?: string }>;
+  searchParams: Promise<{
+    symbol?: string;
+    generate?: string;
+    state?: string;
+    listId?: string;
+  }>;
 }) {
-  const [snapshot, params] = await Promise.all([loadDashboard(), searchParams]);
+  const params = await searchParams;
+  const snapshot = await loadDashboard(params.listId);
   const previewState = fixturesEnabled() ? demoViewState(params.state) : null;
   const data = applyDemoViewState(snapshot, previewState);
   const availableSymbols = new Set([
@@ -244,42 +208,14 @@ export default async function DashboardPage({
     ...(data.watchlist?.rows.map((row) => row.ticker) ?? []),
   ]);
   const selectedSymbol = normalizedSymbol(params.symbol, availableSymbols);
-  const chartSymbols = [
-    ...new Set([selectedSymbol, "SPY", "QQQ", "TLT", "NVDA", "AMD"]),
-  ].filter((symbol) => availableSymbols.has(symbol));
-  const quoteByTicker = new Map(
-    data.tape.map((quote) => [quote.ticker, quote]),
-  );
-  const chartSeries =
-    previewState === "empty"
-      ? {}
-      : await loadFixtureChartSeries(chartSymbols, quoteByTicker);
-  const chartMode = fixturesEnabled()
-    ? "mock"
-    : data.latencyClass === "unavailable"
-      ? "unavailable"
-      : "provider";
-  const chartInitialState =
-    previewState === "loading"
-      ? "loading"
-      : previewState === "empty"
-        ? "empty"
-        : previewState === "rate-limit"
-          ? "rate-limited"
-          : previewState === "provider-error"
-            ? "unavailable"
-            : previewState === "stale"
-              ? "stale"
-              : previewState === "delayed"
-                ? "delayed"
-                : undefined;
 
   return (
     <div className="min-w-0 space-y-3">
       <PageHeader
+        compact
         eyebrow="IB Market Data"
         title="Market Overview"
-        description="U.S. market state with cross-asset and global macro read-throughs. Research only — no order entry or execution."
+        description="Session state, cross-asset tape, and desk coverage. Research only — no order entry."
         actions={
           <OnDemandReportButton
             key={params.generate === "1" ? "auto-open" : "manual"}
@@ -310,10 +246,9 @@ export default async function DashboardPage({
       <LiveMarketOverview
         initial={data}
         selectedSymbol={selectedSymbol}
-        chartSeries={chartSeries}
-        chartMode={chartMode}
-        chartInitialState={chartInitialState}
-        live={chartMode === "provider" && !data.unavailableReason}
+        selectedListId={params.listId}
+        live={!fixturesEnabled() && !data.unavailableReason}
+        pulseLoading={previewState === "loading"}
       />
     </div>
   );

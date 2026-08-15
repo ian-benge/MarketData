@@ -66,3 +66,22 @@ export function StatePanel({
     </section>
   );
 }
+
+export function EmptyHint({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <p
+      className={cn(
+        "px-3 py-8 text-center text-[12px] leading-5 text-[var(--ib-text-muted)]",
+        className,
+      )}
+    >
+      {children}
+    </p>
+  );
+}

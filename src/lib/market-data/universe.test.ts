@@ -33,10 +33,17 @@ describe("buildUniverse", () => {
     );
   });
 
-  it("caps at maxSize prioritizing majors first", () => {
-    const result = buildUniverse({ maxSize: 4 });
+  it("caps at maxSize prioritizing majors first and notes dropped coverage symbols", () => {
+    const result = buildUniverse({
+      maxSize: 4,
+      watchlistSymbols: ["COV1", "COV2"],
+    });
     expect(result.symbols).toHaveLength(4);
     expect(result.symbols).toEqual([...MAJOR_INDEX_ETFS]);
+    expect(result.notes.some((note) => /dropped 2 symbols/i.test(note))).toBe(
+      true,
+    );
+    expect(result.notes[0]).toContain("COV1");
   });
 
   it("includes open position symbols ahead of watchlist overflow", () => {

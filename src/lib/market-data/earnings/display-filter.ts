@@ -59,8 +59,10 @@ export type EarningsDisplayFilterResult = {
 
 function matchesQuery(event: EarningsCalendarEvent, query: string) {
   if (!query) return true;
-  const haystack = `${event.ticker} ${event.companyName ?? ""}`.toLowerCase();
-  return haystack.includes(query);
+  const ticker = event.ticker.toLowerCase();
+  if (ticker === query || ticker.startsWith(query)) return true;
+  const name = (event.companyName ?? "").toLowerCase();
+  return name.includes(query);
 }
 
 function passesSizeFilters(

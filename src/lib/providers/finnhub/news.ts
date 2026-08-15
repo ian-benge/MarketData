@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { canonicalizeUrl, hashContent } from "@/lib/domain/news-cluster";
+import { resolveEntities } from "@/lib/intelligence/entity-resolve";
 import type { NewsProvider } from "@/lib/providers/interfaces";
 import type {
   NewsSearchRequest,
@@ -66,6 +67,17 @@ export function normalizeFinnhubNewsItem(
   return NormalizedNewsItemSchema.parse(item);
 }
 
+export function shouldAttachRequestedSymbol(
+  item: Pick<NormalizedNewsItem, "title" | "summary" | "tickers" | "excerpt">,
+  symbol: string,
+): boolean {
+  const ticker = symbol.trim().toUpperCase();
+  if (!ticker) return false;
+  if ((item.tickers ?? []).includes(ticker)) return true;
+  if ((item.tickers ?? []).length > 0) return false;
+  return resolveEntities(item).some((entity) => entity.ticker === ticker);
+}
+
 export type FinnhubNewsOptions = {
   apiKey: string;
   fetchImpl?: typeof fetch;
@@ -114,20 +126,45 @@ export class FinnhubNewsProvider implements NewsProvider {
       const start = request.range?.start
         ? request.range.start.slice(0, 10)
         : new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10);
-      for (const symbol of tickers.slice(0, 5)) {
-        const raw = await this.getJson("/company-news", {
-          symbol,
-          from: start,
-          to: end,
-        });
-        const list = FinnhubNewsListSchema.parse(raw);
-        rawItems.push(...list);
+      const settled = await Promise.allSettled(
+        tickers.slice(0, 8).map(async (symbol) => {
+          const raw = await this.getJson("/company-news", {
+            symbol,
+            from: start,
+            to: end,
+          });
+          return { symbol, list: FinnhubNewsListSchema.parse(raw) };
+        }),
+      );
+      const tagged: NormalizedNewsItem[] = [];
+      for (const row of settled) {
+        if (row.status !== "fulfilled") continue;
+        for (const raw of row.value.list) {
+          const item = normalizeFinnhubNewsItem(raw, retrieval);
+          if (!item) continue;
+          if (!item.tickers.includes(row.value.symbol)) {
+            if (shouldAttachRequestedSymbol(item, row.value.symbol)) {
+              item.tickers = [...item.tickers, row.value.symbol];
+            }
+          }
+          tagged.push(item);
+        }
       }
-    } else {
-      const raw = await this.getJson("/news", { category: "general" });
-      const list = FinnhubNewsListSchema.parse(raw);
-      rawItems.push(...list);
+      let items = tagged;
+      if (request.query) {
+        const q = request.query.toLowerCase();
+        items = items.filter(
+          (item) =>
+            item.title.toLowerCase().includes(q) ||
+            (item.summary?.toLowerCase().includes(q) ?? false),
+        );
+      }
+      return items.slice(0, limit);
     }
+
+    const raw = await this.getJson("/news", { category: "general" });
+    const list = FinnhubNewsListSchema.parse(raw);
+    rawItems.push(...list);
 
     let items = rawItems
       .map((r) => normalizeFinnhubNewsItem(r, retrieval))
@@ -139,12 +176,6 @@ export class FinnhubNewsProvider implements NewsProvider {
         (item) =>
           item.title.toLowerCase().includes(q) ||
           (item.summary?.toLowerCase().includes(q) ?? false),
-      );
-    }
-
-    if (tickers.length > 0) {
-      items = items.filter((item) =>
-        item.tickers.some((t) => tickers.includes(t.toUpperCase())),
       );
     }
 

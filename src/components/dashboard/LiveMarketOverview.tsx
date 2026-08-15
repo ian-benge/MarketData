@@ -1,11 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CatalystCalendar } from "@/components/dashboard/CatalystCalendar";
 import { DivergenceNotes } from "@/components/dashboard/DivergenceNotes";
-import { DurationStack } from "@/components/dashboard/DurationStack";
 import { EarningsCalendar } from "@/components/dashboard/EarningsCalendar";
-import { FactorTape } from "@/components/dashboard/FactorTape";
 import { FedWatchPanel } from "@/components/dashboard/FedWatchPanel";
 import { DashboardMarketBoard } from "@/components/dashboard/DashboardMarketBoard";
 import { HeadlineFeed } from "@/components/dashboard/HeadlineFeed";
@@ -17,57 +15,55 @@ import { StaleBanner } from "@/components/ui/StaleBanner";
 import type { DashboardSnapshot } from "@/lib/fixtures/dashboard";
 import { buildAttentionItems } from "@/lib/market-data/overview-attention";
 import {
-  buildFactorTiles,
   buildSectorHeatmap,
   buildSharedMarketAnalytics,
   overviewDivergenceNotes,
 } from "@/lib/market-data/overview-analytics";
 import { joinMaterialMovers } from "@/lib/market-data/overview-movers";
+import { attributeMoves } from "@/lib/intelligence/attribution";
+import { detectSignificantMove } from "@/lib/intelligence/move-detect";
 import { calculateMarketPulse } from "@/lib/market-data/market-pulse";
 import type { DashboardWatchlistSnapshot } from "@/lib/market-data/watchlist-types";
-import type { NormalizedBar } from "@/lib/providers/types";
 
 const LIVE_POLL_MS = 15_000;
 
 export function LiveMarketOverview({
   initial,
   selectedSymbol,
-  chartSeries,
-  chartMode,
-  chartInitialState,
+  selectedListId,
   live,
+  pulseLoading = false,
 }: {
   initial: DashboardSnapshot;
   selectedSymbol: string;
-  chartSeries: Record<string, NormalizedBar[]>;
-  chartMode: "mock" | "provider" | "unavailable";
-  chartInitialState?:
-    | "mock"
-    | "loading"
-    | "realtime"
-    | "delayed"
-    | "stale"
-    | "empty"
-    | "unavailable"
-    | "rate-limited"
-    | "entitlement";
+  selectedListId?: string;
   live: boolean;
+  pulseLoading?: boolean;
 }) {
   const [data, setData] = useState(initial);
-  const [chartSymbol, setChartSymbol] = useState(selectedSymbol);
+  const [focusSymbol, setFocusSymbol] = useState(selectedSymbol);
   const [listOverride, setListOverride] = useState<DashboardWatchlistSnapshot | null>(
     null,
   );
+  const listIdRef = useRef<string | null>(
+    selectedListId ?? initial.watchlist?.listId ?? null,
+  );
 
-  function selectChartSymbol(ticker: string) {
-    setChartSymbol(ticker);
+  function selectSymbol(ticker: string) {
+    setFocusSymbol(ticker);
     if (typeof window === "undefined") return;
     const url = new URL(window.location.href);
     url.searchParams.set("symbol", ticker);
     window.history.replaceState({}, "", url);
-    document
-      .getElementById("primary-market-chart")
-      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function writeListId(listId: string | null) {
+    listIdRef.current = listId;
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (listId) url.searchParams.set("listId", listId);
+    else url.searchParams.delete("listId");
+    window.history.replaceState({}, "", url);
   }
 
   useEffect(() => {
@@ -77,12 +73,19 @@ export function LiveMarketOverview({
     async function pull() {
       if (document.visibilityState === "hidden") return;
       try {
-        const response = await fetch("/api/dashboard?live=1", {
+        const params = new URLSearchParams({ live: "1" });
+        const listId = listIdRef.current;
+        if (listId) params.set("listId", listId);
+        const response = await fetch(`/api/dashboard?${params.toString()}`, {
           cache: "no-store",
         });
         if (!response.ok || cancelled) return;
         const next = (await response.json()) as DashboardSnapshot;
-        if (!cancelled) setData(next);
+        if (cancelled) return;
+        setData(next);
+        setListOverride((current) =>
+          current && current.listId !== next.watchlist?.listId ? current : null,
+        );
       } catch {
         /* keep last valid snapshot */
       }
@@ -103,6 +106,7 @@ export function LiveMarketOverview({
   }, [live]);
 
   async function selectWatchlist(nextListId: string) {
+    writeListId(nextListId);
     if (nextListId === data.watchlist?.listId) {
       setListOverride(null);
       return;
@@ -124,6 +128,29 @@ export function LiveMarketOverview({
       ? listOverride
       : (data.watchlist ?? null);
 
+  const watchlistMoves = useMemo(() => {
+    const events = data.intelligence?.events ?? [];
+    const server = data.intelligence?.moves ?? [];
+    if (!watchlist?.rows?.length) return server;
+    const quotes = watchlist.rows.map((row) => ({
+      ticker: row.ticker,
+      changePercent: row.change1dPercent,
+      relativeVolume: row.relativeVolume,
+      preMarketChangePercent: row.preMarketChangePercent,
+      afterHoursChangePercent: row.afterHoursChangePercent,
+      flags: [],
+      session: data.marketSession ?? null,
+    }));
+    const significant = quotes.filter((quote) => detectSignificantMove(quote).significant);
+    if (!significant.length) return [];
+    if (!events.length) {
+      return server.filter((row) =>
+        significant.some((quote) => quote.ticker.toUpperCase() === row.ticker.toUpperCase()),
+      );
+    }
+    return attributeMoves(significant, events, data.marketSession);
+  }, [watchlist, data.intelligence, data.marketSession]);
+
   const unhealthyCount = data.providers.filter(
     (provider) => provider.health === "degraded" || provider.health === "down",
   ).length;
@@ -139,11 +166,17 @@ export function LiveMarketOverview({
         data.headlines,
         data.marketSession,
         data.moversCoverageNotes,
+        data.intelligence?.moves,
       ),
-    [data.headlines, data.marketSession, data.movers, data.moversCoverageNotes],
+    [
+      data.headlines,
+      data.intelligence?.moves,
+      data.marketSession,
+      data.movers,
+      data.moversCoverageNotes,
+    ],
   );
   const sectors = useMemo(() => buildSectorHeatmap(data.tape), [data.tape]);
-  const factors = useMemo(() => buildFactorTiles(data.tape), [data.tape]);
   const pulse = useMemo(
     () =>
       calculateMarketPulse({
@@ -175,10 +208,12 @@ export function LiveMarketOverview({
         watchlist: watchlist?.rows,
         calendar: data.calendar,
         asOf: data.asOf,
+        coverage: data.coverage,
       }),
     [
       data.asOf,
       data.calendar,
+      data.coverage,
       movers,
       pulse.drivers,
       sectors,
@@ -190,9 +225,8 @@ export function LiveMarketOverview({
     () => overviewDivergenceNotes(shared.variantViews),
     [shared.variantViews],
   );
-
   return (
-    <>
+    <div className="space-y-3">
       <OverviewStatusChrome
         session={data.marketSession}
         asOf={data.asOf}
@@ -203,7 +237,7 @@ export function LiveMarketOverview({
         licenseWarning={data.licenseWarning}
         providers={data.providers}
         items={attention}
-        onSelectSymbol={selectChartSymbol}
+        onSelectSymbol={selectSymbol}
       />
 
       {data.stale && data.latencyClass !== "unavailable" ? (
@@ -215,62 +249,71 @@ export function LiveMarketOverview({
         latencyCoverageLabel={data.latencyCoverageLabel}
         asOf={data.asOf}
         marketSession={data.marketSession}
-        initialSymbol={selectedSymbol}
-        symbol={chartSymbol}
-        onSelectSymbol={selectChartSymbol}
-        initialSeries={chartSeries}
-        coverageLabel={data.latencyCoverageLabel ?? null}
-        mode={chartMode}
-        initialState={chartInitialState}
+        symbol={focusSymbol}
+        onSelectSymbol={selectSymbol}
         feedCoverage={data.feedCoverage}
         latencyClass={data.latencyClass}
         breadthSupported={data.breadthSupported}
         breadthExplanation={data.breadthExplanation}
         calendar={data.calendar}
-        sidebar={
-          <div className="space-y-3">
-            <SectorHeatmap cells={sectors} onSelectSymbol={selectChartSymbol} />
-            <FactorTape rows={factors} onSelectSymbol={selectChartSymbol} />
-            <DurationStack quotes={data.tape} onSelectSymbol={selectChartSymbol} />
+        pulse={pulse}
+        loading={pulseLoading}
+      >
+        <div className="grid min-w-0 gap-3 xl:grid-cols-12">
+          <div className="min-w-0 space-y-3 xl:col-span-8">
+            <SectorHeatmap
+              cells={sectors}
+              deskSectors={data.coverage?.deskSectors}
+              onSelectSymbol={selectSymbol}
+              selectedSymbol={focusSymbol}
+            />
             <MaterialMoversPanel
               movers={movers}
               coverageNotes={data.moversCoverageNotes}
               latestReport={data.latestReport}
-              onSelectSymbol={selectChartSymbol}
+              onSelectSymbol={selectSymbol}
+              selectedSymbol={focusSymbol}
             />
+          </div>
+          <div className="min-w-0 space-y-3 xl:col-span-4">
             <DivergenceNotes notes={divergence} />
           </div>
-        }
-      />
+        </div>
+      </DashboardMarketBoard>
+
+      <div className="grid min-w-0 gap-3 xl:grid-cols-12">
+        <div id="watchlist" className="min-w-0 scroll-mt-3 xl:col-span-8">
+          <WatchlistTable
+            data={watchlist}
+            onSelectSymbol={selectSymbol}
+            onSelectList={selectWatchlist}
+            inBookTickers={data.coverage?.inBookTickers}
+            selectedSymbol={focusSymbol}
+            explanations={watchlistMoves}
+          />
+        </div>
+        <div className="min-w-0 xl:col-span-4">
+          <HeadlineFeed
+            headlines={data.headlines}
+            events={data.intelligence?.events}
+            gaps={data.intelligence?.gaps}
+            coverageTickers={data.coverage?.coverageSymbolSet}
+            onSelectSymbol={selectSymbol}
+          />
+        </div>
+      </div>
 
       <div className="grid min-w-0 gap-3 xl:grid-cols-12">
         <div id="fedwatch" className="min-w-0 scroll-mt-3 xl:col-span-6">
           <FedWatchPanel />
         </div>
         <div id="earnings-calendar" className="min-w-0 scroll-mt-3 xl:col-span-3">
-          <EarningsCalendar
-            onSelectSymbol={selectChartSymbol}
-            watchlistSymbols={watchlist?.symbols}
-          />
+          <EarningsCalendar onSelectSymbol={selectSymbol} />
         </div>
         <div id="catalyst-calendar" className="min-w-0 scroll-mt-3 xl:col-span-3">
           <CatalystCalendar events={data.calendar} />
         </div>
-
-        <div className="min-w-0 xl:col-span-8">
-          <WatchlistTable
-            data={watchlist}
-            onSelectSymbol={selectChartSymbol}
-            onSelectList={selectWatchlist}
-          />
-        </div>
-        <div className="min-w-0 xl:col-span-4">
-          <HeadlineFeed
-            headlines={data.headlines}
-            onSelectSymbol={selectChartSymbol}
-          />
-        </div>
       </div>
-    </>
+    </div>
   );
 }

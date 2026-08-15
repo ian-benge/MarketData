@@ -3,12 +3,17 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import {
+  pulseAreaPath,
+  pulseLinePath,
+  shouldOverlayLivePulse,
+} from "@/components/dashboard/market-pulse/pulse-path-geometry";
+import {
   PULSE_HISTORY_RANGES,
+  regularSessionStamps,
   tradingDateKey,
   type PulseHistoryPoint,
   type PulseHistoryRange,
 } from "@/lib/market-data/pulse-history";
-import { regularSessionStamps } from "@/lib/market-data/pulse-history";
 import { formatMarketDateTime, formatMarketTime } from "@/lib/utils/format";
 import { cn } from "@/lib/utils/cn";
 
@@ -33,10 +38,10 @@ function pointX(index: number, count: number, width: number) {
   return (index / (count - 1)) * width;
 }
 
-function sessionPointX(at: string, width: number) {
-  const day = tradingDateKey(at);
+function sessionPointX(at: string, width: number, axisDay?: string) {
+  const day = axisDay ?? tradingDateKey(at);
   const stamps = regularSessionStamps(day, "5m");
-  if (stamps.length < 2) return pointX(0, 1, width);
+  if (stamps.length < 2) return 0;
   const open = Date.parse(stamps[0]!);
   const last = Date.parse(stamps.at(-1)!);
   const span = last - open;
@@ -117,9 +122,17 @@ export function PulseHistoryChart({
 
   const series = useMemo(() => {
     const next = [...points];
-    if (liveScore != null) {
+    const last = next.at(-1);
+    if (
+      liveScore != null &&
+      shouldOverlayLivePulse({
+        range,
+        liveAt,
+        lastAt: last?.at ?? null,
+        tradingDateKey,
+      })
+    ) {
       const liveDate = tradingDateKey(liveAt);
-      const last = next.at(-1);
       const lastDate = last ? tradingDateKey(last.at) : null;
       const livePoint: PulseHistoryPoint = {
         at: liveAt,
@@ -137,8 +150,10 @@ export function PulseHistoryChart({
       if (sameBucket && last) next[next.length - 1] = { ...last, ...livePoint };
       else if (!last || Date.parse(liveAt) > Date.parse(last.at)) next.push(livePoint);
     }
-    return next.filter((point): point is PulseHistoryPoint & { score: number } => point.score != null);
-  }, [liveAt, liveScore, points]);
+    return next
+      .filter((point): point is PulseHistoryPoint & { score: number } => point.score != null)
+      .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  }, [liveAt, liveScore, points, range]);
 
   const active = hover != null ? series[hover] : series.at(-1);
   const width = 100;
@@ -149,21 +164,22 @@ export function PulseHistoryChart({
   );
   const midY = pointY(50, height, domain.min, domain.max);
   const fiftyVisible = 50 >= domain.min && 50 <= domain.max;
-  const xAt = (index: number, at: string) =>
-    range === "1D" ? sessionPointX(at, width) : pointX(index, series.length, width);
-
-  const path = useMemo(() => {
-    if (!series.length) return "";
-    return series
-      .map((point, index) => {
-        const x = xAt(index, point.at);
-        const y = pointY(point.score, height, domain.min, domain.max);
-        return `${index === 0 ? "M" : "L"}${x.toFixed(2)} ${y.toFixed(2)}`;
-      })
-      .join(" ");
-  }, [domain.max, domain.min, range, series]);
-  const areaAbove = path ? `${path} L${width} ${midY} L0 ${midY} Z` : "";
-  const areaBelow = path ? `${path} L${width} ${midY} L0 ${midY} Z` : "";
+  const axisDay = range === "1D" && series[0] ? tradingDateKey(series[0].at) : null;
+  const xs = useMemo(
+    () =>
+      series.map((point, index) =>
+        range === "1D"
+          ? sessionPointX(point.at, width, axisDay ?? undefined)
+          : pointX(index, series.length, width),
+      ),
+    [axisDay, range, series],
+  );
+  const ys = useMemo(
+    () => series.map((point) => pointY(point.score, height, domain.min, domain.max)),
+    [domain.max, domain.min, series],
+  );
+  const path = useMemo(() => pulseLinePath(xs, ys), [xs, ys]);
+  const area = useMemo(() => pulseAreaPath(xs, ys, midY), [midY, xs, ys]);
   const midOffset = fiftyVisible
     ? `${(((domain.max - 50) / Math.max(domain.max - domain.min, 1)) * 100).toFixed(2)}%`
     : "50%";
@@ -256,8 +272,8 @@ export function PulseHistoryChart({
               if (range === "1D") {
                 let best = 0;
                 let bestDist = Number.POSITIVE_INFINITY;
-                series.forEach((point, index) => {
-                  const dist = Math.abs(sessionPointX(point.at, 1) - ratio);
+                xs.forEach((x, index) => {
+                  const dist = Math.abs(x / width - ratio);
                   if (dist < bestDist) {
                     bestDist = dist;
                     best = index;
@@ -288,62 +304,56 @@ export function PulseHistoryChart({
                 <rect x="0" y={Math.min(Math.max(midY, 0), height)} width={width} height={Math.max(height - midY, 0)} />
               </clipPath>
             </defs>
-            {fiftyVisible ? (
+            {area ? (
               <>
-                <rect x="0" y="0" width={width} height={midY} fill="color-mix(in oklab, #42b883 8%, transparent)" />
-                <rect x="0" y={midY} width={width} height={height - midY} fill="color-mix(in oklab, #e06666 8%, transparent)" />
-              </>
-            ) : (
-              <rect
-                x="0"
-                y="0"
-                width={width}
-                height={height}
-                fill={
-                  domain.min >= 50
-                    ? "color-mix(in oklab, #42b883 8%, transparent)"
-                    : "color-mix(in oklab, #e06666 8%, transparent)"
-                }
-              />
-            )}
-            {path ? (
-              <>
-                <path d={areaAbove} fill="color-mix(in oklab, #42b883 20%, transparent)" clipPath={`url(#${gradientId}-above)`} />
-                <path d={areaBelow} fill="color-mix(in oklab, #e06666 20%, transparent)" clipPath={`url(#${gradientId}-below)`} />
                 <path
-                  d={path}
-                  fill="none"
-                  stroke={`url(#${gradientId}-stroke)`}
-                  strokeWidth="0.85"
-                  vectorEffect="non-scaling-stroke"
+                  d={area}
+                  fill="color-mix(in oklab, #42b883 18%, transparent)"
+                  clipPath={`url(#${gradientId}-above)`}
+                />
+                <path
+                  d={area}
+                  fill="color-mix(in oklab, #e06666 18%, transparent)"
+                  clipPath={`url(#${gradientId}-below)`}
                 />
               </>
             ) : null}
+            {path ? (
+              <path
+                d={path}
+                fill="none"
+                stroke={`url(#${gradientId}-stroke)`}
+                strokeWidth="1.15"
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            ) : null}
             {fiftyVisible ? (
               <line
-                x1="0"
-                x2={width}
+                x1={xs[0] ?? 0}
+                x2={xs.at(-1) ?? width}
                 y1={midY}
                 y2={midY}
-                stroke="color-mix(in oklab, #d7dde3 55%, transparent)"
-                strokeWidth="0.45"
-                strokeDasharray="1.2 1"
+                stroke="color-mix(in oklab, var(--ib-text-muted) 70%, transparent)"
+                strokeWidth="0.4"
+                strokeDasharray="1.4 1.1"
                 vectorEffect="non-scaling-stroke"
               />
             ) : null}
             {series.map((point, index) => (
               <circle
                 key={`${point.at}-${index}`}
-                cx={xAt(index, point.at)}
-                cy={pointY(point.score, height, domain.min, domain.max)}
+                cx={xs[index]}
+                cy={ys[index]}
                 r={series.length === 1 || index === series.length - 1 ? 0.9 : 0}
                 fill={point.score >= 50 ? UP : DOWN}
               />
             ))}
             {active && hover != null && series.length > 1 ? (
               <line
-                x1={xAt(hover, series[hover]!.at)}
-                x2={xAt(hover, series[hover]!.at)}
+                x1={xs[hover]}
+                x2={xs[hover]}
                 y1="0"
                 y2={height}
                 stroke="var(--ib-text-muted)"

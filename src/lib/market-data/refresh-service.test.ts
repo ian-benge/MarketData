@@ -103,6 +103,7 @@ describe("refresh lock", () => {
       usage,
       lock,
       force: true,
+      watchlistSymbols: ["SPY"],
       now: new Date("2026-08-10T15:00:00.000Z"),
     });
     // Let first acquire mutex
@@ -116,6 +117,7 @@ describe("refresh lock", () => {
       usage,
       lock,
       force: true,
+      watchlistSymbols: ["SPY"],
       now: new Date("2026-08-10T15:00:00.000Z"),
     });
 
@@ -135,6 +137,7 @@ describe("refresh lock", () => {
       usage: new InMemoryUsageStore(),
       lock: new InMemoryRefreshLock(),
       force: true,
+      watchlistSymbols: ["SPY"],
       now: new Date("2026-08-10T15:00:00.000Z"),
     });
     expect(result.status).toBe("completed");

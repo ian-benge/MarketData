@@ -30,9 +30,18 @@ const quoteCache = new Map<string, CacheEntry<WatchlistEnrichment>>();
 const weekCache = new Map<string, CacheEntry<number | null>>();
 const inflight = new Map<string, Promise<DashboardWatchlistSnapshot>>();
 
+export type WatchlistListSource = {
+  id: string;
+  name: string;
+  isDefault: boolean;
+  symbols: string[];
+  visibility?: "shared" | "personal";
+};
+
 export type WatchlistDeps = {
   now?: Date;
   useFixtures?: boolean;
+  lists?: WatchlistListSource[];
   yahooQuotes?: (symbols: string[]) => Promise<Map<string, { name: string | null; marketCap: number | null; avgVolume: number | null }>>;
   yahooWeekCloses?: (symbols: string[]) => Promise<Map<string, number | null>>;
 };
@@ -43,20 +52,35 @@ export function resetWatchlistCache() {
   inflight.clear();
 }
 
-function lists(): DashboardWatchlistList[] {
+function sourceLists(deps: WatchlistDeps = {}): WatchlistListSource[] {
+  if (deps.lists !== undefined) return deps.lists;
   return fixtureWatchlists.map((list) => ({
     id: list.id,
     name: list.name,
     isDefault: list.isDefault,
-    symbolCount: list.symbols.length,
+    symbols: list.symbols,
+    visibility: list.visibility ?? "shared",
   }));
 }
 
-function pickList(listId?: string | null) {
+function lists(deps: WatchlistDeps = {}): DashboardWatchlistList[] {
+  return sourceLists(deps).map((list) => ({
+    id: list.id,
+    name: list.name,
+    isDefault: list.isDefault,
+    symbolCount: list.symbols.length,
+    visibility: list.visibility ?? "shared",
+  }));
+}
+
+function pickList(listId?: string | null, deps: WatchlistDeps = {}) {
+  const all = sourceLists(deps);
+  if (!all.length) return null;
   return (
-    fixtureWatchlists.find((list) => list.id === listId) ??
-    fixtureWatchlists.find((list) => list.isDefault) ??
-    fixtureWatchlists[0]!
+    all.find((list) => list.id === listId) ??
+    all.find((list) => list.isDefault) ??
+    all[0] ??
+    null
   );
 }
 
@@ -64,14 +88,15 @@ function emptySnapshot(
   listId: string | undefined,
   error: string | null,
   extra?: Partial<DashboardWatchlistSnapshot>,
+  deps: WatchlistDeps = {},
 ): DashboardWatchlistSnapshot {
-  const list = pickList(listId);
+  const list = pickList(listId, deps);
   return {
-    listId: list.id,
-    listName: list.name,
-    symbols: list.symbols,
-    rows: assembleWatchlistRows(list.symbols, new Map()),
-    lists: lists(),
+    listId: list?.id ?? listId ?? "",
+    listName: list?.name ?? "",
+    symbols: list?.symbols ?? [],
+    rows: assembleWatchlistRows(list?.symbols ?? [], new Map()),
+    lists: lists(deps),
     asOf: new Date().toISOString(),
     stale: false,
     usingFixtures: false,
@@ -111,6 +136,7 @@ const FIXTURE_QUOTES: WatchlistQuoteInput[] = [
   { ticker: "PLTR", last: 41.8, open: 40.9, changePercent: 2.21, volume: 38_000_000 },
   { ticker: "CEG", last: 278.3, open: 272.4, changePercent: 2.87, volume: 148_000 },
   { ticker: "EQIX", last: 812.0, open: 808.5, changePercent: 0.44, volume: 420_000 },
+  { ticker: "IREN", last: 18.4, open: 19.7, changePercent: -6.4, volume: 42_000_000 },
 ];
 
 const FIXTURE_ENRICHMENT: Array<[string, WatchlistEnrichment]> = [
@@ -129,10 +155,32 @@ const FIXTURE_ENRICHMENT: Array<[string, WatchlistEnrichment]> = [
   ["PLTR", { name: "Palantir", marketCap: 96_000_000_000, avgVolume: 42_000_000, weekAgoClose: 39.6 }],
   ["CEG", { name: "Constellation Energy", marketCap: 87_000_000_000, avgVolume: 1_900_000, weekAgoClose: 268.1 }],
   ["EQIX", { name: "Equinix", marketCap: 77_000_000_000, avgVolume: 480_000, weekAgoClose: 805.2 }],
+  ["IREN", { name: "IREN Limited", marketCap: 4_200_000_000, avgVolume: 14_000_000, weekAgoClose: 17.1 }],
 ];
 
-export function fixtureWatchlistSnapshot(listId?: string | null): DashboardWatchlistSnapshot {
-  const list = pickList(listId);
+export function fixtureIntelligenceQuotes(session: string | null = "regular") {
+  const quotes = new Map(FIXTURE_QUOTES.map((row) => [row.ticker, row]));
+  const enrichment = new Map(FIXTURE_ENRICHMENT);
+  return assembleWatchlistRows([...quotes.keys()], quotes, enrichment).map((row) => ({
+    ticker: row.ticker,
+    name: row.name,
+    changePercent: row.change1dPercent,
+    relativeVolume: row.relativeVolume,
+    preMarketChangePercent: row.preMarketChangePercent,
+    afterHoursChangePercent: row.afterHoursChangePercent,
+    flags: [] as string[],
+    session,
+  }));
+}
+
+export function fixtureWatchlistSnapshot(listId?: string | null, deps: WatchlistDeps = {}): DashboardWatchlistSnapshot {
+  const list = pickList(listId, deps);
+  if (!list) {
+    return emptySnapshot(listId ?? undefined, "No watchlists are configured.", {
+      usingFixtures: true,
+      error: null,
+    }, deps);
+  }
   const quotes = new Map(FIXTURE_QUOTES.map((row) => [row.ticker, row]));
   const enrichment = new Map(FIXTURE_ENRICHMENT);
   return {
@@ -140,7 +188,7 @@ export function fixtureWatchlistSnapshot(listId?: string | null): DashboardWatch
     listName: list.name,
     symbols: list.symbols,
     rows: assembleWatchlistRows(list.symbols, quotes, enrichment),
-    lists: lists(),
+    lists: lists(deps),
     asOf: new Date().toISOString(),
     stale: false,
     usingFixtures: true,
@@ -254,9 +302,17 @@ export async function getWatchlistSnapshot(
 ): Promise<DashboardWatchlistSnapshot> {
   const useFixtures =
     env.NODE_ENV !== "production" && (deps.useFixtures ?? isDemoAuthEnabled(env));
-  if (useFixtures) return fixtureWatchlistSnapshot(listId);
+  if (useFixtures) return fixtureWatchlistSnapshot(listId, deps);
 
-  const list = pickList(listId);
+  const list = pickList(listId, { ...deps, lists: deps.lists ?? [] });
+  if (!list) {
+    return emptySnapshot(
+      listId ?? undefined,
+      "No watchlists are configured. Open Watchlists & Sectors to add coverage.",
+      undefined,
+      { ...deps, lists: deps.lists ?? [] },
+    );
+  }
   const key = `${list.id}:${quotes.length}`;
   const pending = inflight.get(key);
   if (pending) return pending;
@@ -268,7 +324,7 @@ export async function getWatchlistSnapshot(
       listName: list.name,
       symbols: list.symbols,
       rows: assembleWatchlistRows(list.symbols, quoteInputs(quotes), yahoo.map),
-      lists: lists(),
+      lists: lists({ ...deps, lists: deps.lists ?? [] }),
       asOf: new Date().toISOString(),
       stale: yahoo.stale,
       usingFixtures: false,
@@ -285,5 +341,5 @@ export async function getWatchlistSnapshot(
 export function emptyWatchlistSnapshot(
   error: string | null = null,
 ): DashboardWatchlistSnapshot {
-  return emptySnapshot(undefined, error);
+  return emptySnapshot(undefined, error, undefined, { lists: [] });
 }

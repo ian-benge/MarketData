@@ -119,6 +119,8 @@ export type ReportDocumentModel = {
   modelName?: string;
   scheduledAt?: string;
   calendarKind?: "regular" | "early_close" | "holiday_skip";
+  /** Resolved at collect time so archived reports do not live-bind later list edits. */
+  watchlistTickers?: string[];
 };
 
 const TICKER_LABELS: Record<string, string[]> = {
@@ -658,6 +660,7 @@ export function buildReportDocument(
     modelName: input.modelName,
     scheduledAt: input.scheduledAt,
     calendarKind: input.calendarKind,
+    watchlistTickers: [...input.market.watchlistTickers],
   };
 }
 

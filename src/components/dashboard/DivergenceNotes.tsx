@@ -14,7 +14,7 @@ export function DivergenceNotes({ notes }: { notes: string[] }) {
         {notes.map((note) => (
           <li
             key={note.slice(0, 48)}
-            className="text-[11px] leading-4 text-[var(--ib-text-secondary)]"
+            className="border-l-2 border-[var(--ib-maroon-500)] pl-2.5 text-[11px] leading-4 text-[var(--ib-text-secondary)]"
           >
             {note}
           </li>

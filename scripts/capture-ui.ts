@@ -31,6 +31,7 @@ const viewports = phase === "final" ? finalViewports : baselineViewports;
 
 const memberRoutes = [
   ["dashboard", "/dashboard"],
+  ["news", "/news"],
   ["archive", "/archive"],
   ["report", "/reports/rpt-demo-001"],
   ["watchlists", "/watchlists"],

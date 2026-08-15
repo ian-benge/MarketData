@@ -11,6 +11,7 @@ import {
   Layers3,
   Menu,
   MessageSquareText,
+  Newspaper,
   Search,
   Settings2,
   ShieldCheck,
@@ -44,6 +45,13 @@ const WORKBENCH_NAV: NavItem[] = [
     icon: BarChart3,
   },
   {
+    href: "/news",
+    label: "Material News",
+    shortLabel: "News",
+    description: "Headline search, event clusters, and why it’s moving",
+    icon: Newspaper,
+  },
+  {
     href: "/positions",
     label: "Positions",
     shortLabel: "Positions",
@@ -61,7 +69,7 @@ const WORKBENCH_NAV: NavItem[] = [
     href: "/watchlists",
     label: "Watchlists & Sectors",
     shortLabel: "Watchlists",
-    description: "Shared coverage universes",
+    description: "Shared and personal coverage universes",
     icon: Layers3,
   },
   {
@@ -199,6 +207,9 @@ export function AppShell({
   const [commandOpen, setCommandOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [commandIndex, setCommandIndex] = useState(0);
+  const [newsHits, setNewsHits] = useState<
+    Array<{ id: string; title: string; href: string; meta: string }>
+  >([]);
   const drawerRef = useRef<HTMLDivElement>(null);
   const commandRef = useRef<HTMLDivElement>(null);
   const commandInputRef = useRef<HTMLInputElement>(null);
@@ -223,9 +234,44 @@ export function AppShell({
         item.description.toLowerCase().includes(normalized),
     );
   }, [items, query]);
+  const commandRows = useMemo(() => {
+    const rows: Array<{
+      key: string;
+      label: string;
+      description: string;
+      href: string;
+      icon: LucideIcon;
+    }> = filteredItems.map((item) => ({
+      key: item.href,
+      label: item.label,
+      description: item.description,
+      href: item.href,
+      icon: item.icon,
+    }));
+    const q = query.trim();
+    for (const hit of q.length < 2 ? [] : newsHits) {
+      rows.push({
+        key: hit.id,
+        label: hit.title,
+        description: hit.meta,
+        href: hit.href,
+        icon: Newspaper,
+      });
+    }
+    if (q.length >= 2) {
+      rows.push({
+        key: "search-news",
+        label: `Search headlines for “${q}”`,
+        description: "Open Material News",
+        href: `/news?q=${encodeURIComponent(q)}`,
+        icon: Newspaper,
+      });
+    }
+    return rows;
+  }, [filteredItems, newsHits, query]);
   const activeCommandIndex = Math.min(
     commandIndex,
-    Math.max(filteredItems.length - 1, 0),
+    Math.max(commandRows.length - 1, 0),
   );
 
   function closeDrawer() {
@@ -237,6 +283,7 @@ export function AppShell({
     setCommandOpen(false);
     setQuery("");
     setCommandIndex(0);
+    setNewsHits([]);
     requestAnimationFrame(() => {
       const trigger = commandTriggerRef.current;
       if (trigger?.isConnected) trigger.focus();
@@ -287,6 +334,40 @@ export function AppShell({
   }, [commandOpen]);
 
   useEffect(() => {
+    if (!commandOpen) return;
+    const q = query.trim();
+    if (q.length < 2) return;
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await fetch(
+          `/api/news?q=${encodeURIComponent(q)}&limit=6&freshness=cached`,
+          { cache: "no-store" },
+        );
+        if (!response.ok || cancelled) return;
+        const body = (await response.json()) as {
+          events?: Array<{ id: string; title: string; eventTypeLabel?: string }>;
+        };
+        if (cancelled) return;
+        setNewsHits(
+          (body.events ?? []).slice(0, 6).map((event) => ({
+            id: event.id,
+            title: event.title,
+            href: `/news?q=${encodeURIComponent(q)}`,
+            meta: event.eventTypeLabel ?? "Headline",
+          })),
+        );
+      } catch {
+        if (!cancelled) setNewsHits([]);
+      }
+    }, 200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [commandOpen, query]);
+
+  useEffect(() => {
     if (drawerOpen) {
       requestAnimationFrame(() =>
         focusableElements(drawerRef.current)[0]?.focus(),
@@ -303,7 +384,7 @@ export function AppShell({
     };
   }, [commandOpen, drawerOpen]);
 
-  function goTo(item: NavItem) {
+  function goTo(item: { href: string }) {
     router.push(item.href);
     closeCommand();
   }
@@ -548,26 +629,26 @@ export function AppShell({
                   setCommandIndex(0);
                 }}
                 onKeyDown={(event) => {
-                  if (event.key === "ArrowDown" && filteredItems.length) {
+                  if (event.key === "ArrowDown" && commandRows.length) {
                     event.preventDefault();
                     setCommandIndex(
-                      (current) => (current + 1) % filteredItems.length,
+                      (current) => (current + 1) % commandRows.length,
                     );
                   }
-                  if (event.key === "ArrowUp" && filteredItems.length) {
+                  if (event.key === "ArrowUp" && commandRows.length) {
                     event.preventDefault();
                     setCommandIndex(
                       (current) =>
-                        (current - 1 + filteredItems.length) %
-                        filteredItems.length,
+                        (current - 1 + commandRows.length) %
+                        commandRows.length,
                     );
                   }
                   if (
                     event.key === "Enter" &&
-                    filteredItems[activeCommandIndex]
+                    commandRows[activeCommandIndex]
                   ) {
                     event.preventDefault();
-                    goTo(filteredItems[activeCommandIndex]);
+                    goTo(commandRows[activeCommandIndex]);
                   }
                 }}
                 role="combobox"
@@ -575,12 +656,12 @@ export function AppShell({
                 aria-controls="command-results"
                 aria-expanded="true"
                 aria-activedescendant={
-                  filteredItems[activeCommandIndex]
+                  commandRows[activeCommandIndex]
                     ? `command-${activeCommandIndex}`
                     : undefined
                 }
-                aria-label="Search commands"
-                placeholder="Navigate to a workspace…"
+                aria-label="Search headlines and destinations"
+                placeholder="Headlines, tickers, or a workspace…"
                 className="h-12 min-w-0 flex-1 bg-transparent text-sm text-[var(--ib-text-primary)] outline-none placeholder:text-[var(--ib-text-muted)]"
               />
               <button
@@ -597,14 +678,14 @@ export function AppShell({
                 id="command-title"
                 className="px-2 pb-2 pt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--ib-text-muted)]"
               >
-                Command search
+                Headlines and destinations
               </p>
-              {filteredItems.length ? (
+              {commandRows.length ? (
                 <ul id="command-results" role="listbox" className="space-y-1">
-                  {filteredItems.map((item, index) => {
+                  {commandRows.map((item, index) => {
                     const Icon = item.icon;
                     return (
-                      <li key={item.href}>
+                      <li key={item.key}>
                         <button
                           id={`command-${index}`}
                           type="button"
@@ -642,10 +723,10 @@ export function AppShell({
               ) : (
                 <div className="px-3 py-8 text-center">
                   <p className="text-sm text-[var(--ib-text-secondary)]">
-                    No matching destination
+                    No matching destination or headline
                   </p>
                   <p className="mt-1 text-xs text-[var(--ib-text-muted)]">
-                    Search covers routes available to your role.
+                    Try a ticker, theme, or keyword — or jump to a workspace.
                   </p>
                 </div>
               )}

@@ -80,6 +80,7 @@ export type UniverseBuildResult = {
   requestedAt: string;
   symbols: string[];
   sources: Record<string, string[]>;
+  notes: string[];
 };
 
 function normalizeSymbol(raw: string): string | null {
@@ -150,9 +151,19 @@ export function buildUniverse(input: UniverseBuildInput): UniverseBuildResult {
     if (symbols.length >= maxSize) break;
   }
 
+  const included = new Set(symbols);
+  const droppedCoverage = sources.watchlist.filter((symbol) => !included.has(symbol));
+  const notes =
+    droppedCoverage.length > 0
+      ? [
+          `Coverage overflow: dropped ${droppedCoverage.length} symbol${droppedCoverage.length === 1 ? "" : "s"} (${droppedCoverage.slice(0, 16).join(", ")}${droppedCoverage.length > 16 ? ", …" : ""}).`,
+        ]
+      : [];
+
   return {
     requestedAt,
     symbols,
     sources: { ...sources },
+    notes,
   };
 }

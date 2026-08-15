@@ -159,6 +159,7 @@ export function MarketChart({
     }
     if (prevSymbolRef.current === symbol) return;
     prevSymbolRef.current = symbol;
+    setSymbolQuery(symbol);
     setPanelOpen(true);
     setFitNonce((value) => value + 1);
   }, [symbol]);
@@ -383,7 +384,7 @@ export function MarketChart({
           if (next) setFitNonce((value) => value + 1);
         }}
       >
-        <summary className="flex cursor-pointer list-none items-start gap-2 px-3 py-2.5 marker:hidden sm:px-4 [&::-webkit-details-marker]:hidden">
+        <summary className="flex cursor-pointer list-none items-start gap-2 px-3 py-2 marker:hidden sm:px-4 [&::-webkit-details-marker]:hidden">
           <ChevronRight
             aria-hidden="true"
             className="mt-0.5 size-4 shrink-0 text-[var(--ib-text-muted)] transition-transform group-open:rotate-90"
@@ -391,7 +392,7 @@ export function MarketChart({
           <div className="flex min-w-0 flex-1 flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-[13px] font-semibold text-[var(--ib-text-primary)]">
+                <h2 className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ib-text-muted)]">
                   Primary market chart
                 </h2>
                 <StatusIndicator

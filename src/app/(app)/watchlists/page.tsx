@@ -1,37 +1,60 @@
 import { WatchlistsWorkspace } from "@/components/watchlists/WatchlistsWorkspace";
-import { Badge } from "@/components/ui/Badge";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { StatePanel } from "@/components/ui/StatePanel";
-import { isDemoAuthEnabled } from "@/lib/auth/demo";
-import { fixtureSectors, fixtureWatchlists } from "@/lib/fixtures/watchlists";
+import { requirePermission } from "@/lib/auth/authorize";
+import { buildCoverageSnapshot } from "@/lib/watchlists/service";
+import type { CoverageSelection, CoverageSnapshot } from "@/lib/watchlists/types";
 
 export const metadata = {
   title: "Watchlists & Sectors",
 };
 
-export default function WatchlistsPage() {
-  const demoMode = isDemoAuthEnabled();
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
-  return (
-    <div className="min-w-0 space-y-4">
-      <PageHeader
-        eyebrow="Shared coverage"
-        title="Watchlists & Sectors"
-        description="Manage the team's shared ticker coverage and inspect the read-only sector taxonomy used across market monitoring."
-        actions={<Badge tone="brand">Shared team scope</Badge>}
-      />
-      {demoMode ? (
-        <WatchlistsWorkspace
-          initialWatchlists={fixtureWatchlists}
-          sectors={fixtureSectors}
+export default async function WatchlistsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ listId?: string; sectorId?: string; ticker?: string }>;
+}) {
+  const user = await requirePermission("viewDashboard");
+  const params = await searchParams;
+  const selection: CoverageSelection | null = params.sectorId
+    ? { type: "sector", id: params.sectorId }
+    : params.listId
+      ? { type: "watchlist", id: params.listId }
+      : null;
+  let snapshot: CoverageSnapshot | null = null;
+  try {
+    snapshot = await buildCoverageSnapshot({
+      user,
+      selection,
+    });
+  } catch {
+    snapshot = null;
+  }
+
+  if (!snapshot) {
+    return (
+      <div className="min-w-0 space-y-4">
+        <PageHeader
+          eyebrow="Coverage"
+          title="Watchlists & Sectors"
+          description="Persistent shared and personal coverage with sector comparison and tape context."
         />
-      ) : (
         <StatePanel
           kind="unavailable"
-          title="Shared coverage unavailable"
-          description="A live watchlist repository is not connected in this environment. Demo watchlists and sector mappings are hidden outside demo mode."
+          title="Coverage workspace unavailable"
+          description="The coverage service could not be loaded for this session. Shared and personal watchlists were not changed."
         />
-      )}
-    </div>
+      </div>
+    );
+  }
+
+  return (
+    <WatchlistsWorkspace
+      initial={snapshot}
+      initialTicker={params.ticker?.trim().toUpperCase() || null}
+    />
   );
 }

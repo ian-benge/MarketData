@@ -31,8 +31,8 @@ Mock limitations: N/A for Alpaca — adapter inactive without keys. Local mocks 
 
 | | |
 | --- | --- |
-| **Uses** | Quotes/snapshots, aggregates (bars), movers from universe, reference tickers, dividends/splits, market status |
-| **Capabilities** | quotes, bars, snapshots, movers, reference, corporateActions, marketClock |
+| **Uses** | Quotes/snapshots, aggregates (bars), movers from universe, reference tickers, dividends/splits, market status, optional reference news (`GET /v2/reference/news`) for headline intelligence |
+| **Capabilities** | quotes, bars, snapshots, movers, reference, corporateActions, marketClock, news (plan-dependent) |
 | **Env** | `MASSIVE_API_KEY`, `MASSIVE_API_BASE_URL` (default `https://api.massive.com`) |
 | **Feed / latency** | Plan-dependent (`delayed_15m`, `realtime`, FMV aggregate, etc.). Configure honestly — do not invent full-market from delayed plans |
 | **Licensing** | Individual plans are **not** assumed team- or redistribution-licensed. Business / redistribution requires verifying Massive terms and setting an appropriate `MARKET_DATA_LICENSE_SCOPE` |
@@ -124,13 +124,25 @@ Official product page: [CME FedWatch Tool](https://www.cmegroup.com/markets/inte
 
 | | |
 | --- | --- |
-| **Uses** | Secondary headlines merged with Finnhub news |
-| **Env** | `NEWS_RSS_FEEDS` — comma-separated **https** feed URLs (allowlist only) |
+| **Uses** | Secondary headlines merged into Material News / dashboard intelligence with Finnhub, Massive news (if entitled), and EDGAR |
+| **Env** | `NEWS_RSS_FEEDS` — comma-separated **https** feed URLs (allowlist only). When unset, official defaults: Fed, BLS, SEC press, CNBC, EIA Today in Energy, Treasury press |
 | **Guards** | http(s) only; block private/link-local/metadata IPs; response size cap (SSRF defenses) |
-| **Freshness** | Depends on publisher TTL |
+| **Freshness** | Depends on publisher TTL. Intelligence ingest caches ~5 minutes; cron `tick` forces a refresh |
+| **Entity tags** | RSS items usually arrive untagged. Tickers are resolved from provider tags, `$TICKER` / `(TICKER)` tokens, catalog names, and aliases. Untagged wires are labeled as a coverage gap when tagging is weak |
 | **Upgrade** | Paid news API with entity tagging |
 
 Mock limitations: static demo headlines on `demo.news.local`.
+
+## Headline intelligence (Material News)
+
+| | |
+| --- | --- |
+| **Uses** | Clustered event feed, first-class `/news` search, watchlist **Why it’s moving**, command-palette headline jump |
+| **Sources** | Finnhub general + company news (priority movers, max 12 tickers; requested symbol is attached only when `related` is empty **and** the title/name corroborates), default/allowlisted RSS, Massive reference news (fail-closed on entitlement errors), material EDGAR forms (8-K, 10-Q, 10-K, 6-K, S-1, SC 13) |
+| **Persistence** | `market_news_items` (market-wide, member-readable, service-role writes with checked upsert errors) with English FTS; `news_saved_searches` (user-owned RLS via the session client). Cron `tick` forces ingest and reports `persist_failed` when the store write errors. Command palette never writes. |
+| **Honesty** | Attribution never invents a cause. Unknown is explicit. Duplicate/recycled coverage is clustered. Source down / empty / unentitled / persist-failure states stay visible. Current quote % is not the print at headline time |
+| **Search** | Lexical + synonym/theme expansion (not embeddings). Ticker filters match issuer tags only (theme peers boost rank, they do not gate). Natural language: tickers, aliases, event types, themes, time windows, “why is TICKER / company name moving”. Command palette searches the last snapshot (`freshness=cached`) and does not ingest |
+| **Clocks** | Today search and regular-session Why use America/Chicago calendar day. Premarket/after-hours chips are 4:00 a.m. / 4:00 p.m. ET. Premarket/closed/overnight Why starts at the last completed 4:00 p.m. ET regular close (Friday on a weekend — never Saturday 4:00 p.m.) |
 
 ## SEC EDGAR
 

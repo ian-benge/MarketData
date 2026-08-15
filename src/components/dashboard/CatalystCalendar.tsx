@@ -1,10 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
-import { CalendarClock, ChevronDown, X } from "lucide-react";
+import { fromZonedTime } from "date-fns-tz";
+import { ChevronDown, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Panel } from "@/components/ui/Panel";
+import {
+  catalystWeekBounds,
+  chicagoEventDay,
+  chicagoWeekDays,
+  sundayOfChicagoDate,
+} from "@/lib/market-data/catalyst-calendar";
+import { addCalendarDays } from "@/lib/market-data/earnings/window";
 import type { NormalizedCalendarEvent } from "@/lib/providers/types";
 import { CHICAGO_TZ, chicagoDateString } from "@/lib/scheduling/chicago-schedule";
 import { formatMarketTime } from "@/lib/utils/format";
@@ -45,26 +52,24 @@ function impactTone(event: NormalizedCalendarEvent) {
 const IMPACT_DOT: Record<ReturnType<typeof impactTone>, string> = {
   high: "bg-[var(--market-negative)]",
   medium: "bg-[color-mix(in_oklab,var(--state-warning)_85%,white)]",
-  low: "bg-[#d4b84a]",
+  low: "bg-[var(--state-warning)]",
   holiday: "bg-[var(--ib-text-muted)]",
   unrated: "bg-[var(--ib-border-control)]",
 };
 
-function addChicagoDays(yyyyMmDd: string, days: number): string {
-  const noon = fromZonedTime(`${yyyyMmDd}T12:00:00`, CHICAGO_TZ);
-  noon.setUTCDate(noon.getUTCDate() + days);
-  return formatInTimeZone(noon, CHICAGO_TZ, "yyyy-MM-dd");
-}
-
-function sundayWeekStart(seed: Date): string {
-  const key = chicagoDateString(seed);
-  const isoWeekday = Number(formatInTimeZone(seed, CHICAGO_TZ, "i"));
-  const sundayOffset = isoWeekday === 7 ? 0 : -isoWeekday;
-  return addChicagoDays(key, sundayOffset);
-}
-
 function dayNumber(iso: string) {
   return Number(iso.slice(8, 10));
+}
+
+function formatWeekRange(start: string) {
+  const end = addCalendarDays(start, 6);
+  const fmt = (iso: string) =>
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: CHICAGO_TZ,
+      month: "short",
+      day: "numeric",
+    }).format(fromZonedTime(`${iso}T12:00:00`, CHICAGO_TZ));
+  return `${fmt(start)} – ${fmt(end)}`;
 }
 
 function matchesMarket(event: NormalizedCalendarEvent, market: Market) {
@@ -87,6 +92,9 @@ export function CatalystCalendar({
 }) {
   const [market, setMarket] = useState<Market>("USD");
   const [marketOpen, setMarketOpen] = useState(false);
+  const [weekStart, setWeekStart] = useState(() =>
+    sundayOfChicagoDate(chicagoDateString(new Date())),
+  );
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const marketRef = useRef<HTMLDivElement>(null);
@@ -97,24 +105,33 @@ export function CatalystCalendar({
     [events, market],
   );
 
-  const week = useMemo(() => {
-    const seed = filtered[0]
-      ? new Date(filtered[0].scheduledAt)
-      : new Date();
-    const start = sundayWeekStart(seed);
-    return Array.from({ length: 7 }, (_, index) => addChicagoDays(start, index));
-  }, [filtered]);
+  const bounds = useMemo(
+    () => catalystWeekBounds(filtered.map(chicagoEventDay), today),
+    [filtered, today],
+  );
+  const canPrev = weekStart > bounds.earliest;
+  const canNext = weekStart < bounds.latest;
+
+  const week = useMemo(() => chicagoWeekDays(weekStart), [weekStart]);
 
   const byDay = useMemo(() => {
     const map = new Map<string, NormalizedCalendarEvent[]>();
     for (const day of week) map.set(day, []);
     for (const event of filtered) {
-      const key = chicagoDateString(new Date(event.scheduledAt));
+      const key = chicagoEventDay(event);
       const list = map.get(key);
       if (list) list.push(event);
     }
     return map;
   }, [filtered, week]);
+
+  useEffect(() => {
+    setWeekStart((current) => {
+      if (current < bounds.earliest) return bounds.earliest;
+      if (current > bounds.latest) return bounds.latest;
+      return current;
+    });
+  }, [bounds.earliest, bounds.latest]);
 
   useEffect(() => {
     setSelectedDay((current) => {
@@ -169,7 +186,7 @@ export function CatalystCalendar({
               aria-label="Catalyst market"
               onClick={() => setMarketOpen((open) => !open)}
               className={cn(
-                "inline-flex min-h-8 items-center gap-1.5 rounded-[3px] border px-2 font-mono text-[10px]",
+                "inline-flex min-h-8 max-sm:min-h-11 items-center gap-1.5 rounded-[3px] border px-2 font-mono text-[10px]",
                 marketOpen
                   ? "border-[var(--ib-border-control)] bg-[var(--ib-surface-3)] text-[var(--ib-text-primary)]"
                   : "border-[var(--ib-border-subtle)] bg-transparent text-[var(--ib-text-secondary)] hover:text-[var(--ib-text-primary)]",
@@ -198,7 +215,7 @@ export function CatalystCalendar({
                         setMarketOpen(false);
                       }}
                       className={cn(
-                        "flex w-full px-2.5 py-1.5 text-left font-mono text-[10px]",
+                        "flex w-full min-h-8 max-sm:min-h-11 px-2.5 py-1.5 text-left font-mono text-[10px]",
                         market === item
                           ? "bg-[var(--ib-surface-selected)] text-[var(--ib-text-primary)]"
                           : "text-[var(--ib-text-secondary)] hover:bg-[var(--ib-surface-hover)] hover:text-[var(--ib-text-primary)]",
@@ -211,13 +228,39 @@ export function CatalystCalendar({
               </ul>
             ) : null}
           </div>
-          <CalendarClock
-            aria-hidden="true"
-            className="size-4 text-[var(--ib-text-muted)]"
-          />
         </div>
       }
     >
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          aria-label="Previous week"
+          disabled={!canPrev}
+          onClick={() => {
+            setWeekStart((current) => addCalendarDays(current, -7));
+            setSelectedId(null);
+          }}
+          className="shrink-0 rounded-[3px] border border-[var(--ib-border-subtle)] p-1 text-[var(--ib-text-secondary)] hover:text-[var(--ib-text-primary)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-[var(--ib-text-secondary)]"
+        >
+          <ChevronLeft className="size-3.5" />
+        </button>
+        <p className="min-w-0 flex-1 text-center text-[12px] font-semibold text-[var(--ib-text-primary)]">
+          {formatWeekRange(weekStart)}
+        </p>
+        <button
+          type="button"
+          aria-label="Next week"
+          disabled={!canNext}
+          onClick={() => {
+            setWeekStart((current) => addCalendarDays(current, 7));
+            setSelectedId(null);
+          }}
+          className="shrink-0 rounded-[3px] border border-[var(--ib-border-subtle)] p-1 text-[var(--ib-text-secondary)] hover:text-[var(--ib-text-primary)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-[var(--ib-text-secondary)]"
+        >
+          <ChevronRight className="size-3.5" />
+        </button>
+      </div>
+
       <div className="grid grid-cols-7 gap-1">
         {WEEKDAYS.map((label) => (
           <div
@@ -242,7 +285,7 @@ export function CatalystCalendar({
                 setSelectedId(null);
               }}
               className={cn(
-                "flex min-h-[72px] flex-col rounded-[4px] border px-1 py-1 text-left transition-colors",
+                "flex min-h-[56px] flex-col rounded-[4px] border px-1 py-1 text-left transition-colors sm:min-h-[72px]",
                 active
                   ? "border-[var(--ib-maroon-500)] bg-[var(--ib-surface-selected)]"
                   : "border-[var(--ib-border-subtle)] bg-[var(--ib-surface-inset)] hover:border-[var(--ib-border-control)]",
@@ -405,7 +448,9 @@ export function CatalystCalendar({
           Forex Factory calendar
         </a>
         {" · "}
-        USD default · snapshot updates each morning (6:00 a.m. CT)
+        USD default · Forex Factory this week plus upcoming weeks from the site ·
+        stored history · Finnhub fills remaining weeks when available · snapshot
+        updates each morning (6:00 a.m. CT)
       </p>
     </Panel>
   );

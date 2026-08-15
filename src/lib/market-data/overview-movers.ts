@@ -1,4 +1,5 @@
 import { detectMaterialMovers } from "@/lib/domain/material-movers";
+import type { MoveExplanation } from "@/lib/intelligence/types";
 import {
   MAJOR_INDEX_ETFS,
   SECTOR_ETFS,
@@ -31,7 +32,10 @@ export type JoinedMover = {
   volume: number | null;
   relativeVolume: number | null;
   direction: "up" | "down";
-  causalStatus: Extract<CausalStatus, "reported" | "unclear">;
+  causalStatus: CausalStatus;
+  attribution: MoveExplanation["attribution"] | null;
+  confidence: MoveExplanation["confidence"] | null;
+  evidenceNature: MoveExplanation["evidenceNature"] | null;
   headlineTitle: string | null;
   headlineId: string | null;
   coverageNotes: string | null;
@@ -70,6 +74,7 @@ export function joinMaterialMovers(
   headlines: NormalizedNewsItem[],
   session: MarketSession | string | null | undefined,
   coverageNotes?: string | null,
+  explanations: MoveExplanation[] = [],
 ): JoinedMover[] {
   const marketSession: MarketSession =
     session === "premarket" ||
@@ -97,11 +102,17 @@ export function joinMaterialMovers(
     })),
   );
 
+  const explained = new Map(
+    explanations.map((row) => [row.ticker.toUpperCase(), row]),
+  );
+
   return candidates.map((candidate) => {
     const source = movers.find(
       (mover) => mover.ticker.toUpperCase() === candidate.ticker,
     );
     const headline = headlineForTicker(candidate.ticker, headlines);
+    const explanation = explained.get(candidate.ticker);
+    const support = explanation?.supportingEvents[0];
     return {
       ticker: candidate.ticker,
       name: source?.name ?? candidate.company,
@@ -110,9 +121,12 @@ export function joinMaterialMovers(
       volume: candidate.volume,
       relativeVolume: candidate.relativeVolume ?? source?.relativeVolume ?? null,
       direction: candidate.percentMove >= 0 ? "up" : "down",
-      causalStatus: headline ? "reported" : "unclear",
-      headlineTitle: headline?.title ?? null,
-      headlineId: headline?.id ?? null,
+      causalStatus: explanation?.causalStatus ?? (headline ? "reported" : "unclear"),
+      attribution: explanation?.attribution ?? null,
+      confidence: explanation?.confidence ?? null,
+      evidenceNature: explanation?.evidenceNature ?? null,
+      headlineTitle: support?.title ?? headline?.title ?? null,
+      headlineId: support?.id ?? headline?.id ?? null,
       coverageNotes: source?.coverageNotes ?? coverageNotes ?? null,
     };
   });

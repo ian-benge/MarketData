@@ -4,6 +4,7 @@ import { TeamAccessError } from "@/lib/auth/team-error";
 import { getEnv } from "@/lib/env";
 import { isDemoAuthEnabled } from "@/lib/auth/demo";
 import { PositionBookError } from "@/lib/positions/books";
+import { CoverageError } from "@/lib/watchlists/symbols";
 import { BrokerageError } from "@/lib/brokerage/errors";
 
 export function jsonOk<T>(data: T, init?: ResponseInit) {
@@ -19,6 +20,9 @@ export function handleRouteError(error: unknown) {
     return jsonError(error.message, error.status);
   }
   if (error instanceof PositionBookError) {
+    return jsonError(error.message, error.status);
+  }
+  if (error instanceof CoverageError) {
     return jsonError(error.message, error.status);
   }
   if (error instanceof BrokerageError) {

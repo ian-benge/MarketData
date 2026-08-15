@@ -157,6 +157,15 @@ describe("reconstructPulseHistory", () => {
     expect(pulseHistorySpec("30D", now).takeLast).toBe(30);
   });
 
+  it("uses the prior weekday for 1D before the NY open and on weekends", () => {
+    expect(
+      pulseHistorySpec("1D", new Date("2026-08-15T11:53:00.000Z")).fromDate,
+    ).toBe("2026-08-14");
+    expect(
+      pulseHistorySpec("1D", new Date("2026-08-14T12:00:00.000Z")).fromDate,
+    ).toBe("2026-08-13");
+  });
+
   it("builds an MTD path on 1-hour RTH bars versus each session prior close", () => {
     const series = {
       SPY: session("SPY", [

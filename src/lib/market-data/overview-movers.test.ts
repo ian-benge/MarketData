@@ -54,6 +54,43 @@ describe("joinMaterialMovers", () => {
     expect(nvda?.causalStatus).toBe("reported");
     expect(nvda?.headlineTitle).toMatch(/Chipmakers/);
   });
+
+  it("prefers explicit unknown attribution over a ticker-matched headline", () => {
+    const joined = joinMaterialMovers(
+      [mover("NVDA", 3.4, 131.4)],
+      news,
+      "regular",
+      "Tracked-universe movers only.",
+      [
+        {
+          ticker: "NVDA",
+          significant: true,
+          changePercent: 3.4,
+          relativeVolume: null,
+          session: "regular",
+          flags: ["move"],
+          direction: "up",
+          attribution: "unknown",
+          confidence: "unknown",
+          evidenceNature: "fact",
+          causalStatus: "unclear",
+          headline: "No verified catalyst found",
+          detail: "No company-specific filing was found.",
+          supportingEvents: [],
+          relatedTickers: [],
+          themes: [],
+          window: {
+            start: NOW,
+            end: NOW,
+            label: "Session news window",
+          },
+          coverageGap: null,
+        },
+      ],
+    );
+    expect(joined[0]?.causalStatus).toBe("unclear");
+    expect(joined[0]?.attribution).toBe("unknown");
+  });
 });
 
 describe("buildAttentionItems", () => {

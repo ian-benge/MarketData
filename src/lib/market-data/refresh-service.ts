@@ -31,9 +31,9 @@ import {
   type UsageSnapshot,
   type UsageStore,
 } from "@/lib/market-data/usage";
-import { fixtureWatchlists } from "@/lib/fixtures/watchlists";
 import { inferUsEquitySession } from "@/lib/market-data/us-session";
 import { loadOpenPositionTickers } from "@/lib/positions/store";
+import { loadFirmCoverageSymbols } from "@/lib/watchlists/firm-coverage";
 
 export { inferUsEquitySession };
 
@@ -228,10 +228,6 @@ export function setLastRefreshAt(at: Date | null): void {
   lastSuccessfulRefreshAt = at;
 }
 
-function defaultWatchlistSymbols(): string[] {
-  return fixtureWatchlists.flatMap((w) => w.symbols);
-}
-
 /**
  * Run one adaptive refresh tick when due (or forced).
  * Overlapping callers: only one executes; others return status=skipped.
@@ -373,14 +369,21 @@ async function executeRefresh(args: {
   const usage = options.usage ?? getUsageStore();
   const positionSymbols =
     options.positionSymbols ?? (await loadOpenPositionTickers());
+  const coverage =
+    options.watchlistSymbols != null
+      ? { symbols: options.watchlistSymbols, notes: [] as string[] }
+      : await loadFirmCoverageSymbols();
 
   const universe = buildUniverse({
     maxSize: env.MARKET_DATA_MAX_UNIVERSE_SIZE,
-    watchlistSymbols: options.watchlistSymbols ?? defaultWatchlistSymbols(),
+    watchlistSymbols: coverage.symbols,
     positionSymbols,
     reportInProgressSymbols: options.reportInProgressSymbols ?? [],
     now,
   });
+  if (coverage.notes.length) {
+    universe.notes.push(...coverage.notes);
+  }
 
   const router =
     options.router === undefined

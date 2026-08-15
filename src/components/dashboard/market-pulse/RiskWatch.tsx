@@ -30,7 +30,7 @@ export function RiskWatch({
   const ratesSensitive = Math.abs(ratesDriver?.contribution ?? 0) >= 2.5;
 
   return (
-    <footer className="flex flex-col gap-3 border-t border-[var(--ib-border-subtle)] bg-[var(--ib-surface-inset)] px-4 py-3 sm:flex-row sm:items-start sm:justify-between sm:px-5">
+    <footer className="flex flex-col gap-3 border-t border-[var(--ib-border-subtle)] bg-[var(--ib-surface-inset)] px-3 py-2.5 sm:flex-row sm:items-start sm:justify-between sm:px-4">
       <div className="flex min-w-0 items-start gap-3">
         <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-[5px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-2)] text-[var(--ib-text-muted)]">
           <CalendarClock className="size-4" />

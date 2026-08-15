@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   AdminSectionNav,
@@ -16,6 +16,7 @@ import { StatePanel } from "@/components/ui/StatePanel";
 import { fixtureAdmin } from "@/lib/fixtures/admin";
 import { editionLabel } from "@/lib/reports/editions";
 import type { UsageSnapshot } from "@/lib/market-data/usage";
+import type { InstrumentResolutionRow } from "@/lib/watchlists/types";
 
 type Feedback = {
   tone: "success" | "error" | "info";
@@ -140,6 +141,12 @@ const SECTION_META: Record<
     group: "Operations",
     title: "Audit history",
     description: "Review recent administrative actions and their targets.",
+  },
+  instruments: {
+    group: "Operations",
+    title: "Instrument resolution",
+    description:
+      "Quarantined and unverified tickers stay in coverage. Resolve identity here without guessing replacements.",
   },
 };
 
@@ -268,6 +275,138 @@ function SectionIntro({ section }: { section: AdminSectionKey }) {
         {meta.description}
       </p>
     </header>
+  );
+}
+
+function InstrumentQueuePanel() {
+  const [items, setItems] = useState<InstrumentResolutionRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [feedback, setFeedback] = useState<Feedback | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await fetch("/api/admin/instruments", { cache: "no-store" });
+      const data = await readJson<{ items?: InstrumentResolutionRow[]; error?: string }>(
+        response,
+      );
+      if (!response.ok) throw new Error(data.error ?? "Queue could not be loaded.");
+      setItems(data.items ?? []);
+    } catch (error) {
+      setFeedback({
+        tone: "error",
+        message: error instanceof Error ? error.message : "Queue could not be loaded.",
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function act(id: string, action: "dismiss" | "resolve" | "scan") {
+    setLoading(true);
+    setFeedback(null);
+    try {
+      const response = await fetch("/api/admin/instruments", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(action === "scan" ? { action } : { id, action }),
+      });
+      const data = await readJson<{ error?: string; scanned?: number }>(response);
+      if (!response.ok) throw new Error(data.error ?? "The queue could not be updated.");
+      await load();
+      setFeedback({
+        tone: "success",
+        message:
+          action === "scan"
+            ? `Scan complete${data.scanned != null ? ` · ${data.scanned} names checked` : ""}.`
+            : action === "dismiss"
+              ? "Item dismissed. Membership was kept."
+              : "Marked resolved.",
+      });
+    } catch (error) {
+      setFeedback({
+        tone: "error",
+        message: error instanceof Error ? error.message : "The queue could not be updated.",
+      });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <FeedbackBanner feedback={feedback} />
+      <Panel
+        title="Unresolved instruments"
+        description="Do not guess replacements. Quarantined names stay on coverage lists until an admin confirms identity."
+        actions={
+          <Button size="sm" onClick={() => void act("", "scan")} disabled={loading}>
+            {loading ? "Working…" : "Run resolver"}
+          </Button>
+        }
+        bodyClassName="p-0"
+      >
+        <DataTable
+          caption="Instrument resolution queue"
+          rows={items}
+          rowKey={(row) => row.id}
+          emptyMessage="No open identity issues."
+          columns={[
+            {
+              key: "symbol",
+              header: "Symbol",
+              mono: true,
+              render: (row) => row.symbol,
+            },
+            {
+              key: "status",
+              header: "Status",
+              render: (row) => humanize(row.status),
+            },
+            {
+              key: "reason",
+              header: "Reason",
+              render: (row) => row.reason ?? "—",
+            },
+            {
+              key: "suggested",
+              header: "Suggested",
+              mono: true,
+              render: (row) => row.suggestedSymbol ?? "—",
+            },
+            {
+              key: "actions",
+              header: "Actions",
+              align: "right",
+              render: (row) => (
+                <div className="flex justify-end gap-1">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={loading}
+                    onClick={() => void act(row.id, "dismiss")}
+                  >
+                    Dismiss
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={loading}
+                    onClick={() => void act(row.id, "resolve")}
+                  >
+                    Resolve
+                  </Button>
+                </div>
+              ),
+            },
+          ]}
+        />
+      </Panel>
+    </div>
   );
 }
 
@@ -1311,6 +1450,8 @@ function DemoAdminWorkspace() {
               />
             </Panel>
           ) : null}
+
+          {section === "instruments" ? <InstrumentQueuePanel /> : null}
         </div>
       </div>
     </div>
@@ -1318,19 +1459,39 @@ function DemoAdminWorkspace() {
 }
 
 function ProductionAdminWorkspace() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const section = normalizeAdminSection(searchParams.get("tab"));
+
+  function setSection(next: AdminSectionKey) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", next);
+    router.replace(`/admin?${params.toString()}`, { scroll: false });
+  }
+
   return (
     <div className="min-w-0 space-y-4">
       <PageHeader
         eyebrow="Administration"
         title="Data Operations"
         description="Role-gated control plane for team access, report configuration, providers, jobs, delivery, and audit history."
-        actions={<Badge tone="warn">Repository unavailable</Badge>}
+        actions={<Badge tone="warn">Repository limited</Badge>}
       />
-      <StatePanel
-        kind="unavailable"
-        title="Live administration repository unavailable"
-        description="Team, schedule, source, job, delivery, and audit records on this screen are demo fixtures, so they are hidden outside demo mode. No administrative change has been applied."
-      />
+      <div className="grid min-w-0 gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
+        <AdminSectionNav active={section} onMobileChange={setSection} />
+        <div className="min-w-0 space-y-4">
+          <SectionIntro section={section} />
+          {section === "instruments" ? (
+            <InstrumentQueuePanel />
+          ) : (
+            <StatePanel
+              kind="unavailable"
+              title="Live administration repository unavailable"
+              description="Team, schedule, source, job, delivery, and audit records on this screen are demo fixtures, so they are hidden outside demo mode. The instrument queue is live."
+            />
+          )}
+        </div>
+      </div>
     </div>
   );
 }
