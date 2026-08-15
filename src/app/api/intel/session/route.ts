@@ -23,6 +23,7 @@ export async function GET(request: Request) {
     const envelope = await getSessionBrief(user, {
       env: getEnv(),
       forceRefresh: refresh,
+      ingest: refresh,
       rulesOnly: !refresh && rulesOnlyFromRequest(request),
     });
     return jsonOk(envelope, {
@@ -45,6 +46,7 @@ export async function POST() {
     const envelope = await getSessionBrief(user, {
       env: getEnv(),
       forceRefresh: true,
+      ingest: true,
     });
     return jsonOk(envelope, {
       headers: { "Cache-Control": "private, max-age=0, must-revalidate" },

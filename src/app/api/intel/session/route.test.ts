@@ -71,6 +71,17 @@ describe("desk intel API", () => {
     });
   });
 
+  it("ingests headlines when the session brief is force-refreshed", async () => {
+    const response = await GET(
+      new Request("http://localhost/api/intel/session?refresh=1"),
+    );
+    expect(response.status).toBe(200);
+    expect(getSessionBrief).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ forceRefresh: true, ingest: true }),
+    );
+  });
+
   it("returns a session brief", async () => {
     const response = await GET(new Request("http://localhost/api/intel/session"));
     expect(response.status).toBe(200);

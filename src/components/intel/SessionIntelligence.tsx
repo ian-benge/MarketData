@@ -56,10 +56,11 @@ export function SessionIntelligence({
         <Button
           size="sm"
           variant="secondary"
+          title="Pull live wires and rebuild the session brief"
           onClick={() => void load(true)}
           disabled={busy}
         >
-          {busy ? "Refreshing…" : "Refresh"}
+          {busy ? "Refreshing…" : "Refresh brief"}
         </Button>
       }
     >
