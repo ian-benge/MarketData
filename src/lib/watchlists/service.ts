@@ -1,7 +1,9 @@
 import type { SessionUser } from "@/lib/auth/session";
 import { getEnv } from "@/lib/env";
 import { canEditSectors, canEditWatchlists, isAdmin } from "@/lib/domain/permissions";
-import { getDashboardResearch } from "@/lib/dashboard/research-context";
+import { getIntelligenceBundle } from "@/lib/intelligence/service";
+import { coverageLinksFrom } from "@/lib/intelligence/coverage-graph";
+import type { MoveExplanation } from "@/lib/intelligence/types";
 import { getEarningsCalendarSnapshot } from "@/lib/market-data/earnings/service";
 import {
   attachRelativeStrength,
@@ -144,12 +146,14 @@ export function emptyCoverageSnapshot(
     unusual: [],
     sectorBoard: [],
     catalysts: [],
+    moveExplanations: [],
     unresolvedCount: 0,
   };
 }
 
 async function loadCatalysts(
   symbols: string[],
+  newsItems: Array<{ id: string; ticker: string; title: string; at: string; url: string | null }> = [],
 ): Promise<{ catalysts: CoverageCatalyst[]; earningsDates: Map<string, string> }> {
   const set = new Set(symbols.map((symbol) => symbol.toUpperCase()));
   const earningsDates = new Map<string, string>();
@@ -176,27 +180,19 @@ async function loadCatalysts(
   } catch {
     /* optional */
   }
-  try {
-    const research = await getDashboardResearch(env);
-    for (const item of research.headlines) {
-      const ticker = (item.tickers ?? [])
-        .map((value) => value.toUpperCase())
-        .find((value) => set.has(value));
-      if (!ticker) continue;
-      catalysts.push({
-        id: item.id,
-        ticker,
-        kind: "news",
-        title: item.title,
-        at: item.publishedAt,
-        url: item.url,
-      });
-    }
-  } catch {
-    /* optional */
+  for (const item of newsItems) {
+    if (!set.has(item.ticker)) continue;
+    catalysts.push({
+      id: item.id,
+      ticker: item.ticker,
+      kind: "news",
+      title: item.title,
+      at: item.at,
+      url: item.url,
+    });
   }
   catalysts.sort((a, b) => (a.at ?? "").localeCompare(b.at ?? ""));
-  return { catalysts: catalysts.slice(0, 16), earningsDates };
+  return { catalysts: catalysts.slice(0, 24), earningsDates };
 }
 
 export async function buildCoverageSnapshot(options: {
@@ -259,7 +255,47 @@ export async function buildCoverageSnapshot(options: {
     benchmark1d,
   );
   const relativeByTicker = new Map(withRelative.map((row) => [row.ticker, row]));
-  const { catalysts, earningsDates } = await loadCatalysts(symbolsToQuote);
+  const coverageLinks = coverageLinksFrom(storedLists, storedSectors);
+  const quoteContext = withRelative.map((row) => ({
+    ticker: row.ticker,
+    name: row.name,
+    changePercent: row.change1dPercent,
+    relativeVolume: row.relativeVolume,
+    preMarketChangePercent: row.preMarketChangePercent,
+    afterHoursChangePercent: row.afterHoursChangePercent,
+    vsGroupPercent: row.vsGroup1dPercent,
+    flags: row.flags,
+    session: quoted.marketSession,
+  }));
+  let newsItems: Array<{ id: string; ticker: string; title: string; at: string; url: string | null }> =
+    [];
+  let moveExplanations: MoveExplanation[] = [];
+  try {
+    const bundle = await getIntelligenceBundle(getEnv(), {
+      coverage: coverageLinks,
+      coverageTickers: symbolsToQuote,
+      quotes: quoteContext,
+      session: quoted.marketSession,
+    });
+    const selected = new Set(resolved.symbols.map((symbol) => symbol.toUpperCase()));
+    for (const event of bundle.events) {
+      const ticker = event.tickers
+        .map((entity) => entity.ticker)
+        .find((symbol) => selected.has(symbol) || symbolsToQuote.includes(symbol));
+      if (!ticker) continue;
+      newsItems.push({
+        id: event.id,
+        ticker,
+        title: event.title,
+        at: event.publishedAt,
+        url: event.representative.url,
+      });
+    }
+    moveExplanations = bundle.moves;
+  } catch {
+    /* optional */
+  }
+  const { catalysts, earningsDates } = await loadCatalysts(symbolsToQuote, newsItems);
   const earningsTickers = new Set(
     [...earningsDates.entries()]
       .filter(([, date]) => date >= new Date().toISOString().slice(0, 10))
@@ -308,6 +344,9 @@ export async function buildCoverageSnapshot(options: {
     sectorBoard: buildSectorBoard(storedSectors, flaggedByTicker, spy1d, catalysts),
     catalysts: catalysts.filter((item) =>
       selectedSymbols.includes(item.ticker),
+    ),
+    moveExplanations: moveExplanations.filter((row) =>
+      selectedSymbols.includes(row.ticker),
     ),
     unresolvedCount: unresolvedFrom(storedLists, storedSectors),
   };

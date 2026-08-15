@@ -5,9 +5,15 @@ import {
   fixtureWatchlistRecords,
 } from "@/lib/fixtures/watchlists";
 import {
+  canCreateAdminClient,
+  createAdminClient,
+} from "@/lib/supabase/admin";
+import {
   canCreateServerClient,
   createClient,
 } from "@/lib/supabase/server";
+import { DEFAULT_FIRM_UUID } from "@/lib/reports/editions";
+import { getEnv } from "@/lib/env";
 import { fetchAllRows } from "@/lib/supabase/fetch-all";
 import { seedInstrumentRow } from "./instrument-catalog";
 import {
@@ -421,6 +427,108 @@ export async function listStoredSectors(
     };
   } catch {
     return { sectors: [], persistence: "unavailable" };
+  }
+}
+
+/**
+ * Firm-wide shared coverage for the process-global refresh universe.
+ * Excludes personal lists. Uses the service-role client (no user session).
+ */
+export async function listFirmSharedCoverage(): Promise<{
+  lists: CoverageWatchlist[];
+  sectors: CoverageSector[];
+  persistence: PersistenceMode;
+}> {
+  if (fixturesEnabled()) {
+    return {
+      lists: fixtureWatchlistRecords().filter(
+        (list) => list.visibility === "shared" && !list.archivedAt,
+      ),
+      sectors: fixtureSectorRecords().filter((sector) => !sector.archivedAt),
+      persistence: "fixtures",
+    };
+  }
+  if (!canCreateAdminClient()) {
+    return { lists: [], sectors: [], persistence: "unavailable" };
+  }
+
+  try {
+    const admin = createAdminClient();
+    const firmId = getEnv().FIRM_ID ?? DEFAULT_FIRM_UUID;
+    const listQuery = admin
+      .from("watchlists")
+      .select(WATCHLIST_SELECT)
+      .eq("firm_id", firmId)
+      .eq("visibility", "shared")
+      .is("archived_at", null)
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true });
+    const { data: listData, error: listError } = await listQuery;
+    if (listError) throw listError;
+    const listRows = (listData as WatchlistRow[] | null) ?? [];
+
+    const sectorQuery = admin
+      .from("sectors")
+      .select(SECTOR_SELECT)
+      .eq("firm_id", firmId)
+      .is("archived_at", null)
+      .order("sort_order", { ascending: true })
+      .order("name", { ascending: true });
+    const { data: sectorData, error: sectorError } = await sectorQuery;
+    if (sectorError) throw sectorError;
+    const sectorRows = (sectorData as SectorRow[] | null) ?? [];
+
+    const listIds = listRows.map((row) => row.id);
+    const sectorIds = sectorRows.map((row) => row.id);
+    const itemsByList = new Map<string, CoverageItem[]>();
+    const itemsBySector = new Map<string, CoverageItem[]>();
+
+    if (listIds.length) {
+      const itemRows = await fetchAllRows(async (from, to) => {
+        const { data: page, error: itemError } = await admin
+          .from("watchlist_items")
+          .select(`id, watchlist_id, ${ITEM_SELECT}`)
+          .in("watchlist_id", listIds)
+          .order("sort_order", { ascending: true })
+          .range(from, to);
+        if (itemError) throw itemError;
+        return (page as ItemRow[] | null) ?? [];
+      });
+      for (const row of itemRows) {
+        if (!row.watchlist_id) continue;
+        const current = itemsByList.get(row.watchlist_id) ?? [];
+        current.push(...itemsFromRows([row]));
+        itemsByList.set(row.watchlist_id, current);
+      }
+    }
+    if (sectorIds.length) {
+      const itemRows = await fetchAllRows(async (from, to) => {
+        const { data: page, error: itemError } = await admin
+          .from("sector_instruments")
+          .select(`id, sector_id, ${ITEM_SELECT}`)
+          .in("sector_id", sectorIds)
+          .order("sort_order", { ascending: true })
+          .range(from, to);
+        if (itemError) throw itemError;
+        return (page as ItemRow[] | null) ?? [];
+      });
+      for (const row of itemRows) {
+        if (!row.sector_id) continue;
+        const current = itemsBySector.get(row.sector_id) ?? [];
+        current.push(...itemsFromRows([row]));
+        itemsBySector.set(row.sector_id, current);
+      }
+    }
+
+    return {
+      lists: listRows.map((row) => mapWatchlist(row, itemsByList.get(row.id) ?? [])),
+      sectors: sectorRows.map((row) =>
+        mapSector(row, itemsBySector.get(row.id) ?? []),
+      ),
+      persistence: "supabase",
+    };
+  } catch {
+    return { lists: [], sectors: [], persistence: "unavailable" };
   }
 }
 

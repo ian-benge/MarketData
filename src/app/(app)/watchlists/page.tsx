@@ -3,19 +3,33 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { StatePanel } from "@/components/ui/StatePanel";
 import { requirePermission } from "@/lib/auth/authorize";
 import { buildCoverageSnapshot } from "@/lib/watchlists/service";
-import type { CoverageSnapshot } from "@/lib/watchlists/types";
+import type { CoverageSelection, CoverageSnapshot } from "@/lib/watchlists/types";
 
 export const metadata = {
   title: "Watchlists & Sectors",
 };
 
+export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-export default async function WatchlistsPage() {
+export default async function WatchlistsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ listId?: string; sectorId?: string; ticker?: string }>;
+}) {
   const user = await requirePermission("viewDashboard");
+  const params = await searchParams;
+  const selection: CoverageSelection | null = params.sectorId
+    ? { type: "sector", id: params.sectorId }
+    : params.listId
+      ? { type: "watchlist", id: params.listId }
+      : null;
   let snapshot: CoverageSnapshot | null = null;
   try {
-    snapshot = await buildCoverageSnapshot({ user });
+    snapshot = await buildCoverageSnapshot({
+      user,
+      selection,
+    });
   } catch {
     snapshot = null;
   }
@@ -37,5 +51,10 @@ export default async function WatchlistsPage() {
     );
   }
 
-  return <WatchlistsWorkspace initial={snapshot} />;
+  return (
+    <WatchlistsWorkspace
+      initial={snapshot}
+      initialTicker={params.ticker?.trim().toUpperCase() || null}
+    />
+  );
 }

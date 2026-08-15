@@ -38,6 +38,7 @@ describe("report freeze", () => {
     expect(freeze.observations[0]!.baselines.vsPriorRegularCloseAbsolute).toBe(2);
     expect(freeze.provenance.latencyCoverageLabel).toBe("Real-time — IEX");
     expect(freeze.breadth.included).toBe(false);
+    expect(freeze.watchlistTickers).toEqual([]);
 
     expect(() => {
       (freeze.observations as { ticker: string }[]).push({ ticker: "X" });

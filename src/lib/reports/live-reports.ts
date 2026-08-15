@@ -82,6 +82,7 @@ function asDocument(value: unknown): ReportDocumentModel | undefined {
 function tickersFromDocument(document: ReportDocumentModel | undefined): string[] {
   if (!document) return [];
   const tickers = [
+    ...(document.watchlistTickers ?? []),
     ...document.movers.map((mover) => mover.ticker),
     ...document.claims.flatMap((claim) => claim.tickers ?? []),
   ];

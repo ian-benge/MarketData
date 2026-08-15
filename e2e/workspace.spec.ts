@@ -8,11 +8,11 @@ test.describe("research workspace interactions", () => {
     await page.keyboard.press(
       process.platform === "darwin" ? "Meta+K" : "Control+K",
     );
-    const dialog = page.getByRole("dialog", { name: "Command search" });
+    const dialog = page.getByRole("dialog", { name: "Headlines and destinations" });
     await expect(dialog).toBeVisible();
 
     const commandInput = dialog.getByRole("combobox", {
-      name: "Search commands",
+      name: "Search headlines and destinations",
     });
     await expect(commandInput).toBeFocused();
     await commandInput.fill("Research Archive");
@@ -24,53 +24,46 @@ test.describe("research workspace interactions", () => {
     ).toBeVisible();
   });
 
-  test("market chart exposes accessible symbol and range inspection", async ({
+  test("material news search is a first-class workspace", async ({ page }) => {
+    await demoLogin(page, "member");
+    await page.goto("/news");
+    await expect(
+      page.getByRole("heading", { name: "Material News" }),
+    ).toBeVisible();
+    const search = page.getByRole("textbox", { name: "Search headlines" });
+    await expect(search).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Event feed" })).toBeVisible({
+      timeout: 20_000,
+    });
+    await search.fill("why is IREN down today");
+    await expect(
+      page.getByRole("heading", { name: "Why IREN is moving" }),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText(/Confirmed company catalyst|Likely catalyst/i).first()).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: /DEMO: IREN Limited files 8-K/i }).first(),
+    ).toBeVisible();
+    await expect(page.getByText(/because/i)).toHaveCount(0);
+    await expectNoPageHorizontalOverflow(page);
+  });
+
+  test("watchlist symbol selection updates the URL and remains sortable", async ({
     page,
   }) => {
     await demoLogin(page, "member");
 
     await expect(
+      page.getByRole("heading", { name: "Market Overview" }),
+    ).toBeVisible();
+    await expect(
       page.getByRole("heading", { name: "Primary market chart" }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("img", { name: /SPY 3M daily series/i }),
-    ).toBeHidden();
-
-    await page
-      .locator("#primary-market-chart-panel > details > summary")
-      .click();
-    await expect(
-      page.getByRole("img", { name: /SPY 3M daily series/i }),
-    ).toBeVisible();
-
-    const oneMonth = page.getByRole("button", { name: "1M", exact: true });
-    await oneMonth.click();
-    await expect(oneMonth).toHaveAttribute("aria-pressed", "true");
-    await expect(
-      page.getByRole("img", { name: /SPY 1M daily series/i }),
-    ).toBeVisible();
-
-    await page.getByRole("tab", { name: "QQQ", exact: true }).click();
-    await expect(page).toHaveURL(/symbol=QQQ/);
-    await expect(
-      page.getByRole("img", { name: /QQQ 1M daily series/i }),
-    ).toBeVisible();
-
-    const oneDay = page.getByRole("button", { name: "1D", exact: true });
-    await oneDay.click();
-    await expect(oneDay).toHaveAttribute("aria-pressed", "true");
-    await expect(
-      page.getByRole("img", { name: /QQQ 1D intraday series/i }),
-    ).toBeVisible();
+    ).toHaveCount(0);
 
     const watchlistIwm = page.getByRole("button", {
-      name: "Inspect IWM chart",
+      name: "Select IWM",
     });
     await watchlistIwm.click();
     await expect(page).toHaveURL(/symbol=IWM/);
-    await expect(
-      page.getByRole("img", { name: /IWM 1D intraday series/i }),
-    ).toBeVisible();
 
     const symbolSort = page.getByRole("button", { name: "Symbol" });
     await symbolSort.click();
@@ -81,6 +74,17 @@ test.describe("research workspace interactions", () => {
         .locator("tbody tr")
         .first(),
     ).toContainText("AAPL");
+  });
+
+  test("watchlists deep links select a list from the URL", async ({ page }) => {
+    await demoLogin(page, "member");
+    await page.goto("/watchlists?listId=wl-core");
+    await expect(
+      page.getByRole("heading", { name: "Watchlists & Sectors" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("tab", { name: /Market Tape/ }),
+    ).toHaveAttribute("aria-selected", "true");
   });
 
   test("member can queue a firm-wide brief without opening an unfinished report", async ({
@@ -370,6 +374,7 @@ test.describe("mobile workspace layout", () => {
 
     const routes = [
       { path: "/dashboard", heading: "Market Overview" },
+      { path: "/news", heading: "Material News" },
       { path: "/archive", heading: "Research Archive" },
       { path: "/reports/rpt-demo-001", heading: "Midday market brief" },
       { path: "/watchlists", heading: "Watchlists & Sectors" },

@@ -292,5 +292,8 @@ export function overlaySessionLists(
       spy1d,
       snapshot.catalysts,
     ),
+    moveExplanations: (snapshot.moveExplanations ?? []).filter((row) =>
+      selectedRows.some((item) => item.ticker === row.ticker),
+    ),
   };
 }

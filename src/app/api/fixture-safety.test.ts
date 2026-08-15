@@ -69,6 +69,29 @@ vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: vi.fn(),
 }));
 
+vi.mock("@/lib/watchlists/store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/watchlists/store")>();
+  return {
+    ...actual,
+    listStoredWatchlists: vi.fn(async () => ({
+      lists: [],
+      persistence: "unavailable" as const,
+    })),
+    listStoredSectors: vi.fn(async () => ({
+      sectors: [],
+      persistence: "unavailable" as const,
+    })),
+  };
+});
+
+vi.mock("@/lib/positions/store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/positions/store")>();
+  return {
+    ...actual,
+    loadOpenPositionTickers: vi.fn(async () => []),
+  };
+});
+
 import {
   GET as getInvitations,
   POST as createInvitation,

@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronDown, Landmark } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
+import { ChipToggle } from "@/components/ui/ChipToggle";
 import { Panel } from "@/components/ui/Panel";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { EmptyHint } from "@/components/ui/StatePanel";
 import { FEDWATCH_REFRESH_MS } from "@/lib/market-data/fedwatch/types";
 import type {
   FedWatchLookbackId,
@@ -13,7 +16,7 @@ import type {
 import { formatMarketDateTime } from "@/lib/utils/format";
 import { cn } from "@/lib/utils/cn";
 
-const BAR_BLUE = "#4c8bf5";
+const BAR_BLUE = "var(--state-info)";
 const GRID = [100, 80, 60, 40, 20, 0] as const;
 
 function formatPct(value: number | null | undefined) {
@@ -302,32 +305,35 @@ export function FedWatchPanel() {
               {data.stale ? `${data.sourceLabel} · stale` : data.sourceLabel}
             </Badge>
           ) : null}
-          <button
-            type="button"
+          <ChipToggle
+            pressed={expanded}
             aria-expanded={expanded}
             onClick={() => setExpanded((value) => !value)}
-            className="inline-flex min-h-7 items-center gap-1 rounded-[3px] border border-[var(--ib-border-subtle)] px-2 font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-secondary)] hover:text-[var(--ib-text-primary)]"
+            className="normal-case tracking-[0.08em]"
           >
             {expanded ? "Collapse" : "Expand"}
             <ChevronDown
               aria-hidden="true"
               className={cn("size-3.5 transition-transform", expanded ? "rotate-180" : null)}
             />
-          </button>
-          <Landmark aria-hidden="true" className="size-4 text-[var(--ib-text-muted)]" />
+          </ChipToggle>
         </div>
       }
     >
       {loading && !data ? (
-        <p className="py-8 text-center text-[13px] text-[var(--ib-text-muted)]">
-          Loading Fed funds futures…
-        </p>
+        <div className="space-y-3" aria-label="Loading Fed funds futures">
+          <Skeleton className="h-4 w-40" />
+          <div className="grid grid-cols-3 gap-2">
+            <Skeleton className="h-14" />
+            <Skeleton className="h-14" />
+            <Skeleton className="h-14" />
+          </div>
+          <Skeleton className="h-40" />
+        </div>
       ) : null}
 
       {data && !data.meetings.length ? (
-        <p className="py-8 text-center text-[13px] text-[var(--ib-text-muted)]">
-          {data.error ?? "Rate-hike projections are unavailable."}
-        </p>
+        <EmptyHint>{data.error ?? "Rate-hike projections are unavailable."}</EmptyHint>
       ) : null}
 
       {data && meeting && !expanded ? (

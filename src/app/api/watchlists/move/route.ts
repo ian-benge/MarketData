@@ -1,5 +1,7 @@
 import { handleRouteError, jsonError, jsonOk } from "@/lib/api/http";
 import { requirePermission } from "@/lib/auth/authorize";
+import { hasPermission } from "@/lib/domain/permissions";
+import { AuthError } from "@/lib/auth/session";
 import { SymbolMoveSchema } from "@/lib/watchlists/schemas";
 import { buildCoverageSnapshot } from "@/lib/watchlists/service";
 import { moveStoredSymbol, resolvePersistenceMode } from "@/lib/watchlists/store";
@@ -17,6 +19,9 @@ export async function POST(request: Request) {
       await request.json().catch(() => null),
     );
     if (!parsed.success) return jsonError("Invalid body", 400);
+    if (parsed.data.toType === "sector" && !hasPermission(user.role, "editSectors")) {
+      throw new AuthError("Missing permission: editSectors", 403);
+    }
     if (resolvePersistenceMode(user) === "fixtures") {
       return jsonOk({ ...parsed.data, demo: true });
     }

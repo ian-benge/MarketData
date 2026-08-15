@@ -15,6 +15,7 @@ type PendingAction = "password" | "admin" | "member" | null;
 
 const ALLOWED_DESTINATIONS = [
   "/dashboard",
+  "/news",
   "/archive",
   "/reports",
   "/watchlists",

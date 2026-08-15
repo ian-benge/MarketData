@@ -1,57 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "@/lib/env";
-import type {
-  NormalizedCalendarEvent,
-  NormalizedFiling,
-  NormalizedNewsItem,
-} from "@/lib/providers/types";
+import type { NormalizedCalendarEvent, NormalizedNewsItem } from "@/lib/providers/types";
+import type { IntelligenceBundle } from "@/lib/intelligence/types";
 
 const ffEvents: NormalizedCalendarEvent[] = [];
-
 const newsItems: NormalizedNewsItem[] = [];
-const filings: NormalizedFiling[] = [];
 
-vi.mock("@/lib/providers/rss/news", () => ({
-  RssNewsProvider: class {
-    async search() {
-      return newsItems;
-    }
-  },
+vi.mock("@/lib/intelligence/service", () => ({
+  getIntelligenceBundle: async () =>
+    ({
+      events: [],
+      headlines: newsItems,
+      moves: [],
+      gaps: [],
+      sources: [],
+      fetchedAt: new Date().toISOString(),
+      stale: false,
+    }) satisfies IntelligenceBundle,
+  resetIntelligenceCache: () => undefined,
 }));
 
-vi.mock("@/lib/providers/rss/composite-news", () => ({
-  CompositeNewsProvider: class {
-    async search() {
-      return newsItems;
-    }
-  },
-}));
-
-vi.mock("@/lib/providers/finnhub/news", () => ({
-  FinnhubNewsProvider: class {
-    async search() {
-      return newsItems;
-    }
-  },
-}));
-
-vi.mock("@/lib/providers/forex-factory/calendar", () => ({
-  getCatalystCalendar: async () => ({
-    events: ffEvents,
-    fetchedAt: "2026-08-11T11:00:00.000Z",
-  }),
-}));
-
-vi.mock("@/lib/providers/edgar/corporate", () => ({
-  createEdgarUserAgent: () => "test-agent",
-  EdgarCorporateEventsProvider: class {
-    async getFilings() {
-      return filings;
-    }
-    async getEarnings() {
-      return [];
-    }
-  },
+vi.mock("@/lib/market-data/catalyst-calendar-load", () => ({
+  loadDashboardCatalystCalendar: async () => ffEvents,
 }));
 
 import {
@@ -71,7 +41,6 @@ describe("getDashboardResearch", () => {
   beforeEach(() => {
     resetDashboardResearchCache();
     newsItems.length = 0;
-    filings.length = 0;
     ffEvents.length = 0;
   });
 
@@ -124,18 +93,16 @@ describe("getDashboardResearch", () => {
     expect(bundle.calendar[0]?.country).toBe("USD");
   });
 
-  it("promotes material EDGAR filings when the wire is thin", async () => {
-    filings.push({
-      id: "edgar:8k",
-      ticker: "NVDA",
-      companyName: "NVIDIA Corp",
-      formType: "8-K",
-      filedAt: new Date().toISOString(),
+  it("surfaces material EDGAR filings from the intelligence bundle", async () => {
+    newsItems.push({
+      id: "filing-news-edgar:8k",
       title: "NVIDIA Corp - 8-K",
       url: "https://www.sec.gov/Archives/edgar/data/1/8k.htm",
+      publishedAt: new Date().toISOString(),
+      retrievedAt: new Date().toISOString(),
+      tickers: ["NVDA"],
+      sourceClass: "primary",
       providerName: "edgar",
-      providerTimestamp: new Date().toISOString(),
-      retrievalTimestamp: new Date().toISOString(),
       sourceQuality: "primary",
     });
 

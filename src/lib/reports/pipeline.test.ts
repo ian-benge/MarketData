@@ -119,6 +119,10 @@ describe("ReportPipeline", () => {
     expect(result.delivery).toBeDefined();
     expect(result.archivePath).toContain("2026-08-10/close_postmarket/");
     expect(result.archivePath).toContain("IB_Market_Data_2026-08-10_Close_Postmarket.pdf");
+    expect(result.document?.watchlistTickers?.length).toBeGreaterThan(0);
+    expect(result.document?.watchlistTickers).toEqual(
+      expect.arrayContaining(["SPY", "QQQ", "TLT"]),
+    );
     expect(sendReport).toHaveBeenCalledWith(
       expect.objectContaining({
         subject: `IB Market Data — ${result.document!.title}`,

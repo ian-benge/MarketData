@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Activity,
   CalendarClock,
+  ChevronDown,
   Clock3,
   Database,
   ShieldAlert,
@@ -16,6 +17,7 @@ import { formatMarketDateTime } from "@/lib/utils/format";
 import { ProviderHealthBanner, type ProviderHealthRow } from "@/components/dashboard/ProviderHealthBanner";
 
 import { nextEditionLabel } from "@/lib/scheduling/chicago-schedule";
+import { cn } from "@/lib/utils/cn";
 
 export function dataTrustKind(latencyClass: string | null | undefined): StatusKind {
   if (latencyClass === "mock") return "mock";
@@ -24,6 +26,20 @@ export function dataTrustKind(latencyClass: string | null | undefined): StatusKi
   if (latencyClass?.includes("delayed")) return "delayed";
   if (latencyClass === "unavailable") return "unavailable";
   return "neutral";
+}
+
+export function trustCompactLabel(latencyClass: string | null | undefined): string {
+  if (latencyClass === "mock") return "Mock";
+  if (latencyClass === "stale") return "Stale";
+  if (latencyClass === "realtime") return "Live";
+  if (latencyClass?.includes("delayed")) return "Delayed";
+  if (latencyClass === "unavailable") return "Off";
+  return "Data";
+}
+
+export function sessionCompactLabel(session?: string | null): string {
+  if (!session) return "Session";
+  return session.charAt(0).toUpperCase() + session.slice(1);
 }
 
 export function SessionControlStrip({
@@ -46,13 +62,33 @@ export function SessionControlStrip({
   providers?: ProviderHealthRow[];
 }) {
   const [healthOpen, setHealthOpen] = useState(false);
+  const healthRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!healthOpen) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setHealthOpen(false);
+    }
+    function onPointer(event: MouseEvent) {
+      if (!healthRef.current?.contains(event.target as Node)) {
+        setHealthOpen(false);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("mousedown", onPointer);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("mousedown", onPointer);
+    };
+  }, [healthOpen]);
+
   return (
     <section
       aria-label="Market session and data trust"
       className="rounded-[6px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-1)]"
     >
       <div className="grid divide-y divide-[var(--ib-border-subtle)] md:grid-cols-2 md:divide-x md:divide-y-0 xl:grid-cols-[1fr_1.45fr_1fr_1fr]">
-        <div className="flex min-h-12 items-center gap-2.5 px-3 py-2">
+        <div className="flex min-h-11 items-center gap-2.5 px-3 py-1.5">
           <span className="grid size-7 shrink-0 place-items-center rounded-[4px] bg-[var(--ib-surface-2)] text-[var(--state-info)]">
             <Clock3 aria-hidden="true" className="size-3.5" />
           </span>
@@ -66,7 +102,7 @@ export function SessionControlStrip({
           </div>
         </div>
 
-        <div className="flex min-h-12 items-center gap-2.5 px-3 py-2">
+        <div className="flex min-h-11 items-center gap-2.5 px-3 py-1.5">
           <span className="grid size-7 shrink-0 place-items-center rounded-[4px] bg-[var(--ib-surface-2)] text-[var(--ib-text-secondary)]">
             <Database aria-hidden="true" className="size-3.5" />
           </span>
@@ -86,8 +122,23 @@ export function SessionControlStrip({
           </div>
         </div>
 
-        <div className="relative flex min-h-12 items-center gap-2.5 px-3 py-2">
-          <span className="grid size-7 shrink-0 place-items-center rounded-[4px] bg-[var(--ib-surface-2)] text-[var(--ib-text-secondary)]">
+        <div
+          ref={healthRef}
+          className={cn(
+            "relative flex min-h-11 items-center gap-2.5 px-3 py-1.5",
+            unhealthyCount
+              ? "bg-[color-mix(in_oklab,var(--state-warning)_6%,transparent)]"
+              : null,
+          )}
+        >
+          <span
+            className={cn(
+              "grid size-7 shrink-0 place-items-center rounded-[4px] bg-[var(--ib-surface-2)]",
+              unhealthyCount
+                ? "text-[var(--state-warning)]"
+                : "text-[var(--ib-text-secondary)]",
+            )}
+          >
             <Activity aria-hidden="true" className="size-3.5" />
           </span>
           <div className="min-w-0">
@@ -97,12 +148,26 @@ export function SessionControlStrip({
             <button
               type="button"
               aria-expanded={healthOpen}
+              aria-haspopup="dialog"
               onClick={() => setHealthOpen((open) => !open)}
-              className="mt-0.5 text-left text-[12px] text-[var(--ib-text-primary)] hover:text-[var(--ib-maroon-300)]"
+              className="mt-0.5 inline-flex min-h-8 max-sm:min-h-11 items-center gap-1 text-left text-[12px] text-[var(--ib-text-primary)] hover:text-[var(--ib-maroon-300)]"
             >
-              {unhealthyCount
-                ? `${unhealthyCount} of ${providerCount} need attention`
-                : `${providerCount} configured · no active fault`}
+              <span
+                className={cn(
+                  unhealthyCount ? "text-[var(--state-warning)]" : null,
+                )}
+              >
+                {unhealthyCount
+                  ? `${unhealthyCount} of ${providerCount} need attention`
+                  : `${providerCount} configured · no active fault`}
+              </span>
+              <ChevronDown
+                aria-hidden="true"
+                className={cn(
+                  "size-3 text-[var(--ib-text-muted)] transition-transform",
+                  healthOpen && "rotate-180",
+                )}
+              />
             </button>
           </div>
           {healthOpen && providers ? (
@@ -118,7 +183,7 @@ export function SessionControlStrip({
           ) : null}
         </div>
 
-        <div className="flex min-h-12 items-center gap-2.5 px-3 py-2">
+        <div className="flex min-h-11 items-center gap-2.5 px-3 py-1.5">
           <span className="grid size-7 shrink-0 place-items-center rounded-[4px] bg-[var(--ib-surface-2)] text-[var(--ib-maroon-300)]">
             <CalendarClock aria-hidden="true" className="size-3.5" />
           </span>

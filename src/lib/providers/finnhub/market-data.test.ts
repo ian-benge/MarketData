@@ -145,4 +145,32 @@ describe("FinnhubNewsProvider", () => {
     const calledUrl = String(fetchImpl.mock.calls.at(0)?.at(0) ?? "");
     expect(calledUrl).toContain("/news");
   });
+
+  it("tags company-news with the requested ticker even when related is empty", async () => {
+    const fetchImpl = vi.fn(async () => {
+      return new Response(
+        JSON.stringify([
+          {
+            id: 9,
+            headline: "Iris Energy announces additional power capacity",
+            summary: "IR offtake.",
+            url: "https://example.com/iren",
+            source: "Company",
+            datetime: 1_723_320_000,
+            related: "",
+          },
+        ]),
+        { status: 200 },
+      );
+    });
+    const provider = new FinnhubNewsProvider({
+      apiKey: "test-key",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    const items = await provider.search({ tickers: ["IREN"], limit: 10 });
+    expect(items).toHaveLength(1);
+    expect(items[0]!.tickers).toContain("IREN");
+    expect(items[0]!.url).toBe("https://example.com/iren");
+    expect(String(fetchImpl.mock.calls.at(0)?.at(0) ?? "")).toContain("/company-news");
+  });
 });

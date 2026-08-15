@@ -1,8 +1,10 @@
 import { handleRouteError, jsonOk, fixturesEnabled } from "@/lib/api/http";
 import { requirePermission } from "@/lib/auth/authorize";
+import { toWatchlistSources } from "@/lib/dashboard/snapshot";
 import { getEnv } from "@/lib/env";
 import { getMarketDataCache } from "@/lib/market-data/cache";
 import { getWatchlistSnapshot } from "@/lib/market-data/watchlist-service";
+import { visibleOverviewLists } from "@/lib/watchlists/dashboard-digest";
 import { listStoredWatchlists } from "@/lib/watchlists/store";
 
 export async function GET(request: Request) {
@@ -11,19 +13,13 @@ export async function GET(request: Request) {
     const listId = new URL(request.url).searchParams.get("listId");
     const env = getEnv();
     const tape = getMarketDataCache(env).getDashboardSnapshot()?.tape ?? [];
-    const stored = fixturesEnabled()
-      ? { lists: [] as Awaited<ReturnType<typeof listStoredWatchlists>>["lists"] }
-      : await listStoredWatchlists(user);
-    const lists = stored.lists
-      .filter((list) => list.visibility === "shared" && !list.archivedAt)
-      .map((list) => ({
-        id: list.id,
-        name: list.name,
-        isDefault: list.isDefault,
-        symbols: list.symbols,
-      }));
+    const stored = await listStoredWatchlists(user);
+    const visible = visibleOverviewLists(stored.lists, user.id);
+    const sources = toWatchlistSources(visible);
+    const useFixtures = fixturesEnabled() || stored.persistence === "fixtures";
     const snapshot = await getWatchlistSnapshot(env, tape, listId, {
-      lists: lists.length ? lists : undefined,
+      lists: sources,
+      useFixtures,
     });
     return jsonOk(snapshot, {
       headers: {

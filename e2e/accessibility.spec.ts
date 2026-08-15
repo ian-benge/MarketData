@@ -84,6 +84,7 @@ test("critical public and member routes expose baseline accessible semantics", a
   await demoLogin(page, "member");
   for (const path of [
     "/dashboard",
+    "/news",
     "/archive",
     "/reports/rpt-demo-001",
     "/watchlists",

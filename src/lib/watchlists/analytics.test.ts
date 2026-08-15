@@ -38,6 +38,7 @@ function coverageSnapshot(overrides: Partial<CoverageSnapshot> = {}): CoverageSn
     sectorBoard: [],
     catalysts: [],
     unresolvedCount: 0,
+    moveExplanations: [],
     ...overrides,
   };
 }
@@ -219,6 +220,7 @@ describe("coverage overlay", () => {
         sectorBoard: [],
         catalysts: [],
         unresolvedCount: 0,
+        moveExplanations: [],
       },
       lists,
       [],

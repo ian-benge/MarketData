@@ -55,3 +55,6 @@ next-env.d.ts
 supabase/.temp
 supabase/.branches
 
+# local git worktrees used to isolate PRs
+.worktrees/
+

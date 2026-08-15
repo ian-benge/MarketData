@@ -77,6 +77,8 @@ export function realizedVolPercent(
   return roundPct(Math.sqrt(variance * 252) * 100);
 }
 
+export const RVOL_FLAG_THRESHOLD = 1.8;
+
 export function flagsFor(row: {
   change1dPercent: number | null;
   relativeVolume: number | null;
@@ -90,7 +92,7 @@ export function flagsFor(row: {
   const vsGroup = row.vsGroup1dPercent;
   const pre = row.preMarketChangePercent;
   const post = row.afterHoursChangePercent;
-  if (rvol != null && rvol >= 1.8) flags.push("rvol");
+  if (rvol != null && rvol >= RVOL_FLAG_THRESHOLD) flags.push("rvol");
   if (change != null && Math.abs(change) >= 3) flags.push("move");
   if (vsGroup != null && Math.abs(vsGroup) >= 2.5) flags.push("peer");
   if (

@@ -1,11 +1,13 @@
 "use client";
 
 import { type ComponentProps } from "react";
-import { ChevronRight, ShieldAlert } from "lucide-react";
+import { AlertTriangle, ChevronRight, ShieldAlert } from "lucide-react";
 import { AttentionStrip } from "@/components/dashboard/AttentionStrip";
 import {
   dataTrustKind,
+  sessionCompactLabel,
   SessionControlStrip,
+  trustCompactLabel,
 } from "@/components/dashboard/SessionControlStrip";
 import { StatusIndicator } from "@/components/ui/StatusIndicator";
 import type { AttentionItem } from "@/lib/market-data/overview-attention";
@@ -38,7 +40,7 @@ export function OverviewStatusChrome({
   const lead = items[0];
 
   return (
-    <>
+    <div className="space-y-2 lg:space-y-3">
       <details className="group lg:hidden">
         <summary className="sticky top-12 z-20 flex min-h-11 w-full min-w-0 cursor-pointer list-none items-center gap-2 overflow-hidden rounded-[6px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-1)] px-3 py-2 marker:hidden [&::-webkit-details-marker]:hidden">
           <ChevronRight
@@ -46,23 +48,24 @@ export function OverviewStatusChrome({
             className="size-4 shrink-0 text-[var(--ib-text-muted)] transition-transform group-open:rotate-90"
           />
           <span className="sr-only">Toggle session and attention details</span>
-          <span className="min-w-0 truncate text-[12px] font-medium capitalize text-[var(--ib-text-primary)] group-open:hidden">
-            {strip.session ? `${strip.session} session` : "Session unavailable"}
+          <span className="shrink-0 text-[12px] font-medium text-[var(--ib-text-primary)] group-open:hidden">
+            {sessionCompactLabel(strip.session)}
           </span>
           <StatusIndicator
             kind={dataTrustKind(strip.latencyClass)}
-            label={strip.coverageLabel ?? "Unknown coverage"}
-            className="max-w-[8.75rem] shrink-0 truncate group-open:hidden"
+            label={trustCompactLabel(strip.latencyClass)}
+            className="shrink-0 group-open:hidden"
           />
           {lead ? (
-            <span className="min-w-0 truncate font-mono text-[12px] text-[var(--ib-text-primary)] group-open:hidden">
+            <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-[var(--ib-text-primary)] group-open:hidden">
               {lead.print}
             </span>
           ) : null}
           {strip.unhealthyCount ? (
-            <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.06em] text-[var(--state-warning)] group-open:hidden">
-              {strip.unhealthyCount} fault{strip.unhealthyCount === 1 ? "" : "s"}
-            </span>
+            <AlertTriangle
+              aria-hidden="true"
+              className="size-3.5 shrink-0 text-[var(--state-warning)] group-open:hidden"
+            />
           ) : null}
           {strip.licenseWarning ? (
             <ShieldAlert
@@ -85,13 +88,13 @@ export function OverviewStatusChrome({
           />
         </div>
       </details>
-      <div className="hidden space-y-3 bg-[var(--ib-canvas)] pb-1 lg:sticky lg:top-11 lg:z-20 lg:block">
+      <div className="hidden space-y-2 bg-[var(--ib-canvas)] pb-0.5 lg:sticky lg:top-11 lg:z-20 lg:block">
         <TrustBody
           {...strip}
           items={items}
           onSelectSymbol={onSelectSymbol}
         />
       </div>
-    </>
+    </div>
   );
 }

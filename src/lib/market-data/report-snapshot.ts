@@ -82,6 +82,8 @@ export type ReportMarketFreeze = {
   calculations: {
     sessionBaselinesByTicker: Record<string, SessionBaselines>;
   };
+  /** Resolved at collect time; archived reports must not live-bind later list edits. */
+  watchlistTickers: string[];
 };
 
 function mapLegacySession(
@@ -135,6 +137,7 @@ export type FreezeMarketInput = {
   sourceMode?: "live" | "fixtures" | "cache";
   notes?: string[];
   now?: Date;
+  watchlistTickers?: string[];
 };
 
 /**
@@ -255,6 +258,7 @@ export function freezeReportMarketSnapshot(
     movers,
     breadth,
     calculations: { sessionBaselinesByTicker },
+    watchlistTickers: [...(input.watchlistTickers ?? [])],
   };
 
   return deepFreeze(freeze);

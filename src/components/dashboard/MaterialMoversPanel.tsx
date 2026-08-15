@@ -4,13 +4,14 @@ import { useMemo, useState } from "react";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Panel } from "@/components/ui/Panel";
+import { EmptyHint } from "@/components/ui/StatePanel";
 import type { JoinedMover } from "@/lib/market-data/overview-movers";
 import { cn } from "@/lib/utils/cn";
 import {
   formatPrice,
   formatSignedPercent,
   formatVolume,
-  marketTone,
+  marketToneClass,
 } from "@/lib/utils/format";
 import { LatestReportLine, type LatestReport } from "@/components/dashboard/LatestReportCard";
 
@@ -21,11 +22,13 @@ export function MaterialMoversPanel({
   coverageNotes,
   latestReport,
   onSelectSymbol,
+  selectedSymbol,
 }: {
   movers: JoinedMover[];
   coverageNotes?: string | null;
   latestReport?: LatestReport | null;
   onSelectSymbol?: (ticker: string) => void;
+  selectedSymbol?: string;
 }) {
   const [sortKey, setSortKey] = useState<SortKey>("change");
   const [descending, setDescending] = useState(true);
@@ -68,7 +71,7 @@ export function MaterialMoversPanel({
         {sorted.length ? (
           <table className="w-full min-w-[420px] border-collapse text-left text-[12px]">
             <caption className="sr-only">
-              Material movers with catalyst join. Select a symbol to inspect its chart.
+              Material movers with catalyst join. Select a symbol to highlight it.
             </caption>
             <thead>
               <tr className="border-b border-[var(--ib-border-strong)] bg-[var(--ib-surface-2)] font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
@@ -82,7 +85,10 @@ export function MaterialMoversPanel({
                 ).map(([key, label, align]) => (
                   <th
                     key={key}
-                    className={cn("h-8 px-3 font-medium", align === "right" && "text-right")}
+                    className={cn(
+                      "sticky top-0 z-10 h-8 bg-[var(--ib-surface-2)] px-3 font-medium",
+                      align === "right" && "text-right",
+                    )}
                   >
                     <button
                       type="button"
@@ -97,23 +103,32 @@ export function MaterialMoversPanel({
                     </button>
                   </th>
                 ))}
-                <th className="h-8 px-3 font-medium">Catalyst</th>
+                <th className="sticky top-0 z-10 h-8 bg-[var(--ib-surface-2)] px-3 font-medium">
+                  Catalyst
+                </th>
               </tr>
             </thead>
             <tbody>
               {sorted.map((mover) => {
-                const tone = marketTone(mover.changePercent);
+                const selected =
+                  selectedSymbol?.toUpperCase() === mover.ticker.toUpperCase();
                 return (
                   <tr
                     key={mover.ticker}
-                    className="border-b border-[var(--ib-border-subtle)] last:border-0 hover:bg-[var(--ib-surface-hover)]"
+                    className={cn(
+                      "border-b border-[var(--ib-border-subtle)] last:border-0 hover:bg-[var(--ib-surface-hover)]",
+                      onSelectSymbol && "cursor-pointer",
+                      selected && "bg-[var(--ib-surface-selected)]",
+                    )}
+                    onClick={() => onSelectSymbol?.(mover.ticker)}
                   >
                     <td className="h-9 px-3">
                       <button
                         type="button"
                         onClick={() => onSelectSymbol?.(mover.ticker)}
-                        className="font-mono font-medium text-[var(--ib-text-primary)] hover:text-[var(--ib-maroon-300)]"
-                        aria-label={`Inspect ${mover.ticker} chart`}
+                        className="inline-flex min-h-8 max-sm:min-h-11 items-center font-mono font-medium text-[var(--ib-text-primary)] hover:text-[var(--ib-maroon-300)]"
+                        aria-current={selected ? "true" : undefined}
+                        aria-label={`Select ${mover.ticker}`}
                       >
                         {mover.ticker}
                       </button>
@@ -124,11 +139,7 @@ export function MaterialMoversPanel({
                     <td
                       className={cn(
                         "px-3 text-right font-mono",
-                        tone === "positive"
-                          ? "text-[var(--market-positive)]"
-                          : tone === "negative"
-                            ? "text-[var(--market-negative)]"
-                            : "text-[var(--market-unchanged)]",
+                        marketToneClass(mover.changePercent),
                       )}
                     >
                       {formatSignedPercent(mover.changePercent)}
@@ -139,9 +150,17 @@ export function MaterialMoversPanel({
                     <td className="px-3">
                       <div className="flex min-w-0 items-center gap-1.5">
                         <Badge
-                          tone={mover.causalStatus === "reported" ? "info" : "neutral"}
+                          tone={
+                            mover.causalStatus === "confirmed"
+                              ? "positive"
+                              : mover.causalStatus === "inferred"
+                                ? "warn"
+                                : mover.causalStatus === "reported"
+                                  ? "info"
+                                  : "neutral"
+                          }
                         >
-                          {mover.causalStatus}
+                          {mover.confidence ?? mover.causalStatus}
                         </Badge>
                         <span className="min-w-0 truncate text-[11px] text-[var(--ib-text-secondary)]">
                           {mover.headlineTitle ?? "No matching headline"}
@@ -154,9 +173,7 @@ export function MaterialMoversPanel({
             </tbody>
           </table>
         ) : (
-          <p className="px-3 py-8 text-center text-[12px] text-[var(--ib-text-muted)]">
-            No material movers on this snapshot.
-          </p>
+          <EmptyHint>No material movers on this snapshot.</EmptyHint>
         )}
       </div>
       <div className="space-y-1 border-t border-[var(--ib-border-subtle)] px-3 py-2">

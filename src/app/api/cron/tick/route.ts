@@ -16,6 +16,7 @@ import {
 } from "@/lib/providers/forex-factory/calendar";
 import { enqueueDueReportRuns } from "@/lib/reports/enqueue";
 import { resolveStaleInstruments } from "@/lib/watchlists/resolve";
+import { getIntelligenceBundle } from "@/lib/intelligence/service";
 
 export async function GET(request: Request) {
   return POST(request);
@@ -73,6 +74,23 @@ export async function POST(request: Request) {
       }
     }
 
+    let newsRefresh: "refreshed" | "failed" | "skipped" | "persist_failed" =
+      "skipped";
+    let newsPersistNote: string | null = null;
+    if (!fixturesEnabled()) {
+      try {
+        const bundle = await getIntelligenceBundle(env, { force: true });
+        const persistGap = bundle.gaps.find(
+          (gap) =>
+            gap.code === "persist_error" || gap.code === "news_store_unconfigured",
+        );
+        newsPersistNote = persistGap?.message ?? null;
+        newsRefresh = persistGap ? "persist_failed" : "refreshed";
+      } catch {
+        newsRefresh = "failed";
+      }
+    }
+
     const enqueue = await enqueueDueReportRuns(new Date());
     let instrumentResolve: Awaited<ReturnType<typeof resolveStaleInstruments>> | null =
       null;
@@ -110,6 +128,8 @@ export async function POST(request: Request) {
       notes: enqueue.notes,
       editions: enqueue.editions,
       catalystRefresh,
+      newsRefresh,
+      newsPersistNote,
       instrumentResolve,
       marketRefresh: marketRefresh
         ? {

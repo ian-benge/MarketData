@@ -113,7 +113,7 @@ export function createDefaultSourceRegistry(): SourceRegistryEntry[] {
       retry: DEFAULT_RETRY,
       requiresEnv: ["MASSIVE_API_KEY"],
       notes:
-        "Formerly Polygon.io — inactive without key; plan/licensing must authorize team surfaces",
+        "Formerly Polygon.io — inactive without key; plan/licensing must authorize team surfaces. Optional `/v2/reference/news` is fail-closed when the plan is not entitled.",
     },
     {
       id: "finnhub",

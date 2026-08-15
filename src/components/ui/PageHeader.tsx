@@ -6,17 +6,20 @@ export function PageHeader({
   actions,
   className,
   eyebrow,
+  compact = false,
 }: {
   title: string;
   description?: string;
   actions?: React.ReactNode;
   className?: string;
   eyebrow?: string;
+  compact?: boolean;
 }) {
   return (
     <header
       className={cn(
-        "mb-4 flex flex-wrap items-end justify-between gap-3 border-b border-[var(--ib-border-subtle)] pb-3.5",
+        "flex flex-wrap items-end justify-between gap-3 border-b border-[var(--ib-border-subtle)]",
+        compact ? "mb-0 pb-2.5" : "mb-4 pb-3.5",
         className,
       )}
     >
@@ -26,11 +29,21 @@ export function PageHeader({
             {eyebrow}
           </p>
         ) : null}
-        <h1 className="text-2xl font-semibold tracking-[-0.025em] text-[var(--ib-text-primary)]">
+        <h1
+          className={cn(
+            "font-semibold tracking-[-0.025em] text-[var(--ib-text-primary)]",
+            compact ? "text-xl" : "text-2xl",
+          )}
+        >
           {title}
         </h1>
         {description ? (
-          <p className="mt-1 max-w-3xl text-[13px] leading-5 text-[var(--ib-text-secondary)]">
+          <p
+            className={cn(
+              "mt-1 max-w-3xl text-[var(--ib-text-secondary)]",
+              compact ? "text-[12px] leading-4" : "text-[13px] leading-5",
+            )}
+          >
             {description}
           </p>
         ) : null}

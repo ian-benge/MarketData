@@ -25,6 +25,7 @@ export type DashboardWatchlistList = {
   name: string;
   isDefault: boolean;
   symbolCount: number;
+  visibility: "shared" | "personal";
 };
 
 export type DashboardWatchlistSnapshot = {

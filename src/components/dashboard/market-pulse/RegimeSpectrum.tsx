@@ -7,11 +7,11 @@ const LABELS = ["Risk-Off", "Defensive", "Mixed", "Constructive", "Risk-On"];
 export function RegimeSpectrum({ result }: { result: MarketPulseResult }) {
   const score = result.score;
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col rounded-[7px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-inset)] px-3 pb-4 pt-4 sm:px-5 sm:pb-5 sm:pt-4">
+    <div className="flex h-full min-h-0 flex-1 flex-col rounded-[6px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-inset)] px-3 pb-3 pt-3 sm:px-4 sm:pb-4 sm:pt-3">
       <PulseHistoryChart liveScore={score} liveAt={result.calculatedAt} />
       <div className="relative pt-7" aria-label={score == null ? "Market Pulse score unavailable" : `Market Pulse score ${score} out of 100, ${result.regime}`}>
         <div className="grid h-2 grid-cols-5 overflow-hidden rounded-full border border-[var(--ib-border-strong)]">
-          {LABELS.map((label, index) => <span key={label} className={cn("border-r border-[var(--ib-border-strong)] last:border-r-0", index === 2 ? "bg-[var(--ib-surface-3)]" : index < 2 ? "bg-[color-mix(in_oklab,var(--ib-surface-2)_78%,#5f3034)]" : "bg-[color-mix(in_oklab,var(--ib-surface-2)_78%,#40524c)]")} />)}
+          {LABELS.map((label, index) => <span key={label} className={cn("border-r border-[var(--ib-border-strong)] last:border-r-0", index === 2 ? "bg-[var(--ib-surface-3)]" : index < 2 ? "bg-[color-mix(in_oklab,var(--market-negative)_22%,var(--ib-surface-2))]" : "bg-[color-mix(in_oklab,var(--market-positive)_22%,var(--ib-surface-2))]")} />)}
         </div>
         {score != null ? (
           <div className="absolute top-0 -translate-x-1/2" style={{ left: `${score}%` }}>

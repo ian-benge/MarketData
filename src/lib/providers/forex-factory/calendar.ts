@@ -1,5 +1,10 @@
 import { z } from "zod";
 import { fromZonedTime } from "date-fns-tz";
+import { persistForexFactoryWeek } from "@/lib/market-data/catalyst-store";
+import {
+  fetchForexFactoryUpcomingWeeks,
+  mergeForexFactoryEvents,
+} from "@/lib/providers/forex-factory/site-calendar";
 import type { NormalizedCalendarEvent } from "@/lib/providers/types";
 import { CHICAGO_TZ, chicagoDateString } from "@/lib/scheduling/chicago-schedule";
 import { fetchWithSizeLimit } from "@/lib/providers/rss/ssrf";
@@ -175,18 +180,30 @@ export async function getCatalystCalendar(options?: {
     return { events, fetchedAt: cache?.fetchedAt ?? now.toISOString() };
   }
 
-  inflight = fetchForexFactoryCalendar()
-    .then((events) => {
-      cache = { events, fetchedAt: new Date().toISOString() };
-      return events;
-    })
-    .catch((error) => {
-      if (cache) return cache.events;
-      throw error;
-    })
-    .finally(() => {
-      inflight = null;
+  inflight = (async () => {
+    let exportError: unknown;
+    const thisWeek = await fetchForexFactoryCalendar().catch((error) => {
+      exportError = error;
+      return [] as NormalizedCalendarEvent[];
     });
+    const last = thisWeek.at(-1);
+    const upcoming = await fetchForexFactoryUpcomingWeeks({
+      now,
+      lastExportDay: last
+        ? chicagoDateString(new Date(last.scheduledAt))
+        : undefined,
+    }).catch(() => [] as NormalizedCalendarEvent[]);
+    const events = mergeForexFactoryEvents(thisWeek, upcoming);
+    if (events.length === 0 && exportError) {
+      if (cache) return cache.events;
+      throw exportError;
+    }
+    cache = { events, fetchedAt: new Date().toISOString() };
+    void persistForexFactoryWeek(events);
+    return events;
+  })().finally(() => {
+    inflight = null;
+  });
 
   try {
     const events = await inflight;

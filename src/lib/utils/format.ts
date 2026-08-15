@@ -140,3 +140,21 @@ export function marketTone(
   if (value == null || !Number.isFinite(value) || value === 0) return "neutral";
   return value > 0 ? "positive" : "negative";
 }
+
+export function marketToneClass(
+  value: number | null | undefined,
+): string {
+  const tone = marketTone(value);
+  if (tone === "positive") return "text-[var(--market-positive)]";
+  if (tone === "negative") return "text-[var(--market-negative)]";
+  return "text-[var(--market-unchanged)]";
+}
+
+export function marketToneBarClass(
+  value: number | null | undefined,
+): string {
+  const tone = marketTone(value);
+  if (tone === "positive") return "bg-[var(--market-positive)]";
+  if (tone === "negative") return "bg-[var(--market-negative)]";
+  return "bg-[var(--ib-border-control)]";
+}

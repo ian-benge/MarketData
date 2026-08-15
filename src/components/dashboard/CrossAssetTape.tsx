@@ -1,10 +1,10 @@
 "use client";
 
-import { ArrowDownRight, ArrowRight, ArrowUpRight, Info } from "lucide-react";
+import { ArrowDownRight, ArrowRight, ArrowUpRight } from "lucide-react";
 import type { MarketPulseDriverId } from "@/lib/market-data/market-pulse";
 import type { NormalizedQuote } from "@/lib/providers/types";
 import { cn } from "@/lib/utils/cn";
-import { formatMarketTime, formatPrice, formatSignedPercent, marketTone } from "@/lib/utils/format";
+import { formatMarketTime, formatPrice, formatSignedPercent, marketTone, marketToneBarClass, marketToneClass } from "@/lib/utils/format";
 
 type TapeTile = {
   symbols: string[];
@@ -78,7 +78,7 @@ export function CrossAssetTape({ quotes, asOf, marketSession, selectedSymbol, on
 
   if (!groups.length) {
     return (
-      <div className="rounded-[6px] border border-dashed border-[var(--ib-border-strong)] bg-[var(--ib-surface-inset)] px-4 py-10 text-center">
+      <div className="rounded-[6px] border border-dashed border-[var(--ib-border-strong)] bg-[var(--ib-surface-inset)] px-4 py-8 text-center">
         <p className="text-[12px] text-[var(--ib-text-secondary)]">Cross-asset quotes are unavailable.</p>
         <p className="mt-1 text-[10px] text-[var(--ib-text-muted)]">The Pulse score and tape remain withheld until verified session data arrives.</p>
       </div>
@@ -92,7 +92,7 @@ export function CrossAssetTape({ quotes, asOf, marketSession, selectedSymbol, on
           <p className="mb-1.5 font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--ib-text-muted)]">
             {group.label}
           </p>
-          <ul className="grid grid-cols-2 gap-2 md:grid-cols-4">
+          <ul className="grid grid-cols-2 gap-1.5 md:grid-cols-4">
             {group.tiles.map(({ config, quote }) => {
               const tone = marketTone(quote.changePercent);
               const Icon = tone === "positive" ? ArrowUpRight : tone === "negative" ? ArrowDownRight : ArrowRight;
@@ -110,18 +110,22 @@ export function CrossAssetTape({ quotes, asOf, marketSession, selectedSymbol, on
                   <button
                     type="button"
                     aria-pressed={selected}
-                    aria-label={`Open ${quote.ticker} in primary chart`}
+                    aria-label={`Select ${quote.ticker}`}
                     onClick={() => onSelectSymbol?.(quote.ticker)}
                     className={cn(
-                      "h-full min-h-[102px] w-full rounded-[6px] border bg-[var(--ib-surface-inset)] p-3 text-left transition-[border-color,background-color]",
+                      "relative h-full min-h-[92px] w-full overflow-hidden rounded-[6px] border bg-[var(--ib-surface-inset)] p-2.5 text-left transition-[border-color,background-color]",
                       selected
                         ? "border-[var(--ib-maroon-500)] bg-[var(--ib-surface-selected)]"
                         : highlighted
                           ? "border-[var(--ib-text-muted)] bg-[var(--ib-surface-2)]"
-                          : "border-[var(--ib-border-subtle)] hover:border-[var(--ib-border-control)]",
+                          : "border-[var(--ib-border-subtle)] hover:border-[var(--ib-border-control)] hover:bg-[var(--ib-surface-hover)]",
                     )}
                   >
-                    <div className="flex items-start justify-between gap-2">
+                    <span
+                      aria-hidden="true"
+                      className={cn("absolute inset-y-0 left-0 w-0.5", marketToneBarClass(quote.changePercent))}
+                    />
+                    <div className="flex items-start justify-between gap-2 pl-1">
                       <div className="min-w-0">
                         <p className="truncate font-mono text-[9px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">{config.short}</p>
                         <p className="mt-0.5 truncate text-[10px] text-[var(--ib-text-secondary)]">{config.name}</p>
@@ -130,26 +134,21 @@ export function CrossAssetTape({ quotes, asOf, marketSession, selectedSymbol, on
                         {sessionBadge(quote, marketSession)}
                       </span>
                     </div>
-                    <div className="mt-3 flex items-end justify-between gap-2">
+                    <div className="mt-2.5 flex items-end justify-between gap-2 pl-1">
                       <div>
                         <p className="font-mono text-[11px] font-semibold text-[var(--ib-text-primary)]">
-                          {quote.ticker} <span className="text-[14px]">{formatPrice(quote.last, quote.ticker)}</span>
+                          {quote.ticker} <span className="text-[14px] tabular-nums">{formatPrice(quote.last, quote.ticker)}</span>
                         </p>
                         <p
                           className={cn(
                             "mt-1 inline-flex items-center gap-1 font-mono text-[10px]",
-                            tone === "positive"
-                              ? "text-[var(--market-positive)]"
-                              : tone === "negative"
-                                ? "text-[var(--market-negative)]"
-                                : "text-[var(--market-unchanged)]",
+                            marketToneClass(quote.changePercent),
                           )}
                         >
                           <Icon className="size-3" />
                           {formatSignedPercent(quote.changePercent)}
                         </p>
                       </div>
-                      <Info className="size-3 text-[var(--ib-text-muted)]" />
                     </div>
                   </button>
                   <div

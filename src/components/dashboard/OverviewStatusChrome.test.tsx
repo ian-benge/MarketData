@@ -38,6 +38,8 @@ describe("OverviewStatusChrome", () => {
     const details = container.querySelector("details");
     expect(details?.open).toBe(false);
     expect(screen.getAllByText(/afterhours session/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Afterhours").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Live").length).toBeGreaterThan(0);
     expect(screen.getAllByText("TLT −0.62%").length).toBeGreaterThan(0);
 
     fireEvent.click(container.querySelector("summary")!);

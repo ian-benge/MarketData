@@ -75,14 +75,22 @@ function moveId(ids: string[], id: string, direction: -1 | 1) {
 
 type Feedback = { tone: "error" | "success"; message: string } | null;
 
-export function WatchlistsWorkspace({ initial }: { initial: CoverageSnapshot }) {
+export function WatchlistsWorkspace({
+  initial,
+  initialTicker = null,
+}: {
+  initial: CoverageSnapshot;
+  initialTicker?: string | null;
+}) {
   const [snapshot, setSnapshot] = useState(initial);
   const [lists, setLists] = useState(initial.watchlists);
   const [sectors, setSectors] = useState(initial.sectors);
   const [selection, setSelection] = useState<CoverageSelection | null>(initial.selection);
   const [listFilter, setListFilter] = useState<"all" | "shared" | "personal">("all");
   const [showArchived, setShowArchived] = useState(false);
-  const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
+  const [selectedTicker, setSelectedTicker] = useState<string | null>(
+    initialTicker,
+  );
   const [formMode, setFormMode] = useState<"edit" | null>(null);
   const [editingListId, setEditingListId] = useState<string | null>(null);
   const [editingSectorId, setEditingSectorId] = useState<string | null>(null);
@@ -102,6 +110,26 @@ export function WatchlistsWorkspace({ initial }: { initial: CoverageSnapshot }) 
   const createPanelRef = useRef<HTMLDetailsElement>(null);
 
   const demo = snapshot.usingFixtures || snapshot.persistence === "fixtures";
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (selection?.type === "sector") {
+      url.searchParams.set("sectorId", selection.id);
+      url.searchParams.delete("listId");
+    } else if (selection?.type === "watchlist") {
+      url.searchParams.set("listId", selection.id);
+      url.searchParams.delete("sectorId");
+    } else {
+      url.searchParams.delete("listId");
+      url.searchParams.delete("sectorId");
+    }
+    if (selectedTicker) url.searchParams.set("ticker", selectedTicker);
+    else url.searchParams.delete("ticker");
+    const next = `${url.pathname}${url.search}${url.hash}`;
+    const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (next !== current) window.history.replaceState({}, "", next);
+  }, [selection, selectedTicker]);
 
   const display = useMemo(
     () => overlaySessionLists(snapshot, lists, sectors, selection),
@@ -1213,11 +1241,15 @@ export function WatchlistsWorkspace({ initial }: { initial: CoverageSnapshot }) 
                   query={query}
                   selectedTicker={selectedTicker}
                   onSelect={setSelectedTicker}
+                  explanations={display.moveExplanations ?? []}
                 />
                 {selectedRow ? (
                   <TickerInspector
                     row={selectedRow}
                     catalysts={display.catalysts}
+                    explanation={display.moveExplanations?.find(
+                      (item) => item.ticker === selectedRow.ticker,
+                    )}
                     lists={display.watchlists}
                     sectors={display.sectors}
                     canEdit={canMutate}
