@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { demoLogin, expectNoPageHorizontalOverflow } from "./helpers";
+import { demoLogin, expectNoPageHorizontalOverflow, openCreateCoverage } from "./helpers";
 
 test.describe("research workspace interactions", () => {
   test("command search navigates by keyboard", async ({ page }) => {
@@ -125,6 +125,7 @@ test.describe("research workspace interactions", () => {
   }) => {
     await demoLogin(page, "member");
     await page.goto("/watchlists");
+    await openCreateCoverage(page);
 
     await page.getByLabel("Watchlist name").fill("E2E coverage");
     await page.getByLabel("Ticker symbols").fill("spy spy");
@@ -143,8 +144,38 @@ test.describe("research workspace interactions", () => {
       page.getByText("Shared watchlist accepted and added to this session"),
     ).toBeVisible();
     await expect(
-      page.getByText("E2E coverage", { exact: true }).filter({ visible: true }),
+      page.getByRole("tab", { name: /E2E coverage/ }),
     ).toBeVisible();
+  });
+
+  test("member can classify coverage as a sector theme on the boards below", async ({
+    page,
+  }) => {
+    await demoLogin(page, "member");
+    await page.goto("/watchlists");
+    await openCreateCoverage(page);
+
+    await page.getByRole("radio", { name: "Sector / theme" }).check();
+    await page.getByLabel("Name", { exact: true }).fill("E2E theme basket");
+    await page.getByLabel("Ticker symbols").fill("NVDA AMD");
+    await page.getByRole("button", { name: "Create theme" }).click();
+
+    await expect(
+      page.getByText("Theme accepted and added to this session"),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("tablist", { name: "Sectors and themes" }).getByRole("tab", {
+        name: /E2E theme basket/,
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("list", { name: "Sector heatmap" }).getByRole("button", {
+        name: /E2E theme basket/,
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("table", { name: "Rotation board" }),
+    ).toContainText("E2E theme basket");
   });
 
   test("member can inspect and add a session position", async ({ page }) => {

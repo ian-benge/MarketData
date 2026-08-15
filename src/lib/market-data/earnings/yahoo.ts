@@ -132,20 +132,26 @@ export function quoteFromYahooRow(raw: unknown): YahooEquityQuote | null {
   const parsed = QuoteRowSchema.safeParse(raw);
   if (!parsed.success) return null;
   const row = parsed.data;
+  const extra =
+    raw && typeof raw === "object" ? (raw as Record<string, unknown>) : row;
+  const num = (value: unknown) =>
+    typeof value === "number" && Number.isFinite(value) ? value : null;
   return {
     symbol: row.symbol.toUpperCase(),
     name: row.displayName ?? row.shortName ?? row.longName ?? null,
-    price:
-      row.regularMarketPrice != null && Number.isFinite(row.regularMarketPrice)
-        ? row.regularMarketPrice
-        : null,
-    marketCap:
-      row.marketCap != null && Number.isFinite(row.marketCap)
-        ? row.marketCap
-        : null,
+    price: num(row.regularMarketPrice),
+    marketCap: num(row.marketCap),
     avgVolume:
       row.averageDailyVolume10Day ?? row.averageDailyVolume3Month ?? null,
     quoteType: row.quoteType ?? null,
+    changePercent: num(extra.regularMarketChangePercent),
+    open: num(extra.regularMarketOpen),
+    volume: num(extra.regularMarketVolume),
+    previousClose: num(extra.regularMarketPreviousClose),
+    dayHigh: num(extra.regularMarketDayHigh),
+    dayLow: num(extra.regularMarketDayLow),
+    preMarketChangePercent: num(extra.preMarketChangePercent),
+    postMarketChangePercent: num(extra.postMarketChangePercent),
   };
 }
 
@@ -333,21 +339,33 @@ export async function fetchYahooSparkDailyCloses(
   const unique = [...new Set(symbols.map((item) => toYahooSymbol(item)).filter(Boolean))];
   if (!unique.length) return out;
   return withSession(async (active) => {
+    const chunks: string[][] = [];
     for (let index = 0; index < unique.length; index += 10) {
-      const chunk = unique.slice(index, index + 10);
-      const url = new URL("https://query1.finance.yahoo.com/v8/finance/spark");
-      url.searchParams.set("symbols", chunk.join(","));
-      url.searchParams.set("interval", "1d");
-      url.searchParams.set("range", range);
-      url.searchParams.set("crumb", active.crumb);
-      const response = await yahooRequest(url.toString(), active.cookies);
-      if (!response.ok) continue;
-      for (const [symbol, closes] of parseYahooSparkDailyCloses(await response.json())) {
-        out.set(symbol, closes);
-        const canonical = toCanonicalSymbol(symbol);
-        if (canonical) out.set(canonical, closes);
+      chunks.push(unique.slice(index, index + 10));
+    }
+    let cursor = 0;
+    async function worker() {
+      while (cursor < chunks.length) {
+        const index = cursor;
+        cursor += 1;
+        const chunk = chunks[index]!;
+        const url = new URL("https://query1.finance.yahoo.com/v8/finance/spark");
+        url.searchParams.set("symbols", chunk.join(","));
+        url.searchParams.set("interval", "1d");
+        url.searchParams.set("range", range);
+        url.searchParams.set("crumb", active.crumb);
+        const response = await yahooRequest(url.toString(), active.cookies);
+        if (!response.ok) continue;
+        for (const [symbol, closes] of parseYahooSparkDailyCloses(await response.json())) {
+          out.set(symbol, closes);
+          const canonical = toCanonicalSymbol(symbol);
+          if (canonical) out.set(canonical, closes);
+        }
       }
     }
+    await Promise.all(
+      Array.from({ length: Math.min(4, chunks.length) || 0 }, () => worker()),
+    );
     return out;
   });
 }

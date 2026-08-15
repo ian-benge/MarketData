@@ -221,7 +221,12 @@ describe("fixture-backed API safety", () => {
     const sectors = await getSectors();
     const invitations = await getInvitations();
 
-    await expect(watchlists.json()).resolves.toEqual({ watchlists: [] });
+    const watchlistsBody = (await watchlists.json()) as {
+      watchlists: unknown[];
+      persistence: string;
+    };
+    expect(watchlistsBody.watchlists).toEqual([]);
+    expect(watchlistsBody.persistence).toBe("unavailable");
     await expect(proposals.json()).resolves.toEqual({ proposals: [] });
     await expect(reports.json()).resolves.toEqual({ reports: [] });
     await expect(sectors.json()).resolves.toEqual({ sectors: [] });

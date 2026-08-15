@@ -15,6 +15,8 @@ describe("yahoo earnings parsers", () => {
             quoteType: "EQUITY",
             shortName: "Microsoft Corporation",
             regularMarketPrice: 503.81,
+            regularMarketChangePercent: 1.25,
+            regularMarketPreviousClose: 497.6,
             marketCap: 3_741_064_101_888,
             averageDailyVolume10Day: 49_765_410,
           },
@@ -29,6 +31,14 @@ describe("yahoo earnings parsers", () => {
         marketCap: 3_741_064_101_888,
         avgVolume: 49_765_410,
         quoteType: "EQUITY",
+        changePercent: 1.25,
+        open: null,
+        volume: null,
+        previousClose: 497.6,
+        dayHigh: null,
+        dayLow: null,
+        preMarketChangePercent: null,
+        postMarketChangePercent: null,
       },
     ]);
   });

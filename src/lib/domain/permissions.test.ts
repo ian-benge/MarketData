@@ -15,6 +15,7 @@ describe("permissions", () => {
     expect(canGenerateOnDemandReport("member")).toBe(true);
     expect(canSubmitProposals("member")).toBe(true);
     expect(hasPermission("member", "editWatchlists")).toBe(true);
+    expect(hasPermission("member", "editSectors")).toBe(true);
     expect(hasPermission("member", "editPositions")).toBe(true);
   });
 

@@ -30,9 +30,17 @@ const quoteCache = new Map<string, CacheEntry<WatchlistEnrichment>>();
 const weekCache = new Map<string, CacheEntry<number | null>>();
 const inflight = new Map<string, Promise<DashboardWatchlistSnapshot>>();
 
+export type WatchlistListSource = {
+  id: string;
+  name: string;
+  isDefault: boolean;
+  symbols: string[];
+};
+
 export type WatchlistDeps = {
   now?: Date;
   useFixtures?: boolean;
+  lists?: WatchlistListSource[];
   yahooQuotes?: (symbols: string[]) => Promise<Map<string, { name: string | null; marketCap: number | null; avgVolume: number | null }>>;
   yahooWeekCloses?: (symbols: string[]) => Promise<Map<string, number | null>>;
 };
@@ -43,8 +51,18 @@ export function resetWatchlistCache() {
   inflight.clear();
 }
 
-function lists(): DashboardWatchlistList[] {
+function sourceLists(deps: WatchlistDeps = {}): WatchlistListSource[] {
+  if (deps.lists?.length) return deps.lists;
   return fixtureWatchlists.map((list) => ({
+    id: list.id,
+    name: list.name,
+    isDefault: list.isDefault,
+    symbols: list.symbols,
+  }));
+}
+
+function lists(deps: WatchlistDeps = {}): DashboardWatchlistList[] {
+  return sourceLists(deps).map((list) => ({
     id: list.id,
     name: list.name,
     isDefault: list.isDefault,
@@ -52,11 +70,12 @@ function lists(): DashboardWatchlistList[] {
   }));
 }
 
-function pickList(listId?: string | null) {
+function pickList(listId?: string | null, deps: WatchlistDeps = {}) {
+  const all = sourceLists(deps);
   return (
-    fixtureWatchlists.find((list) => list.id === listId) ??
-    fixtureWatchlists.find((list) => list.isDefault) ??
-    fixtureWatchlists[0]!
+    all.find((list) => list.id === listId) ??
+    all.find((list) => list.isDefault) ??
+    all[0]!
   );
 }
 
@@ -64,14 +83,15 @@ function emptySnapshot(
   listId: string | undefined,
   error: string | null,
   extra?: Partial<DashboardWatchlistSnapshot>,
+  deps: WatchlistDeps = {},
 ): DashboardWatchlistSnapshot {
-  const list = pickList(listId);
+  const list = pickList(listId, deps);
   return {
     listId: list.id,
     listName: list.name,
     symbols: list.symbols,
     rows: assembleWatchlistRows(list.symbols, new Map()),
-    lists: lists(),
+    lists: lists(deps),
     asOf: new Date().toISOString(),
     stale: false,
     usingFixtures: false,
@@ -131,8 +151,8 @@ const FIXTURE_ENRICHMENT: Array<[string, WatchlistEnrichment]> = [
   ["EQIX", { name: "Equinix", marketCap: 77_000_000_000, avgVolume: 480_000, weekAgoClose: 805.2 }],
 ];
 
-export function fixtureWatchlistSnapshot(listId?: string | null): DashboardWatchlistSnapshot {
-  const list = pickList(listId);
+export function fixtureWatchlistSnapshot(listId?: string | null, deps: WatchlistDeps = {}): DashboardWatchlistSnapshot {
+  const list = pickList(listId, deps);
   const quotes = new Map(FIXTURE_QUOTES.map((row) => [row.ticker, row]));
   const enrichment = new Map(FIXTURE_ENRICHMENT);
   return {
@@ -140,7 +160,7 @@ export function fixtureWatchlistSnapshot(listId?: string | null): DashboardWatch
     listName: list.name,
     symbols: list.symbols,
     rows: assembleWatchlistRows(list.symbols, quotes, enrichment),
-    lists: lists(),
+    lists: lists(deps),
     asOf: new Date().toISOString(),
     stale: false,
     usingFixtures: true,
@@ -254,9 +274,9 @@ export async function getWatchlistSnapshot(
 ): Promise<DashboardWatchlistSnapshot> {
   const useFixtures =
     env.NODE_ENV !== "production" && (deps.useFixtures ?? isDemoAuthEnabled(env));
-  if (useFixtures) return fixtureWatchlistSnapshot(listId);
+  if (useFixtures) return fixtureWatchlistSnapshot(listId, deps);
 
-  const list = pickList(listId);
+  const list = pickList(listId, deps);
   const key = `${list.id}:${quotes.length}`;
   const pending = inflight.get(key);
   if (pending) return pending;
@@ -268,7 +288,7 @@ export async function getWatchlistSnapshot(
       listName: list.name,
       symbols: list.symbols,
       rows: assembleWatchlistRows(list.symbols, quoteInputs(quotes), yahoo.map),
-      lists: lists(),
+      lists: lists(deps),
       asOf: new Date().toISOString(),
       stale: yahoo.stale,
       usingFixtures: false,

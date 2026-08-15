@@ -57,6 +57,11 @@ export const ADMIN_SECTION_GROUPS = [
         label: "Audit history",
         description: "Administrative activity",
       },
+      {
+        key: "instruments",
+        label: "Instrument queue",
+        description: "Unresolved ticker identity",
+      },
     ],
   },
 ] as const;

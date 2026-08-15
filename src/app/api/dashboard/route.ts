@@ -17,6 +17,7 @@ import {
 } from "@/lib/market-data/watchlist-service";
 import { getDashboardResearch } from "@/lib/dashboard/research-context";
 import { createProviders } from "@/lib/providers/registry";
+import { listStoredWatchlists } from "@/lib/watchlists/store";
 import {
   isLiveReportsAvailable,
   listLiveReports,
@@ -79,7 +80,7 @@ function liveRefreshDueSeconds(session: string | null | undefined): number {
 
 export async function GET(request?: Request) {
   try {
-    await requirePermission("viewDashboard");
+    const user = await requirePermission("viewDashboard");
 
     // Pure demo / fixtures path — no market primary required.
     if (fixturesEnabled()) {
@@ -147,7 +148,20 @@ export async function GET(request?: Request) {
       } catch (error) {
         console.error("createProviders failed for dashboard health list", error);
       }
-      const watchlist = await getWatchlistSnapshot(env, cached.tape);
+      const stored = await listStoredWatchlists(user).catch(() => ({
+        lists: [] as Awaited<ReturnType<typeof listStoredWatchlists>>["lists"],
+      }));
+      const lists = stored.lists
+        .filter((list) => list.visibility === "shared" && !list.archivedAt)
+        .map((list) => ({
+          id: list.id,
+          name: list.name,
+          isDefault: list.isDefault,
+          symbols: list.symbols,
+        }));
+      const watchlist = await getWatchlistSnapshot(env, cached.tape, undefined, {
+        lists: lists.length ? lists : undefined,
+      });
       const latestReport = await latestLiveReport();
       const payload: DashboardSnapshot = {
         asOf: cached.asOf,

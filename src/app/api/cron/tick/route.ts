@@ -15,6 +15,7 @@ import {
   usdCatalystNeedsMorningRefresh,
 } from "@/lib/providers/forex-factory/calendar";
 import { enqueueDueReportRuns } from "@/lib/reports/enqueue";
+import { resolveStaleInstruments } from "@/lib/watchlists/resolve";
 
 export async function GET(request: Request) {
   return POST(request);
@@ -73,6 +74,15 @@ export async function POST(request: Request) {
     }
 
     const enqueue = await enqueueDueReportRuns(new Date());
+    let instrumentResolve: Awaited<ReturnType<typeof resolveStaleInstruments>> | null =
+      null;
+    if (!fixturesEnabled()) {
+      try {
+        instrumentResolve = await resolveStaleInstruments({ limit: 40 });
+      } catch {
+        instrumentResolve = { scanned: 0, resolved: 0, queued: 0 };
+      }
+    }
 
     if (fixturesEnabled()) {
       return jsonOk({
@@ -100,6 +110,7 @@ export async function POST(request: Request) {
       notes: enqueue.notes,
       editions: enqueue.editions,
       catalystRefresh,
+      instrumentResolve,
       marketRefresh: marketRefresh
         ? {
             status: marketRefresh.status,

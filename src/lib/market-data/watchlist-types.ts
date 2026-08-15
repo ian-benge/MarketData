@@ -5,9 +5,18 @@ export type DashboardWatchlistRow = {
   change1dPercent: number | null;
   changeFromOpenPercent: number | null;
   change1wPercent: number | null;
+  change1mPercent?: number | null;
+  changeYtdPercent?: number | null;
+  preMarketChangePercent?: number | null;
+  afterHoursChangePercent?: number | null;
   relativeVolume: number | null;
   marketCap: number | null;
   volume: number | null;
+  avgVolume?: number | null;
+  dayHigh?: number | null;
+  dayLow?: number | null;
+  priorClose?: number | null;
+  volatility?: number | null;
   missing: string[];
 };
 
@@ -43,4 +52,13 @@ export type WatchlistEnrichment = {
   marketCap?: number | null;
   avgVolume?: number | null;
   weekAgoClose?: number | null;
+  monthAgoClose?: number | null;
+  ytdClose?: number | null;
+  preMarketChangePercent?: number | null;
+  afterHoursChangePercent?: number | null;
+  dayHigh?: number | null;
+  dayLow?: number | null;
+  previousClose?: number | null;
+  volatility?: number | null;
+  lastClose?: number | null;
 };

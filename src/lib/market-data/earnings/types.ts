@@ -144,6 +144,14 @@ export type YahooEquityQuote = {
   marketCap: number | null;
   avgVolume: number | null;
   quoteType: string | null;
+  changePercent?: number | null;
+  open?: number | null;
+  volume?: number | null;
+  previousClose?: number | null;
+  dayHigh?: number | null;
+  dayLow?: number | null;
+  preMarketChangePercent?: number | null;
+  postMarketChangePercent?: number | null;
 };
 
 export type YahooOptionContract = {

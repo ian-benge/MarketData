@@ -47,6 +47,16 @@ describe("assembleWatchlistRows", () => {
     );
   });
 
+  it("derives 1D from previous close when the tape omits changePercent", () => {
+    const [row] = assembleWatchlistRows(
+      ["AMAT"],
+      new Map([["AMAT", { ticker: "AMAT", last: 188, volume: 1_000 }]]),
+      new Map([["AMAT", { previousClose: 180 }]]),
+    );
+    expect(row?.change1dPercent).toBeCloseTo(4.44, 2);
+    expect(row?.missing).not.toContain("change1d");
+  });
+
   it("preserves watchlist order including names with no quote", () => {
     const rows = assembleWatchlistRows(
       ["MSFT", "ZZZ"],

@@ -61,7 +61,7 @@ const WORKBENCH_NAV: NavItem[] = [
     href: "/watchlists",
     label: "Watchlists & Sectors",
     shortLabel: "Watchlists",
-    description: "Shared coverage universes",
+    description: "Shared and personal coverage universes",
     icon: Layers3,
   },
   {
