@@ -14,6 +14,8 @@ import {
   SECURITY_TYPE_LABELS,
   isLeveragedProduct,
 } from "@/lib/watchlists/taxonomy";
+import { WhyMovingBadge } from "@/components/news/WhyMovingBadge";
+import type { MoveExplanation } from "@/lib/intelligence/types";
 import type {
   CoverageCatalyst,
   CoverageQuote,
@@ -24,6 +26,7 @@ import type {
 export function TickerInspector({
   row,
   catalysts,
+  explanation,
   lists,
   sectors,
   canEdit,
@@ -33,6 +36,7 @@ export function TickerInspector({
 }: {
   row: CoverageQuote;
   catalysts: CoverageCatalyst[];
+  explanation?: MoveExplanation;
   lists: CoverageWatchlist[];
   sectors: CoverageSector[];
   canEdit: boolean;
@@ -173,6 +177,27 @@ export function TickerInspector({
               </option>
             ))}
           </select>
+        </div>
+      ) : null}
+
+      {explanation ? (
+        <div className="mt-3 space-y-1.5 border-t border-[var(--ib-border-subtle)] pt-3">
+          <p className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
+            Why it’s moving
+          </p>
+          <WhyMovingBadge
+            explanation={explanation}
+            href={`/news?q=${encodeURIComponent(`why is ${row.ticker} moving today`)}`}
+          />
+          <p className="text-[12px] leading-5 text-[var(--ib-text-secondary)]">
+            {explanation.detail}
+          </p>
+          <p className="text-[11px] text-[var(--ib-text-muted)]">
+            {explanation.evidenceNature === "fact"
+              ? "Fact from a primary source."
+              : "System inference from timing, ticker match, and available reporting — not a confirmed cause."}
+            {explanation.coverageGap ? ` ${explanation.coverageGap}` : ""}
+          </p>
         </div>
       ) : null}
 

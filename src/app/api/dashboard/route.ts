@@ -16,6 +16,7 @@ import {
   getWatchlistSnapshot,
 } from "@/lib/market-data/watchlist-service";
 import { getDashboardResearch } from "@/lib/dashboard/research-context";
+import type { IntelligenceBundle, QuoteContext } from "@/lib/intelligence/types";
 import { createProviders } from "@/lib/providers/registry";
 import { listStoredWatchlists } from "@/lib/watchlists/store";
 import {
@@ -40,6 +41,45 @@ async function latestLiveReport(): Promise<DashboardSnapshot["latestReport"]> {
   } catch {
     return null;
   }
+}
+
+function quotesFromWatchlist(
+  rows: NonNullable<DashboardSnapshot["watchlist"]>["rows"] | undefined,
+  session?: string | null,
+): QuoteContext[] {
+  return (rows ?? []).map((row) => ({
+    ticker: row.ticker,
+    name: row.name,
+    changePercent: row.change1dPercent,
+    relativeVolume: row.relativeVolume,
+    preMarketChangePercent: row.preMarketChangePercent,
+    afterHoursChangePercent: row.afterHoursChangePercent,
+    flags: [],
+    session: session ?? null,
+  }));
+}
+
+function compactIntelligence(
+  bundle: IntelligenceBundle | null | undefined,
+): DashboardSnapshot["intelligence"] {
+  if (!bundle) return null;
+  return {
+    events: bundle.events.slice(0, 24),
+    moves: bundle.moves.slice(0, 40),
+    gaps: bundle.gaps,
+    sources: bundle.sources,
+    fetchedAt: bundle.fetchedAt,
+    stale: bundle.stale,
+  };
+}
+
+function emptyResearch() {
+  return {
+    headlines: [] as DashboardSnapshot["headlines"],
+    calendar: [] as DashboardSnapshot["calendar"],
+    fetchedAt: new Date().toISOString(),
+    intelligence: null as IntelligenceBundle | null,
+  };
 }
 
 function unavailableDashboard(
@@ -86,8 +126,16 @@ export async function GET(request?: Request) {
     if (fixturesEnabled()) {
       const env = getEnv();
       const license = licenseConfigFromEnv(env);
+      const research = await getDashboardResearch(env, {
+        quotes: quotesFromWatchlist(fixtureDashboard.watchlist?.rows, "regular"),
+        session: "regular",
+      }).catch(() => emptyResearch());
       const payload: DashboardSnapshot = {
         ...fixtureDashboard,
+        headlines: research.headlines.length
+          ? research.headlines
+          : fixtureDashboard.headlines,
+        intelligence: compactIntelligence(research.intelligence),
         latencyCoverageLabel: "Mock data",
         feedCoverage: "unknown",
         latencyClass: "mock",
@@ -129,12 +177,6 @@ export async function GET(request?: Request) {
         ? `License scope "${license.scope}" (acknowledged=${license.acknowledged}). Acknowledgement is an operational guardrail, not proof of a license.`
         : null;
 
-    const research = await getDashboardResearch(env).catch(() => ({
-      headlines: [] as DashboardSnapshot["headlines"],
-      calendar: [] as DashboardSnapshot["calendar"],
-      fetchedAt: new Date().toISOString(),
-    }));
-
     if (cached) {
       let providers: DashboardSnapshot["providers"] = [];
       try {
@@ -162,6 +204,11 @@ export async function GET(request?: Request) {
       const watchlist = await getWatchlistSnapshot(env, cached.tape, undefined, {
         lists: lists.length ? lists : undefined,
       });
+      const research = await getDashboardResearch(env, {
+        quotes: quotesFromWatchlist(watchlist.rows, cached.marketSession),
+        coverageTickers: watchlist.symbols,
+        session: cached.marketSession,
+      }).catch(() => emptyResearch());
       const latestReport = await latestLiveReport();
       const payload: DashboardSnapshot = {
         asOf: cached.asOf,
@@ -172,6 +219,7 @@ export async function GET(request?: Request) {
         watchlist,
         headlines: research.headlines,
         calendar: research.calendar,
+        intelligence: compactIntelligence(research.intelligence),
         providers,
         latestReport,
         moversCoverageNotes:
@@ -189,6 +237,7 @@ export async function GET(request?: Request) {
       return jsonOk(payload);
     }
 
+    const research = await getDashboardResearch(env).catch(() => emptyResearch());
     // No cache yet: return an unavailable payload without substituting fixtures.
     let providers: DashboardSnapshot["providers"] = [];
     try {
@@ -206,6 +255,7 @@ export async function GET(request?: Request) {
       unavailableDashboard(licenseWarning, {
         headlines: research.headlines,
         calendar: research.calendar,
+        intelligence: compactIntelligence(research.intelligence),
         providers,
       }),
     );

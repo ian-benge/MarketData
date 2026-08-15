@@ -1,3 +1,4 @@
+import type { MoveExplanation } from "@/lib/intelligence/types";
 import type {
   MembershipConfidence,
   MembershipRole,
@@ -266,6 +267,7 @@ export type CoverageSnapshot = {
   unusual: CoverageMover[];
   sectorBoard: SectorBoardRow[];
   catalysts: CoverageCatalyst[];
+  moveExplanations: MoveExplanation[];
   unresolvedCount: number;
 };
 

@@ -45,6 +45,7 @@ vi.mock("@/lib/dashboard/research-context", () => ({
     headlines: researchState.headlines,
     calendar: researchState.calendar,
     fetchedAt: "2026-08-11T15:00:00.000Z",
+    intelligence: null,
   })),
 }));
 

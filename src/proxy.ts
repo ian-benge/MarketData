@@ -28,6 +28,7 @@ export async function proxy(request: NextRequest) {
 
   const isAppRoute =
     pathname.startsWith("/dashboard") ||
+    pathname.startsWith("/news") ||
     pathname.startsWith("/archive") ||
     pathname.startsWith("/reports") ||
     pathname.startsWith("/watchlists") ||

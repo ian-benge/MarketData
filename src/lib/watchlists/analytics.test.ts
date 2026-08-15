@@ -37,6 +37,7 @@ function coverageSnapshot(overrides: Partial<CoverageSnapshot> = {}): CoverageSn
     unusual: [],
     sectorBoard: [],
     catalysts: [],
+    moveExplanations: [],
     unresolvedCount: 0,
     ...overrides,
   };
@@ -218,6 +219,7 @@ describe("coverage overlay", () => {
         unusual: [],
         sectorBoard: [],
         catalysts: [],
+        moveExplanations: [],
         unresolvedCount: 0,
       },
       lists,

@@ -30,7 +30,7 @@ describe("coverage taxonomy", () => {
 
 describe("instrument catalog", () => {
   it("classifies known special cases without guessing quarantined names", () => {
-    expect(classifyInstrument("SKHY")?.securityType).toBe("adr");
+    expect(classifyInstrument("SKHY")).toBeNull();
     expect(classifyInstrument("NCLD")?.securityType).toBe("etf");
     expect(classifyInstrument("RAM")?.leverageMultiple).toBe(2);
     expect(classifyInstrument("RAM")?.underlyingSymbol).toBe("DRAM");

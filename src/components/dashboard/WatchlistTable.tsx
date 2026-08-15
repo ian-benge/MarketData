@@ -10,6 +10,8 @@ import {
 import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Panel } from "@/components/ui/Panel";
+import { WhyMovingBadge } from "@/components/news/WhyMovingBadge";
+import type { MoveExplanation } from "@/lib/intelligence/types";
 import type {
   DashboardWatchlistRow,
   DashboardWatchlistSnapshot,
@@ -80,14 +82,21 @@ export function WatchlistTable({
   data,
   onSelectSymbol,
   onSelectList,
+  explanations,
 }: {
   data: DashboardWatchlistSnapshot | null | undefined;
   onSelectSymbol?: (ticker: string) => void;
   onSelectList?: (listId: string) => void;
+  explanations?: MoveExplanation[];
 }) {
   const [sortKey, setSortKey] = useState<SortKey>("rvol");
   const [descending, setDescending] = useState(true);
   const rows = data?.rows;
+  const whyByTicker = useMemo(() => {
+    const map = new Map<string, MoveExplanation>();
+    for (const row of explanations ?? []) map.set(row.ticker.toUpperCase(), row);
+    return map;
+  }, [explanations]);
 
   const sorted = useMemo(() => {
     const next = [...(rows ?? [])];
@@ -198,6 +207,7 @@ export function WatchlistTable({
                   </button>
                 </th>
               ))}
+              <th className="h-8 px-3 font-medium">Why</th>
             </tr>
           </thead>
           <tbody>
@@ -207,12 +217,13 @@ export function WatchlistTable({
                   key={row.ticker}
                   row={row}
                   onSelectSymbol={onSelectSymbol}
+                  explanation={whyByTicker.get(row.ticker.toUpperCase())}
                 />
               ))
             ) : (
               <tr>
                 <td
-                  colSpan={8}
+                  colSpan={9}
                   className="px-3 py-10 text-center text-[13px] text-[var(--ib-text-muted)]"
                 >
                   {data?.error ?? "No watchlist names are configured."}
@@ -236,9 +247,11 @@ export function WatchlistTable({
 function WatchlistRow({
   row,
   onSelectSymbol,
+  explanation,
 }: {
   row: DashboardWatchlistRow;
   onSelectSymbol?: (ticker: string) => void;
+  explanation?: MoveExplanation;
 }) {
   return (
     <tr className="border-b border-[var(--ib-border-subtle)] last:border-0 hover:bg-[var(--ib-surface-hover)]">
@@ -270,6 +283,13 @@ function WatchlistRow({
       </td>
       <td className="px-3 text-right font-mono text-[var(--ib-text-secondary)]">
         {formatVolume(row.volume)}
+      </td>
+      <td className="max-w-[14rem] px-3">
+        <WhyMovingBadge
+          explanation={explanation}
+          compact
+          href={`/news?q=${encodeURIComponent(`why is ${row.ticker} moving today`)}`}
+        />
       </td>
     </tr>
   );

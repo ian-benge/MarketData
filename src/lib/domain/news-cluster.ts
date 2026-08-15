@@ -55,7 +55,7 @@ export function canonicalizeUrl(raw: string): string {
   }
 }
 
-function normalizeTitle(title: string): string {
+export function normalizeTitle(title: string): string {
   return title
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, " ")
@@ -63,7 +63,7 @@ function normalizeTitle(title: string): string {
     .trim();
 }
 
-function titleTokens(title: string): Set<string> {
+export function titleTokens(title: string): Set<string> {
   return new Set(
     normalizeTitle(title)
       .split(" ")
@@ -71,7 +71,7 @@ function titleTokens(title: string): Set<string> {
   );
 }
 
-function jaccard(a: Set<string>, b: Set<string>): number {
+export function jaccard(a: Set<string>, b: Set<string>): number {
   if (a.size === 0 && b.size === 0) return 1;
   let intersection = 0;
   for (const t of a) {

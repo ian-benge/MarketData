@@ -22,6 +22,8 @@ import type {
   CoverageGroupMode,
   CoverageQuote,
 } from "@/lib/watchlists/types";
+import type { MoveExplanation } from "@/lib/intelligence/types";
+import { WhyMovingBadge } from "@/components/news/WhyMovingBadge";
 
 type SortKey =
   | "ticker"
@@ -95,6 +97,7 @@ export function CoverageTable({
   query,
   selectedTicker,
   onSelect,
+  explanations,
 }: {
   rows: CoverageQuote[];
   columnSet: CoverageColumnSet;
@@ -102,10 +105,16 @@ export function CoverageTable({
   query: string;
   selectedTicker: string | null;
   onSelect: (ticker: string) => void;
+  explanations?: MoveExplanation[];
 }) {
   const [sortKey, setSortKey] = useState<SortKey>("change1d");
   const [descending, setDescending] = useState(true);
   const columns = COLUMNS.filter((column) => column.sets.includes(columnSet));
+  const whyByTicker = useMemo(() => {
+    const map = new Map<string, MoveExplanation>();
+    for (const row of explanations ?? []) map.set(row.ticker.toUpperCase(), row);
+    return map;
+  }, [explanations]);
 
   const filtered = useMemo(() => {
     const needle = query.trim().toUpperCase();
@@ -226,6 +235,7 @@ export function CoverageTable({
                 </button>
               </th>
             ))}
+            <th className="h-8 px-2.5 font-medium">Why</th>
           </tr>
         </thead>
         <tbody>
@@ -238,13 +248,14 @@ export function CoverageTable({
                 columns={columns}
                 selectedTicker={selectedTicker}
                 onSelect={onSelect}
-                colSpan={columns.length}
+                colSpan={columns.length + 1}
+                whyByTicker={whyByTicker}
               />
             ))
           ) : (
             <tr>
               <td
-                colSpan={columns.length}
+                colSpan={columns.length + 1}
                 className="px-3 py-10 text-center text-[13px] text-[var(--ib-text-muted)]"
               >
                 No names match the current coverage filter.
@@ -264,6 +275,7 @@ function GroupRows({
   selectedTicker,
   onSelect,
   colSpan,
+  whyByTicker,
 }: {
   label: string;
   rows: CoverageQuote[];
@@ -271,6 +283,7 @@ function GroupRows({
   selectedTicker: string | null;
   onSelect: (ticker: string) => void;
   colSpan: number;
+  whyByTicker: Map<string, MoveExplanation>;
 }) {
   return (
     <>
@@ -306,6 +319,13 @@ function GroupRows({
               />
             </td>
           ))}
+          <td className="max-w-[12rem] px-2.5">
+            <WhyMovingBadge
+              explanation={whyByTicker.get(row.ticker)}
+              compact
+              href={`/news?q=${encodeURIComponent(`why is ${row.ticker} moving today`)}`}
+            />
+          </td>
         </tr>
       ))}
     </>

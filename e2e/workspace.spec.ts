@@ -8,11 +8,11 @@ test.describe("research workspace interactions", () => {
     await page.keyboard.press(
       process.platform === "darwin" ? "Meta+K" : "Control+K",
     );
-    const dialog = page.getByRole("dialog", { name: "Command search" });
+    const dialog = page.getByRole("dialog", { name: "Headlines and destinations" });
     await expect(dialog).toBeVisible();
 
     const commandInput = dialog.getByRole("combobox", {
-      name: "Search commands",
+      name: "Search headlines and destinations",
     });
     await expect(commandInput).toBeFocused();
     await commandInput.fill("Research Archive");
@@ -22,6 +22,29 @@ test.describe("research workspace interactions", () => {
     await expect(
       page.getByRole("heading", { name: "Research Archive" }),
     ).toBeVisible();
+  });
+
+  test("material news search is a first-class workspace", async ({ page }) => {
+    await demoLogin(page, "member");
+    await page.goto("/news");
+    await expect(
+      page.getByRole("heading", { name: "Material News" }),
+    ).toBeVisible();
+    const search = page.getByRole("textbox", { name: "Search headlines" });
+    await expect(search).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Event feed" })).toBeVisible({
+      timeout: 20_000,
+    });
+    await search.fill("why is IREN down today");
+    await expect(
+      page.getByRole("heading", { name: "Why IREN is moving" }),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText(/Confirmed company catalyst|Likely catalyst/i).first()).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: /DEMO: IREN Limited files 8-K/i }).first(),
+    ).toBeVisible();
+    await expect(page.getByText(/because/i)).toHaveCount(0);
+    await expectNoPageHorizontalOverflow(page);
   });
 
   test("market chart exposes accessible symbol and range inspection", async ({
@@ -370,6 +393,7 @@ test.describe("mobile workspace layout", () => {
 
     const routes = [
       { path: "/dashboard", heading: "Market Overview" },
+      { path: "/news", heading: "Material News" },
       { path: "/archive", heading: "Research Archive" },
       { path: "/reports/rpt-demo-001", heading: "Midday market brief" },
       { path: "/watchlists", heading: "Watchlists & Sectors" },

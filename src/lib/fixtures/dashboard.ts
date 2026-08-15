@@ -1,5 +1,6 @@
 import { fixtureWatchlistSnapshot } from "@/lib/market-data/watchlist-service";
 import type { DashboardWatchlistSnapshot } from "@/lib/market-data/watchlist-types";
+import type { IntelligenceBundle } from "@/lib/intelligence/types";
 import type {
   NormalizedCalendarEvent,
   NormalizedMover,
@@ -435,7 +436,48 @@ export const fixtureHeadlines: NormalizedNewsItem[] = [
     providerName: "mock-news",
     sourceQuality: "mock",
   },
+  {
+    id: "news-4",
+    title: "DEMO: IREN Limited files 8-K on additional AI power capacity",
+    summary:
+      "Synthetic primary-style filing used only in demo mode so Why-moving can be exercised. Not a live SEC document.",
+    url: "https://demo.news.local/iren-8k",
+    publisher: "Demo EDGAR",
+    publishedAt: "2026-08-15T13:40:00.000Z",
+    retrievedAt: now,
+    tickers: ["IREN"],
+    sourceClass: "primary",
+    providerName: "demo-fixture",
+    sourceQuality: "mock",
+    coverageNotes: "DEMO synthetic filing — not live EDGAR copy.",
+  },
+  {
+    id: "news-5",
+    title: "DEMO: NVIDIA 8-K — data-center outlook commentary",
+    summary:
+      "Synthetic company filing for demo Why-moving. Not a live SEC document.",
+    url: "https://demo.news.local/nvda-8k",
+    publisher: "Demo EDGAR",
+    publishedAt: "2026-08-15T13:20:00.000Z",
+    retrievedAt: now,
+    tickers: ["NVDA"],
+    sourceClass: "primary",
+    providerName: "demo-fixture",
+    sourceQuality: "mock",
+    coverageNotes: "DEMO synthetic filing — not live EDGAR copy.",
+  },
 ];
+
+export function stampFixtureHeadlines(
+  items: NormalizedNewsItem[],
+  clock = new Date(),
+): NormalizedNewsItem[] {
+  return items.map((item, index) => ({
+    ...item,
+    publishedAt: new Date(clock.getTime() - (index + 1) * 22 * 60 * 1000).toISOString(),
+    retrievedAt: clock.toISOString(),
+  }));
+}
 
 export const fixtureCalendar: NormalizedCalendarEvent[] = [
   {
@@ -518,6 +560,10 @@ export type DashboardSnapshot = {
   breadthSupported?: boolean;
   breadthExplanation?: string | null;
   moversCoverageNotes?: string | null;
+  intelligence?: Pick<
+    IntelligenceBundle,
+    "events" | "moves" | "gaps" | "sources" | "fetchedAt" | "stale"
+  > | null;
 };
 
 export const fixtureDashboard: DashboardSnapshot = {

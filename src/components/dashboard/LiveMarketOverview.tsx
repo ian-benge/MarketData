@@ -23,6 +23,8 @@ import {
   overviewDivergenceNotes,
 } from "@/lib/market-data/overview-analytics";
 import { joinMaterialMovers } from "@/lib/market-data/overview-movers";
+import { attributeMoves } from "@/lib/intelligence/attribution";
+import { detectSignificantMove } from "@/lib/intelligence/move-detect";
 import { calculateMarketPulse } from "@/lib/market-data/market-pulse";
 import type { DashboardWatchlistSnapshot } from "@/lib/market-data/watchlist-types";
 import type { NormalizedBar } from "@/lib/providers/types";
@@ -123,6 +125,29 @@ export function LiveMarketOverview({
     listOverride && listOverride.listId !== data.watchlist?.listId
       ? listOverride
       : (data.watchlist ?? null);
+
+  const watchlistMoves = useMemo(() => {
+    const events = data.intelligence?.events ?? [];
+    const server = data.intelligence?.moves ?? [];
+    if (!watchlist?.rows?.length) return server;
+    const quotes = watchlist.rows.map((row) => ({
+      ticker: row.ticker,
+      changePercent: row.change1dPercent,
+      relativeVolume: row.relativeVolume,
+      preMarketChangePercent: row.preMarketChangePercent,
+      afterHoursChangePercent: row.afterHoursChangePercent,
+      flags: [],
+      session: data.marketSession ?? null,
+    }));
+    const significant = quotes.filter((quote) => detectSignificantMove(quote).significant);
+    if (!significant.length) return [];
+    if (!events.length) {
+      return server.filter((row) =>
+        significant.some((quote) => quote.ticker.toUpperCase() === row.ticker.toUpperCase()),
+      );
+    }
+    return attributeMoves(significant, events, data.marketSession);
+  }, [watchlist, data.intelligence, data.marketSession]);
 
   const unhealthyCount = data.providers.filter(
     (provider) => provider.health === "degraded" || provider.health === "down",
@@ -262,11 +287,15 @@ export function LiveMarketOverview({
             data={watchlist}
             onSelectSymbol={selectChartSymbol}
             onSelectList={selectWatchlist}
+            explanations={watchlistMoves}
           />
         </div>
         <div className="min-w-0 xl:col-span-4">
           <HeadlineFeed
             headlines={data.headlines}
+            events={data.intelligence?.events}
+            coverageTickers={watchlist?.symbols}
+            gaps={data.intelligence?.gaps}
             onSelectSymbol={selectChartSymbol}
           />
         </div>

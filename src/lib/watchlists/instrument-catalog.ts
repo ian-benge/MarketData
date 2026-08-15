@@ -52,14 +52,6 @@ const INDEXES: Record<string, string> = {
 };
 
 const ADRS: Record<string, InstrumentClassification> = {
-  SKHY: {
-    name: "SK hynix Inc. ADR",
-    securityType: "adr",
-    assetClass: "equity",
-    exchange: "NASDAQ",
-    issuer: "SK hynix",
-    country: "KR",
-  },
   TSM: {
     name: "Taiwan Semiconductor Manufacturing Co. ADR",
     securityType: "adr",
@@ -480,6 +472,25 @@ const QUARANTINE = new Set<string>(QUARANTINE_SYMBOLS);
 
 export function isQuarantineSymbol(symbol: string): boolean {
   return QUARANTINE.has(symbol.trim().toUpperCase());
+}
+
+/** Flat ticker → name pairs from the local catalog (equities, ADRs, ETFs, OTC, indexes). */
+export function listCatalogInstruments(): Array<{ ticker: string; name: string }> {
+  const out: Array<{ ticker: string; name: string }> = [];
+  const seen = new Set<string>();
+  const add = (ticker: string, name: string) => {
+    const symbol = ticker.trim().toUpperCase();
+    if (!symbol || seen.has(symbol) || !name.trim()) return;
+    seen.add(symbol);
+    out.push({ ticker: symbol, name: name.trim() });
+  };
+  for (const [ticker, name] of Object.entries(EQUITY_NAMES)) add(ticker, name);
+  for (const [ticker, row] of Object.entries(ADRS)) add(ticker, row.name);
+  for (const [ticker, name] of Object.entries(OTC)) add(ticker, name);
+  for (const [ticker, name] of Object.entries(ETFS)) add(ticker, name);
+  for (const [ticker, name] of Object.entries(INDEXES)) add(ticker, name);
+  for (const [ticker, row] of Object.entries(LEVERAGED)) add(ticker, row.name);
+  return out;
 }
 
 export function classifyInstrument(

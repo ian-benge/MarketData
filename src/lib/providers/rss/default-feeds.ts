@@ -7,6 +7,8 @@ export const DEFAULT_NEWS_RSS_FEEDS = [
   "https://www.bls.gov/feed/bls_latest.rss",
   "https://www.sec.gov/news/pressreleases.rss",
   "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114",
+  "https://www.eia.gov/rss/todayinenergy.xml",
+  "https://home.treasury.gov/rss/press-releases.xml",
 ] as const;
 
 export function resolveNewsRssFeeds(csv: string | undefined): string[] {

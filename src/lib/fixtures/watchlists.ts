@@ -114,7 +114,7 @@ export const fixtureWatchlists: FixtureWatchlist[] = [
     purpose: "research",
     navGroup: "tactical",
     sortOrder: 30,
-    symbols: ["NVDA", "AMD", "AVGO", "TSM", "PLTR", "CEG", "EQIX"],
+    symbols: ["NVDA", "AMD", "AVGO", "TSM", "PLTR", "CEG", "EQIX", "IREN"],
   },
   {
     id: "wl-personal-desk",

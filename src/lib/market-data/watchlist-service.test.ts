@@ -65,17 +65,17 @@ describe("getWatchlistSnapshot", () => {
       relativeVolume: 2,
       marketCap: 500_000_000_000,
     });
-    const aapl = snapshot.rows.find((row) => row.ticker === "AAPL");
-    expect(aapl?.last).toBeNull();
-    expect(aapl?.missing).toContain("last");
+    const iwm = snapshot.rows.find((row) => row.ticker === "IWM");
+    expect(iwm?.last).toBeNull();
+    expect(iwm?.missing).toContain("last");
   });
 
   it("serves fixture watchlists in demo mode", async () => {
-    const snapshot = await getWatchlistSnapshot(testEnv(), [], "wl-ai", {
+    const snapshot = await getWatchlistSnapshot(testEnv(), [], "wl-research", {
       useFixtures: true,
     });
     expect(snapshot.usingFixtures).toBe(true);
-    expect(snapshot.listId).toBe("wl-ai");
+    expect(snapshot.listId).toBe("wl-research");
     expect(snapshot.rows.map((row) => row.ticker)).toEqual([
       "NVDA",
       "AMD",
@@ -84,6 +84,7 @@ describe("getWatchlistSnapshot", () => {
       "PLTR",
       "CEG",
       "EQIX",
+      "IREN",
     ]);
     expect(snapshot.rows.every((row) => row.last != null)).toBe(true);
   });

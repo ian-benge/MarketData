@@ -1,98 +1,129 @@
-import { ExternalLink, Newspaper } from "lucide-react";
+"use client";
+
+import Link from "next/link";
+import { EventCard } from "@/components/news/EventCard";
 import { Badge } from "@/components/ui/Badge";
 import { Panel } from "@/components/ui/Panel";
+import { EmptyHint } from "@/components/ui/StatePanel";
+import type { IntelligenceEvent } from "@/lib/intelligence/types";
 import type { NormalizedNewsItem } from "@/lib/providers/types";
-import { formatMarketTime } from "@/lib/utils/format";
+
+function headlinesAsEvents(headlines: NormalizedNewsItem[]): IntelligenceEvent[] {
+  return headlines.map((item) => {
+    const representative = {
+      id: item.id,
+      title: item.title,
+      summary: item.summary,
+      url: item.url,
+      canonicalUrl: item.canonicalUrl,
+      publisher: item.publisher,
+      publishedAt: item.publishedAt,
+      sourceClass: item.sourceClass,
+      providerName: item.providerName,
+      sourceQuality: item.sourceQuality,
+    };
+    return {
+      id: item.id,
+      clusterId: item.id,
+      title: item.title,
+      summary: item.summary,
+      eventType: "other",
+      eventTypeLabel: "Headline",
+      publishedAt: item.publishedAt,
+      novelty: "new",
+      materialityScore: 40,
+      sentiment: "unscored",
+      sentimentNote: null,
+      confidence: "unknown",
+      tickers: (item.tickers ?? []).map((ticker) => ({
+        ticker: ticker.toUpperCase(),
+        name: null,
+        role: "primary" as const,
+        confidence: "high" as const,
+        method: "provider" as const,
+      })),
+      themes: [],
+      sectors: [],
+      secondOrder: [],
+      sources: [representative],
+      representative,
+      memberCount: 1,
+      coverageNotes: item.coverageNotes ?? null,
+      marketReaction: [],
+    };
+  });
+}
 
 export function HeadlineFeed({
   headlines,
+  events,
+  coverageTickers,
+  gaps,
   onSelectSymbol,
 }: {
   headlines: NormalizedNewsItem[];
+  events?: IntelligenceEvent[];
+  coverageTickers?: readonly string[];
+  gaps?: Array<{ code: string; message: string }>;
   onSelectSymbol?: (ticker: string) => void;
 }) {
-  const clustered = [...headlines].sort((a, b) => {
-    const left = a.tickers[0] ?? "";
-    const right = b.tickers[0] ?? "";
-    if (left !== right) return left.localeCompare(right);
-    return Date.parse(b.publishedAt) - Date.parse(a.publishedAt);
+  const coverage = new Set((coverageTickers ?? []).map((ticker) => ticker.toUpperCase()));
+  const clustered =
+    events && events.length ? events : headlinesAsEvents(headlines);
+  const preferred = [...clustered].sort((a, b) => {
+    const aHit = a.tickers.some((entity) => coverage.has(entity.ticker));
+    const bHit = b.tickers.some((entity) => coverage.has(entity.ticker));
+    if (aHit !== bHit) return aHit ? -1 : 1;
+    return b.materialityScore - a.materialityScore;
   });
+
   return (
     <Panel
       title="Material news"
-      description="Clustered by tagged ticker · click a ticker to open the chart"
+      description="Clustered events · coverage-tagged first · click a ticker to select it"
       bodyClassName="p-0"
       actions={
-        <Newspaper
-          aria-hidden="true"
-          className="size-4 text-[var(--ib-text-muted)]"
-        />
+        <Link
+          href="/news"
+          className="text-[11px] font-medium text-[var(--ib-maroon-300)] hover:underline"
+        >
+          Search all
+        </Link>
       }
     >
-      {clustered.length ? (
-        <ol className="divide-y divide-[var(--ib-border-subtle)]">
-          {clustered.map((headline) => (
-            <li
-              key={headline.id}
-              className="grid gap-2 px-3 py-3 hover:bg-[var(--ib-surface-hover)] sm:grid-cols-[88px_minmax(0,1fr)]"
-            >
-              <div className="font-mono text-[10px] leading-4 text-[var(--ib-text-muted)]">
-                <time
-                  dateTime={headline.publishedAt}
-                  className="block text-[var(--ib-text-secondary)]"
-                >
-                  {formatMarketTime(headline.publishedAt)}
-                </time>
-                <span className="mt-0.5 block capitalize">
-                  {headline.sourceClass}
-                </span>
-                <span className="block">
-                  {headline.publisher ?? headline.providerName}
-                </span>
-              </div>
-              <div className="min-w-0">
-                <a
-                  href={headline.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="group inline-flex items-start gap-1.5 text-[13px] font-semibold leading-5 text-[var(--ib-text-primary)] hover:text-[var(--ib-maroon-300)]"
-                >
-                  <span>{headline.title}</span>
-                  <ExternalLink
-                    aria-hidden="true"
-                    className="mt-1 size-3 shrink-0 text-[var(--ib-text-muted)] group-hover:text-[var(--ib-maroon-300)]"
-                  />
-                </a>
-                {headline.summary ? (
-                  <p className="mt-1 text-[12px] leading-5 text-[var(--ib-text-secondary)]">
-                    {headline.summary}
-                  </p>
-                ) : null}
-                <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                  {headline.sourceQuality === "mock" ? (
-                    <Badge tone="mock">Mock source</Badge>
-                  ) : null}
-                  {headline.tickers.slice(0, 5).map((ticker) => (
-                    <button
-                      key={ticker}
-                      type="button"
-                      onClick={() => onSelectSymbol?.(ticker)}
-                      className="rounded-[3px] focus-visible:outline focus-visible:outline-offset-2"
-                      aria-label={`Open ${ticker} in primary chart`}
-                    >
-                      <Badge tone="neutral">{ticker}</Badge>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </li>
+      {gaps?.length ? (
+        <div className="border-b border-[var(--ib-border-subtle)] px-3 py-2">
+          {gaps.slice(0, 2).map((gap) => (
+            <p key={gap.code} className="text-[11px] text-[var(--ib-text-muted)]">
+              {gap.message}
+            </p>
           ))}
-        </ol>
+        </div>
+      ) : null}
+      {preferred.length ? (
+        <div className="xl:max-h-[min(36rem,calc(100dvh-14rem))] xl:overflow-y-auto terminal-scroll">
+          {preferred.slice(0, 16).map((event) => (
+            <EventCard
+              key={event.id}
+              event={event}
+              coverageTickers={coverage}
+              onSelectTicker={onSelectSymbol}
+            />
+          ))}
+        </div>
       ) : (
-        <p className="px-3 py-10 text-center text-[13px] text-[var(--ib-text-muted)]">
-          No material headlines are available for the configured sources.
-        </p>
+        <EmptyHint>
+          No material headlines are available for the configured sources.{" "}
+          <Link href="/news" className="text-[var(--ib-maroon-300)] hover:underline">
+            Open headline search
+          </Link>
+        </EmptyHint>
       )}
+      {preferred.some((event) => event.representative.sourceQuality === "mock") ? (
+        <div className="border-t border-[var(--ib-border-subtle)] px-3 py-2">
+          <Badge tone="mock">Mock source</Badge>
+        </div>
+      ) : null}
     </Panel>
   );
 }
