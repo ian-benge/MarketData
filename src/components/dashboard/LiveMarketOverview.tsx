@@ -11,6 +11,7 @@ import { MaterialMoversPanel } from "@/components/dashboard/MaterialMoversPanel"
 import { SectorHeatmap } from "@/components/dashboard/SectorHeatmap";
 import { WatchlistTable } from "@/components/dashboard/WatchlistTable";
 import { OverviewStatusChrome } from "@/components/dashboard/OverviewStatusChrome";
+import { SessionIntelligence } from "@/components/intel/SessionIntelligence";
 import { StaleBanner } from "@/components/ui/StaleBanner";
 import type { DashboardSnapshot } from "@/lib/fixtures/dashboard";
 import { buildAttentionItems } from "@/lib/market-data/overview-attention";
@@ -239,6 +240,8 @@ export function LiveMarketOverview({
         items={attention}
         onSelectSymbol={selectSymbol}
       />
+
+      <SessionIntelligence onSelectSymbol={selectSymbol} />
 
       {data.stale && data.latencyClass !== "unavailable" ? (
         <StaleBanner asOf={data.asOf} />

@@ -10,6 +10,12 @@ export const PROMPT_TASKS = [
   "section_drafting",
   "editorial_pass",
   "prior_edition_audit",
+  "session_brief",
+  "move_narrative",
+  "book_risk",
+  "news_digest",
+  "grounded_ask",
+  "query_parse",
 ] as const;
 
 export type PromptTask = (typeof PROMPT_TASKS)[number];
@@ -24,6 +30,12 @@ export const PROMPT_VERSIONS = {
   section_drafting: "section_drafting@v3",
   editorial_pass: "editorial_pass@v3",
   prior_edition_audit: "prior_edition_audit@v2",
+  session_brief: "session_brief@v1",
+  move_narrative: "move_narrative@v1",
+  book_risk: "book_risk@v1",
+  news_digest: "news_digest@v1",
+  grounded_ask: "grounded_ask@v1",
+  query_parse: "query_parse@v1",
 } as const satisfies Record<PromptTask, string>;
 
 export type PromptVersion =

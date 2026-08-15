@@ -5,6 +5,7 @@ import type {
   ConfidenceLevel,
   IntelligenceEvent,
   MoveExplanation,
+  MoveWindow,
   QuoteContext,
 } from "./types";
 import { ATTRIBUTION_LABELS } from "./types";
@@ -23,11 +24,17 @@ function inWindow(iso: string, start: string, end: string): boolean {
   return Number.isFinite(at) && at >= Date.parse(start) && at <= Date.parse(end);
 }
 
-function tickerHit(event: IntelligenceEvent, ticker: string): boolean {
+function tickerHit(
+  event: IntelligenceEvent,
+  ticker: string,
+  matchLowConfidence = false,
+): boolean {
   return event.tickers.some(
     (entity) =>
       entity.ticker === ticker &&
-      (entity.confidence === "high" || entity.confidence === "medium"),
+      (matchLowConfidence ||
+        entity.confidence === "high" ||
+        entity.confidence === "medium"),
   );
 }
 
@@ -64,23 +71,30 @@ export function attributeMove(input: {
   now?: Date;
   peerTickers?: string[];
   tickerThemes?: string[];
+  window?: MoveWindow;
+  matchLowConfidence?: boolean;
 }): MoveExplanation {
   const now = input.now ?? new Date();
   const detected = detectSignificantMove(input.quote);
-  const window = newsWindowForSession(input.session ?? input.quote.session, now);
+  const window =
+    input.window ?? newsWindowForSession(input.session ?? input.quote.session, now);
   const ticker = input.quote.ticker.toUpperCase();
+  const allowLow = input.matchLowConfidence === true;
   const inScope = input.events.filter((event) =>
     inWindow(event.publishedAt, window.start, window.end),
   );
   const company = inScope.filter(
-    (event) => tickerHit(event, ticker) && COMPANY_SPECIFIC_TYPES.has(event.eventType),
+    (event) =>
+      tickerHit(event, ticker, allowLow) && COMPANY_SPECIFIC_TYPES.has(event.eventType),
   );
-  const anyTicker = inScope.filter((event) => tickerHit(event, ticker));
+  const anyTicker = inScope.filter((event) => tickerHit(event, ticker, allowLow));
   const primary = company.filter(isPrimarySource);
   const peerSet = new Set((input.peerTickers ?? []).map((value) => value.toUpperCase()));
   const tickerThemes = new Set(input.tickerThemes ?? []);
   const sympathy = inScope.filter((event) => {
-    if (tickerHit(event, ticker) && COMPANY_SPECIFIC_TYPES.has(event.eventType)) return false;
+    if (tickerHit(event, ticker, allowLow) && COMPANY_SPECIFIC_TYPES.has(event.eventType)) {
+      return false;
+    }
     const themePeer = event.secondOrder.some((entity) => entity.ticker === ticker);
     const peerHit = event.tickers.some((entity) => peerSet.has(entity.ticker));
     const themeHit =
@@ -193,6 +207,7 @@ export function attributeMoves(
   now?: Date,
   peerByTicker?: Map<string, string[]>,
   themesByTicker?: Map<string, string[]>,
+  options?: { window?: MoveWindow; matchLowConfidence?: boolean },
 ): MoveExplanation[] {
   return quotes.map((quote) =>
     attributeMove({
@@ -202,6 +217,8 @@ export function attributeMoves(
       now,
       peerTickers: peerByTicker?.get(quote.ticker.toUpperCase()),
       tickerThemes: themesByTicker?.get(quote.ticker.toUpperCase()),
+      window: options?.window,
+      matchLowConfidence: options?.matchLowConfidence,
     }),
   );
 }

@@ -52,12 +52,14 @@ const EXTRA_ALIASES: Record<string, string> = {
   alphabet: "GOOGL",
   google: "GOOGL",
   "meta platforms": "META",
+  meta: "META",
   facebook: "META",
   amazon: "AMZN",
   microsoft: "MSFT",
   broadcom: "AVGO",
   "advanced micro devices": "AMD",
   "iris energy": "IREN",
+  iris: "IREN",
   iren: "IREN",
   coreweave: "CRWV",
   "super micro": "SMCI",
@@ -90,14 +92,16 @@ function buildCatalog() {
   if (catalogCache) return catalogCache;
   const byTicker = new Map<string, CatalogEntry>();
   const byAlias = new Map<string, string>();
-  const addAlias = (alias: string, ticker: string) => {
+  const addAlias = (alias: string, ticker: string, overwrite = false) => {
     const key = alias.trim().toLowerCase();
     if (key.length < 3) return;
     if (STOP_TICKERS.has(key.toUpperCase()) && key.length <= 3) return;
     const existing = byAlias.get(key);
     if (existing && existing !== ticker) {
-      byAlias.delete(key);
-      return;
+      if (!overwrite) {
+        byAlias.delete(key);
+        return;
+      }
     }
     byAlias.set(key, ticker);
   };
@@ -116,7 +120,7 @@ function buildCatalog() {
     for (const alias of aliases) addAlias(alias, row.ticker);
   }
   for (const [alias, ticker] of Object.entries(EXTRA_ALIASES)) {
-    addAlias(alias, ticker);
+    addAlias(alias, ticker, true);
     if (!byTicker.has(ticker)) {
       byTicker.set(ticker, { ticker, name: alias, aliases: [alias] });
     }
@@ -131,6 +135,15 @@ export function resetEntityCatalogCache() {
 
 export function catalogNameFor(ticker: string): string | null {
   return buildCatalog().byTicker.get(ticker.toUpperCase())?.name ?? null;
+}
+
+export function isCatalogTicker(ticker: string): boolean {
+  return buildCatalog().byTicker.has(ticker.toUpperCase());
+}
+
+/** Caps that appear in prose and must not be stripped as junk equity tags. */
+export function isProseCapToken(token: string): boolean {
+  return STOP_TICKERS.has(token.toUpperCase());
 }
 
 export function resolveAlias(raw: string): string | null {
@@ -179,6 +192,23 @@ function tokenTickers(text: string, catalog: ReturnType<typeof buildCatalog>) {
   return found;
 }
 
+export function tickerMentionedInText(
+  ticker: string,
+  text: string,
+  catalog: ReturnType<typeof buildCatalog> = buildCatalog(),
+): boolean {
+  const upper = ticker.toUpperCase();
+  if (new RegExp(`\\b${upper}\\b`).test(text.toUpperCase())) return true;
+  const lower = ` ${text.toLowerCase().replace(/[^a-z0-9\s]/g, " ")} `;
+  const entry = catalog.byTicker.get(upper);
+  if (entry?.aliases.some((alias) => alias.length >= 4 && lower.includes(` ${alias} `))) {
+    return true;
+  }
+  return Object.entries(EXTRA_ALIASES).some(
+    ([alias, dest]) => dest === upper && lower.includes(` ${alias} `),
+  );
+}
+
 function nameMatches(text: string, catalog: ReturnType<typeof buildCatalog>) {
   const lower = ` ${text.toLowerCase().replace(/[^a-z0-9\s]/g, " ")} `;
   const hits: string[] = [];
@@ -205,9 +235,14 @@ export function resolveEntities(
   const map = new Map<string, ResolvedEntity>();
   const text = `${item.title} ${item.summary ?? ""} ${item.excerpt ?? ""}`;
 
-  for (const raw of item.tickers ?? []) {
-    const ticker = raw.trim().toUpperCase();
-    if (!ticker) continue;
+  const providerTickers = (item.tickers ?? [])
+    .map((raw) => raw.trim().toUpperCase())
+    .filter(Boolean);
+  for (const ticker of providerTickers) {
+    const inCatalog = catalog.byTicker.has(ticker);
+    const mentioned = tickerMentionedInText(ticker, text, catalog);
+    if (!inCatalog && !mentioned) continue;
+    if (providerTickers.length > 3 && !mentioned) continue;
     pushEntity(map, {
       ticker,
       name: catalog.byTicker.get(ticker)?.name ?? null,

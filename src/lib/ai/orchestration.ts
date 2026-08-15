@@ -6,13 +6,15 @@ import { MockAiProvider } from "@/lib/providers/mock";
 import { AnthropicProvider } from "@/lib/ai/anthropic-adapter";
 import { GeminiProvider } from "@/lib/ai/gemini-adapter";
 import { OpenAiProvider } from "@/lib/ai/openai-adapter";
+import { GatewayAiProvider } from "@/lib/ai/gateway-adapter";
+import { gatewayConfigured } from "@/lib/desk-intel/models";
 import {
   PROMPT_VERSIONS,
   type PromptTask,
   promptVersionFor,
 } from "@/lib/ai/prompt-versions";
 
-export type AiProviderId = "openai" | "anthropic" | "gemini" | "mock";
+export type AiProviderId = "gateway" | "openai" | "anthropic" | "gemini" | "mock";
 
 export type AiUsageEvent = {
   providerName: string;
@@ -62,6 +64,12 @@ const TASK_PROVIDER_DEFAULTS: Record<PromptTask, AiProviderId> = {
   section_drafting: "openai",
   editorial_pass: "anthropic",
   prior_edition_audit: "anthropic",
+  session_brief: "anthropic",
+  move_narrative: "openai",
+  book_risk: "anthropic",
+  news_digest: "openai",
+  grounded_ask: "anthropic",
+  query_parse: "openai",
 };
 
 function sleep(ms: number): Promise<void> {
@@ -111,12 +119,19 @@ function resolveProviderChain(
     (id) => id !== preferred && id !== "mock",
   );
 
-  return [preferred, ...fallbacks];
+  const chain = [preferred, ...fallbacks];
+  if (gatewayConfigured(env) && !chain.includes("gateway")) {
+    return ["gateway", ...chain];
+  }
+  return chain;
 }
 
 function tryCreateProvider(id: AiProviderId, env: Env): AiProvider | null {
   try {
     switch (id) {
+      case "gateway":
+        if (!gatewayConfigured(env)) return null;
+        return new GatewayAiProvider();
       case "openai":
         if (!env.OPENAI_API_KEY) return null;
         return new OpenAiProvider({
@@ -145,13 +160,27 @@ function tryCreateProvider(id: AiProviderId, env: Env): AiProvider | null {
   }
 }
 
+/** Gateway ids are `provider/model`. Direct adapters reject those strings. */
+export function requestModelForProvider(
+  providerId: AiProviderId,
+  requestModel?: string,
+): string | undefined {
+  if (!requestModel) return undefined;
+  if (providerId === "gateway") return requestModel;
+  if (requestModel.includes("/")) return undefined;
+  return requestModel;
+}
+
 function modelFor(
   id: AiProviderId,
   env: Env,
   requestModel?: string,
 ): string {
-  if (requestModel) return requestModel;
+  const scoped = requestModelForProvider(id, requestModel);
+  if (scoped) return scoped;
   switch (id) {
+    case "gateway":
+      return env.DESK_INTEL_MODEL_STRONG;
     case "openai":
       return env.OPENAI_MODEL;
     case "anthropic":
@@ -238,11 +267,15 @@ export class AiOrchestration {
       }
 
       const attempts = this.config.maxAttemptsPerProvider;
+      const providerRequest: AiStructuredRequest<T> = {
+        ...enriched,
+        model: requestModelForProvider(providerId, request.model),
+      };
       for (let attempt = 1; attempt <= attempts; attempt += 1) {
         const attemptStarted = Date.now();
         try {
           const result = await withTimeout(
-            provider.generateStructured(enriched),
+            provider.generateStructured(providerRequest),
             this.config.timeoutMs,
           );
 

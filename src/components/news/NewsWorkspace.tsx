@@ -3,7 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { EventCard } from "@/components/news/EventCard";
-import { WhyMovingBadge } from "@/components/news/WhyMovingBadge";
+import { TickerSearchField } from "@/components/news/TickerSearchField";
+import { DeskAsk } from "@/components/intel/DeskAsk";
+import { MoveNarrativeLoader } from "@/components/intel/MoveNarrativeLoader";
+import { NewsDigestPanel } from "@/components/intel/NewsDigestPanel";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ChipToggle } from "@/components/ui/ChipToggle";
@@ -19,6 +22,7 @@ import type {
   SourceStatus,
 } from "@/lib/intelligence/types";
 import { THEMES } from "@/lib/intelligence/themes";
+import { parseTickerList, queryIsTickerOnly } from "@/lib/intelligence/ticker-suggest";
 
 const RECENT_KEY = "ib-news-recent-searches";
 
@@ -77,21 +81,32 @@ function writeRecent(query: string) {
   localStorage.setItem(RECENT_KEY, JSON.stringify(next));
 }
 
+function parseTickerParam(raw: string): string[] {
+  return parseTickerList(raw.replaceAll(",", " "));
+}
+
+function providerSearchStatus(tickers: string[]): string {
+  const names = tickers.join(", ");
+  return `Searching news providers for ${names}. Company wires, filings, and RSS can take a few seconds — this is a live provider query, not a generated summary.`;
+}
+
 function buildParams(input: {
   query: string;
-  ticker: string;
+  tickers: string[];
   eventType: EventType | "";
   theme: string;
   materialOnly: boolean;
   window: string;
+  ask?: string;
 }) {
   const params = new URLSearchParams();
   if (input.query.trim()) params.set("q", input.query.trim());
-  if (input.ticker) params.set("ticker", input.ticker);
+  if (input.tickers.length) params.set("ticker", input.tickers.join(","));
   if (input.eventType) params.set("type", input.eventType);
   if (input.theme) params.set("theme", input.theme);
   if (input.materialOnly) params.set("material", "1");
   if (input.window) params.set("window", input.window);
+  if (input.ask?.trim()) params.set("ask", input.ask.trim());
   return params;
 }
 
@@ -102,6 +117,7 @@ export function NewsWorkspace({
   initialTheme = "",
   initialMaterial = false,
   initialWindow = "",
+  initialAsk = "",
 }: {
   initialQuery?: string;
   initialTicker?: string;
@@ -109,19 +125,19 @@ export function NewsWorkspace({
   initialTheme?: string;
   initialMaterial?: boolean;
   initialWindow?: string;
+  initialAsk?: string;
 }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState(initialQuery);
-  const [ticker, setTicker] = useState(initialTicker);
+  const [tickers, setTickers] = useState<string[]>(() => parseTickerParam(initialTicker));
   const [eventType, setEventType] = useState<EventType | "">(asEventType(initialEventType));
   const [theme, setTheme] = useState(initialTheme);
   const [materialOnly, setMaterialOnly] = useState(initialMaterial);
   const [windowFilter, setWindowFilter] = useState(initialWindow);
+  const [showThemes, setShowThemes] = useState(Boolean(initialTheme));
   const [reloadNonce, setReloadNonce] = useState(0);
-  const [recent, setRecent] = useState<string[]>(() =>
-    typeof window === "undefined" ? [] : readRecent(),
-  );
+  const [recent, setRecent] = useState<string[]>([]);
   const [saved, setSaved] = useState<SavedSearch[]>([]);
   const [canSave, setCanSave] = useState(false);
   const [payload, setPayload] = useState<NewsPayload | null>(null);
@@ -131,6 +147,7 @@ export function NewsWorkspace({
   const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
+    setRecent(readRecent());
     requestAnimationFrame(() => inputRef.current?.focus());
     void fetch("/api/news/saved", { cache: "no-store" })
       .then(async (response) => {
@@ -151,11 +168,12 @@ export function NewsWorkspace({
     let cancelled = false;
     const params = buildParams({
       query,
-      ticker,
+      tickers,
       eventType,
       theme,
       materialOnly,
       window: windowFilter,
+      ask: initialAsk,
     });
     const nextPath = params.toString() ? `/news?${params}` : "/news";
 
@@ -197,7 +215,7 @@ export function NewsWorkspace({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [eventType, materialOnly, query, reloadNonce, router, theme, ticker, windowFilter]);
+  }, [eventType, initialAsk, materialOnly, query, reloadNonce, router, theme, tickers, windowFilter]);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -224,11 +242,43 @@ export function NewsWorkspace({
     () => new Set((payload?.coverageTickers ?? []).map((symbol) => symbol.toUpperCase())),
     [payload?.coverageTickers],
   );
-  const why = payload?.moves[0] ?? null;
+  const focusTicker =
+    payload?.parsed.whyTicker ?? (tickers.length === 1 ? tickers[0]! : null);
+  const why =
+    (focusTicker
+      ? payload?.moves.find((row) => row.ticker === focusTicker)
+      : null) ??
+    payload?.moves[0] ??
+    null;
+  const showWhy =
+    Boolean(why) &&
+    (payload?.parsed.intent === "why_moving" || tickers.length === 1);
+  const chartTicker = tickers[0] ?? "";
+  const hasFilters = Boolean(
+    tickers.length || eventType || theme || materialOnly || windowFilter,
+  );
+
+  function addTicker(symbol: string) {
+    const next = symbol.trim().toUpperCase();
+    if (!next) return;
+    setTickers((current) => (current.includes(next) ? current : [...current, next]));
+  }
+
+  function removeTicker(symbol: string) {
+    setTickers((current) => current.filter((row) => row !== symbol));
+  }
+
+  function clearFilters() {
+    setTickers([]);
+    setEventType("");
+    setTheme("");
+    setMaterialOnly(false);
+    setWindowFilter("");
+  }
 
   async function saveCurrent() {
-    const name = (query.trim() || ticker || theme || "Untitled search").slice(0, 80);
-    if (!query.trim() && !ticker && !theme && !eventType) return;
+    const name = (query.trim() || tickers.join(" ") || theme || "Untitled search").slice(0, 80);
+    if (!query.trim() && !tickers.length && !theme && !eventType) return;
     setSaveError(null);
     try {
       const response = await fetch("/api/news/saved", {
@@ -236,9 +286,9 @@ export function NewsWorkspace({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           name,
-          query: query.trim() || ticker || theme,
+          query: query.trim() || tickers.join(" ") || theme,
           filters: {
-            ticker,
+            ticker: tickers.join(","),
             type: eventType || undefined,
             theme: theme || undefined,
             material: materialOnly,
@@ -275,11 +325,12 @@ export function NewsWorkspace({
   function applySaved(row: SavedSearch) {
     setQuery(row.query);
     const filters = row.filters ?? {};
-    setTicker(typeof filters.ticker === "string" ? filters.ticker : "");
+    setTickers(typeof filters.ticker === "string" ? parseTickerParam(filters.ticker) : []);
     setEventType(asEventType(typeof filters.type === "string" ? filters.type : ""));
     setTheme(typeof filters.theme === "string" ? filters.theme : "");
     setMaterialOnly(filters.material === true || filters.material === "1");
     setWindowFilter(typeof filters.window === "string" ? filters.window : "");
+    if (typeof filters.theme === "string" && filters.theme) setShowThemes(true);
   }
 
   return (
@@ -290,17 +341,35 @@ export function NewsWorkspace({
         description="Search live wires, filings, and clustered events. Why-it’s-moving is evidence-backed — unknown stays unknown."
       />
 
-      <Panel bodyClassName="p-3">
-        <label className="sr-only" htmlFor="news-search">
-          Search headlines
-        </label>
-        <div className="flex flex-col gap-2 sm:flex-row">
+      <Panel
+        title="Headline search"
+        description="Pin tickers first, then refine with a question or chips. Ask stays grounded in this session’s evidence."
+        bodyClassName="space-y-3 p-3"
+      >
+        <div className="flex flex-col gap-2 lg:flex-row">
+          <TickerSearchField
+            selected={tickers}
+            onAdd={addTicker}
+            onRemove={removeTicker}
+          />
+          <label className="sr-only" htmlFor="news-search">
+            Search headlines
+          </label>
           <input
             id="news-search"
             ref={inputRef}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder='Ticker, theme, or natural language — “why is IREN down today”, “AI power contracts this week”'
+            onKeyDown={(event) => {
+              if (event.key !== "Enter") return;
+              if (!queryIsTickerOnly(query)) return;
+              const next = parseTickerList(query);
+              if (!next.length) return;
+              event.preventDefault();
+              setTickers((current) => [...new Set([...current, ...next])]);
+              setQuery("");
+            }}
+            placeholder='Question or keywords — “why is IREN down today”, “AI power contracts this week”'
             className="field-control h-11 min-w-0 flex-1 text-sm"
           />
           {canSave ? (
@@ -309,56 +378,135 @@ export function NewsWorkspace({
               variant="secondary"
               className="h-11 shrink-0"
               onClick={() => void saveCurrent()}
-              disabled={!query.trim() && !ticker && !theme}
+              disabled={!query.trim() && !tickers.length && !theme}
             >
               Save search
             </Button>
           ) : null}
         </div>
         {saveError ? (
-          <p className="mt-2 text-[12px] text-[var(--market-negative)]">{saveError}</p>
+          <p className="text-[12px] text-[var(--market-negative)]">{saveError}</p>
         ) : null}
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          <ChipToggle pressed={!eventType} onClick={() => setEventType("")}>
-            All types
-          </ChipToggle>
-          {TYPE_CHIPS.map((type) => (
-            <ChipToggle
-              key={type}
-              pressed={eventType === type}
-              onClick={() => setEventType(eventType === type ? "" : type)}
+        {loading && tickers.length ? (
+          <p
+            role="status"
+            aria-live="polite"
+            className="rounded-[4px] border border-[color-mix(in_oklab,var(--state-info)_40%,var(--ib-border-subtle))] bg-[color-mix(in_oklab,var(--state-info)_8%,transparent)] px-2.5 py-2 text-[12px] leading-5 text-[var(--ib-text-secondary)]"
+          >
+            {providerSearchStatus(tickers)}
+          </p>
+        ) : null}
+
+        {hasFilters ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
+              Active
+            </span>
+            {tickers.map((symbol) => (
+              <button
+                key={`active-${symbol}`}
+                type="button"
+                className="rounded-[3px] border border-[color-mix(in_oklab,var(--ib-maroon-500)_48%,transparent)] bg-[color-mix(in_oklab,var(--ib-maroon-500)_12%,transparent)] px-2 py-1 font-mono text-[11px] text-[var(--ib-maroon-300)]"
+                onClick={() => removeTicker(symbol)}
+              >
+                {symbol} ×
+              </button>
+            ))}
+            {eventType ? (
+              <span className="rounded-[3px] border border-[var(--ib-border-subtle)] px-2 py-1 text-[11px] text-[var(--ib-text-secondary)]">
+                {EVENT_TYPE_LABELS[eventType]}
+              </span>
+            ) : null}
+            {windowFilter ? (
+              <span className="rounded-[3px] border border-[var(--ib-border-subtle)] px-2 py-1 text-[11px] text-[var(--ib-text-secondary)]">
+                {TIME_WINDOWS.find((row) => row.id === windowFilter)?.label ?? windowFilter}
+              </span>
+            ) : null}
+            {theme ? (
+              <span className="rounded-[3px] border border-[var(--ib-border-subtle)] px-2 py-1 text-[11px] text-[var(--ib-text-secondary)]">
+                {THEMES.find((row) => row.id === theme)?.label ?? theme}
+              </span>
+            ) : null}
+            {materialOnly ? (
+              <span className="rounded-[3px] border border-[var(--ib-border-subtle)] px-2 py-1 text-[11px] text-[var(--ib-text-secondary)]">
+                Material only
+              </span>
+            ) : null}
+            <button
+              type="button"
+              className="text-[11px] text-[var(--ib-text-muted)] hover:text-[var(--ib-text-primary)]"
+              onClick={clearFilters}
             >
-              {EVENT_TYPE_LABELS[type]}
+              Clear filters
+            </button>
+          </div>
+        ) : null}
+
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="w-12 shrink-0 font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
+              Time
+            </span>
+            {TIME_WINDOWS.map((row) => (
+              <ChipToggle
+                key={row.id || "all"}
+                pressed={windowFilter === row.id}
+                onClick={() => setWindowFilter(row.id)}
+              >
+                {row.label}
+              </ChipToggle>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="w-12 shrink-0 font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
+              Type
+            </span>
+            <ChipToggle pressed={!eventType} onClick={() => setEventType("")}>
+              All
             </ChipToggle>
-          ))}
-          <ChipToggle pressed={materialOnly} onClick={() => setMaterialOnly((value) => !value)}>
-            Material only
-          </ChipToggle>
-        </div>
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {TIME_WINDOWS.map((row) => (
-            <ChipToggle
-              key={row.id || "all"}
-              pressed={windowFilter === row.id}
-              onClick={() => setWindowFilter(row.id)}
-            >
-              {row.label}
+            {TYPE_CHIPS.map((type) => (
+              <ChipToggle
+                key={type}
+                pressed={eventType === type}
+                onClick={() => setEventType(eventType === type ? "" : type)}
+              >
+                {EVENT_TYPE_LABELS[type]}
+              </ChipToggle>
+            ))}
+            <ChipToggle pressed={materialOnly} onClick={() => setMaterialOnly((value) => !value)}>
+              Material
             </ChipToggle>
-          ))}
-        </div>
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {THEMES.map((row) => (
-            <ChipToggle
-              key={row.id}
-              pressed={theme === row.id}
-              onClick={() => setTheme(theme === row.id ? "" : row.id)}
-            >
-              {row.label}
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="w-12 shrink-0 font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
+              Theme
+            </span>
+            <ChipToggle pressed={showThemes} onClick={() => setShowThemes((value) => !value)}>
+              {showThemes ? "Hide" : "Show themes"}
             </ChipToggle>
-          ))}
+            {theme && !showThemes ? (
+              <ChipToggle pressed onClick={() => setTheme("")}>
+                {THEMES.find((row) => row.id === theme)?.label ?? theme}
+              </ChipToggle>
+            ) : null}
+          </div>
+          {showThemes ? (
+            <div className="flex flex-wrap gap-1.5 pl-12">
+              {THEMES.map((row) => (
+                <ChipToggle
+                  key={row.id}
+                  pressed={theme === row.id}
+                  onClick={() => setTheme(theme === row.id ? "" : row.id)}
+                >
+                  {row.label}
+                </ChipToggle>
+              ))}
+            </div>
+          ) : null}
         </div>
+
         {recent.length ? (
-          <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
               Recent
             </span>
@@ -367,7 +515,13 @@ export function NewsWorkspace({
                 key={item}
                 type="button"
                 className="rounded-[3px] border border-[var(--ib-border-subtle)] px-2 py-1 text-[11px] text-[var(--ib-text-secondary)] hover:text-[var(--ib-text-primary)]"
-                onClick={() => setQuery(item)}
+                onClick={() => {
+                  if (queryIsTickerOnly(item)) {
+                    setTickers((current) => [...new Set([...current, ...parseTickerList(item)])]);
+                    return;
+                  }
+                  setQuery(item);
+                }}
               >
                 {item}
               </button>
@@ -375,7 +529,7 @@ export function NewsWorkspace({
           </div>
         ) : null}
         {saved.length ? (
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
               Saved
             </span>
@@ -400,8 +554,15 @@ export function NewsWorkspace({
             ))}
           </div>
         ) : null}
-        <p className="mt-2 font-mono text-[10px] text-[var(--ib-text-muted)]">
-          j / k inspect clusters · ticker chips filter this feed · Ctrl+K command palette
+
+        <div className="border-t border-[var(--ib-border-subtle)] pt-3">
+          <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
+            Ask this session
+          </p>
+          <DeskAsk initialQuestion={initialAsk} compact />
+        </div>
+        <p className="font-mono text-[10px] text-[var(--ib-text-muted)]">
+          Enter a ticker to pin it · j / k inspect clusters · Ctrl+K command palette
         </p>
       </Panel>
 
@@ -424,7 +585,7 @@ export function NewsWorkspace({
         </Panel>
       ) : null}
 
-      {payload?.parsed.intent === "why_moving" && why ? (
+      {showWhy && why ? (
         <Panel
           title={`Why ${why.ticker} is moving`}
           description={`${why.window.label} · ${
@@ -436,8 +597,7 @@ export function NewsWorkspace({
           }`}
         >
           <div className="space-y-2">
-            <WhyMovingBadge explanation={why} />
-            <p className="text-[13px] leading-5 text-[var(--ib-text-secondary)]">{why.detail}</p>
+            <MoveNarrativeLoader ticker={why.ticker} explanation={why} />
             {why.changePercent != null ? (
               <p className="font-mono text-[11px] text-[var(--ib-text-muted)]">
                 {why.direction} {why.changePercent.toFixed(2)}%
@@ -449,25 +609,6 @@ export function NewsWorkspace({
                 No live quote was available for this ticker in the current cache.
               </p>
             )}
-            {why.supportingEvents.length ? (
-              <ul className="space-y-1 text-[12px]">
-                {why.supportingEvents.map((item) => (
-                  <li key={item.id}>
-                    <a
-                      href={item.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-[var(--ib-maroon-300)] hover:underline"
-                    >
-                      {item.title}
-                    </a>
-                    <span className="ml-2 font-mono text-[10px] text-[var(--ib-text-muted)]">
-                      {item.publishedAt}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
             {why.relatedTickers.length ? (
               <p className="text-[11px] text-[var(--ib-text-muted)]">
                 Related: {why.relatedTickers.join(", ")}
@@ -479,6 +620,8 @@ export function NewsWorkspace({
           </div>
         </Panel>
       ) : null}
+
+      {!error ? <NewsDigestPanel query={payload?.query ?? initialQuery} /> : null}
 
       {error ? (
         <StatePanel
@@ -498,31 +641,40 @@ export function NewsWorkspace({
           className="xl:col-span-8"
           title="Event feed"
           description={
-            loading
-              ? "Loading clustered headlines…"
-              : payload
-                ? `${payload.events.length} clustered events · ${payload.sources.filter((row) => row.status === "ok").length} live sources`
-                : "No payload"
+            loading && tickers.length
+              ? `Searching providers for ${tickers.join(", ")}…`
+              : loading
+                ? "Loading clustered headlines…"
+                : payload
+                  ? `${payload.events.length} clustered events${
+                      tickers.length ? ` · ${tickers.join(", ")}` : ""
+                    } · ${payload.sources.filter((row) => row.status === "ok").length} live sources`
+                  : "No payload"
           }
           bodyClassName="p-0"
         >
           {payload?.events.length ? (
             <div className="xl:max-h-[min(70vh,44rem)] xl:overflow-y-auto terminal-scroll">
+              {loading && tickers.length ? (
+                <p className="border-b border-[var(--ib-border-subtle)] px-3 py-2 text-[12px] text-[var(--ib-text-secondary)]">
+                  Refreshing provider headlines for {tickers.join(", ")}…
+                </p>
+              ) : null}
               {payload.events.map((event, index) => (
                 <EventCard
                   key={event.id}
                   event={event}
                   coverageTickers={coverage}
                   selected={index === selectedIndex}
-                  onSelectTicker={(symbol) => {
-                    setTicker(symbol);
-                  }}
+                  onSelectTicker={addTicker}
                 />
               ))}
             </div>
           ) : loading ? (
             <p className="px-3 py-8 text-center text-[12px] text-[var(--ib-text-muted)]">
-              Loading clustered headlines…
+              {tickers.length
+                ? `Waiting on news providers for ${tickers.join(", ")}…`
+                : "Loading clustered headlines…"}
             </p>
           ) : (
             <StatePanel
@@ -578,13 +730,13 @@ export function NewsWorkspace({
                 variant="secondary"
                 onClick={() =>
                   router.push(
-                    ticker
-                      ? `/dashboard?symbol=${encodeURIComponent(ticker)}`
+                    chartTicker
+                      ? `/dashboard?symbol=${encodeURIComponent(chartTicker)}`
                       : "/dashboard",
                   )
                 }
               >
-                {ticker ? `Open ${ticker} chart` : "Market Overview"}
+                {chartTicker ? `Open ${chartTicker} chart` : "Market Overview"}
               </Button>
               <Button
                 size="sm"

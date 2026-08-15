@@ -15,6 +15,7 @@ import {
   isLeveragedProduct,
 } from "@/lib/watchlists/taxonomy";
 import { WhyMovingBadge } from "@/components/news/WhyMovingBadge";
+import { MoveNarrativeLoader } from "@/components/intel/MoveNarrativeLoader";
 import type { MoveExplanation } from "@/lib/intelligence/types";
 import type {
   CoverageCatalyst,
@@ -189,15 +190,7 @@ export function TickerInspector({
             explanation={explanation}
             href={`/news?q=${encodeURIComponent(`why is ${row.ticker} moving today`)}`}
           />
-          <p className="text-[12px] leading-5 text-[var(--ib-text-secondary)]">
-            {explanation.detail}
-          </p>
-          <p className="text-[11px] text-[var(--ib-text-muted)]">
-            {explanation.evidenceNature === "fact"
-              ? "Fact from a primary source."
-              : "System inference from timing, ticker match, and available reporting — not a confirmed cause."}
-            {explanation.coverageGap ? ` ${explanation.coverageGap}` : ""}
-          </p>
+          <MoveNarrativeLoader ticker={row.ticker} explanation={explanation} />
         </div>
       ) : null}
 

@@ -5,6 +5,7 @@ import { ArrowDown, ArrowUp } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Panel } from "@/components/ui/Panel";
 import { EmptyHint } from "@/components/ui/StatePanel";
+import type { MoveExplanation } from "@/lib/intelligence/types";
 import type { JoinedMover } from "@/lib/market-data/overview-movers";
 import { cn } from "@/lib/utils/cn";
 import {
@@ -14,8 +15,35 @@ import {
   marketToneClass,
 } from "@/lib/utils/format";
 import { LatestReportLine, type LatestReport } from "@/components/dashboard/LatestReportCard";
+import { MoveNarrativeLoader } from "@/components/intel/MoveNarrativeLoader";
 
 type SortKey = "symbol" | "change" | "last" | "volume";
+
+function explanationFromMover(
+  mover?: JoinedMover,
+): MoveExplanation | undefined {
+  if (!mover?.attribution) return undefined;
+  return {
+    ticker: mover.ticker,
+    significant: true,
+    changePercent: mover.changePercent,
+    relativeVolume: mover.relativeVolume,
+    session: null,
+    flags: [],
+    direction: mover.direction,
+    attribution: mover.attribution,
+    confidence: mover.confidence ?? "unknown",
+    evidenceNature: mover.evidenceNature ?? "inference",
+    causalStatus: mover.causalStatus,
+    headline: mover.headlineTitle ?? "Unknown catalyst",
+    detail: mover.headlineTitle ?? "",
+    supportingEvents: [],
+    relatedTickers: [],
+    themes: [],
+    window: { start: "", end: "", label: "session" },
+    coverageGap: mover.coverageNotes,
+  };
+}
 
 export function MaterialMoversPanel({
   movers,
@@ -177,6 +205,19 @@ export function MaterialMoversPanel({
         )}
       </div>
       <div className="space-y-1 border-t border-[var(--ib-border-subtle)] px-3 py-2">
+        {selectedSymbol ? (
+          <div className="mb-2">
+            <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
+              Why {selectedSymbol} is moving
+            </p>
+            <MoveNarrativeLoader
+              ticker={selectedSymbol}
+              explanation={explanationFromMover(
+                sorted.find((row) => row.ticker === selectedSymbol),
+              )}
+            />
+          </div>
+        ) : null}
         {coverageNotes ? (
           <p className="text-[10px] leading-4 text-[var(--ib-text-muted)]">{coverageNotes}</p>
         ) : null}

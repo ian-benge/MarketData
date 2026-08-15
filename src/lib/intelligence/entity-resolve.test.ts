@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { resolveAlias, resolveEntities, resolveQueryTickers } from "./entity-resolve";
+import {
+  isCatalogTicker,
+  isProseCapToken,
+  resolveAlias,
+  resolveEntities,
+  resolveQueryTickers,
+  tickerMentionedInText,
+} from "./entity-resolve";
 
 describe("entity resolution", () => {
   it("keeps provider-tagged tickers with high confidence", () => {
@@ -42,6 +49,34 @@ describe("entity resolution", () => {
     expect(resolveQueryTickers("why is IREN down today")).toContain("IREN");
     expect(resolveQueryTickers("Taiwan Semiconductor export controls")).toContain("TSM");
     expect(resolveQueryTickers("Iris Energy")).toContain("IREN");
+    expect(resolveQueryTickers("meta")).toContain("META");
+  });
+
+  it("drops provider overtags that are not in the catalog or the headline", () => {
+    const entities = resolveEntities({
+      title:
+        "Elon Musk Says SpaceX Has a Massive Competitive Advantage in AI That Amazon, Google, and Microsoft Can't Touch",
+      tickers: ["AMZN", "GOOG", "GOOGL", "GOOGM", "GOOGN", "MSFT", "SPCX"],
+    });
+    const tickers = entities.map((row) => row.ticker);
+    expect(tickers).toEqual(expect.arrayContaining(["AMZN", "GOOGL", "MSFT"]));
+    expect(tickers).not.toContain("GOOGM");
+    expect(tickers).not.toContain("GOOGN");
+    expect(tickers).not.toContain("SPCX");
+  });
+
+  it("keeps catalog ETFs like SPCX but still drops them when they are not mentioned", () => {
+    expect(isCatalogTicker("NVDA")).toBe(true);
+    expect(isCatalogTicker("SPCX")).toBe(true);
+    expect(isCatalogTicker("GOOGM")).toBe(false);
+    expect(isProseCapToken("AI")).toBe(true);
+    expect(isProseCapToken("SPCX")).toBe(false);
+    expect(tickerMentionedInText("SPCX", "SpaceX versus Amazon and Microsoft")).toBe(
+      false,
+    );
+    expect(tickerMentionedInText("AMZN", "SpaceX versus Amazon and Microsoft")).toBe(
+      true,
+    );
   });
 
   it("does not map SK Hynix aliases to the invented SKHY ticker", () => {

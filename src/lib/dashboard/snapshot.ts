@@ -162,7 +162,9 @@ async function fixtureCoverage(user: SessionUser, listId?: string | null) {
   const sectors = fixtureSectorRecords();
   const sources = toWatchlistSources(visibleOverviewLists(lists, user.id));
   const watchlist = fixtureWatchlistSnapshot(listId, { lists: sources });
-  const inBookTickers = await loadOpenPositionTickers().catch(() => [] as string[]);
+  const inBookTickers = await loadOpenPositionTickers(user.firmId).catch(
+    () => [] as string[],
+  );
   const coverage = buildDashboardCoverageDigest({
     user,
     tape: fixtureDashboard.tape,
@@ -244,7 +246,9 @@ export async function loadDashboardSnapshot(options: {
   const visible = visibleOverviewLists(storedLists.lists, options.user.id);
   const sources = toWatchlistSources(visible);
   const persistence = storedLists.persistence;
-  const inBookTickers = await loadOpenPositionTickers().catch(() => [] as string[]);
+  const inBookTickers = await loadOpenPositionTickers(options.user.firmId).catch(
+    () => [] as string[],
+  );
 
   if (!cached) {
     const watchlist =

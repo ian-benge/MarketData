@@ -37,7 +37,7 @@ When demo fixtures are off and a service-role client is available (`NEXT_PUBLIC_
 
 Without a service-role client, live POST returns 503 `"Report generation is not connected in this environment."` GET list still returns `{ reports: [] }` (not 503).
 
-Until `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` are set, drafting uses mock AI with **live** prices. The API `message` says so.
+Until `AI_GATEWAY_API_KEY` (or `VERCEL_OIDC_TOKEN`) / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` are set, drafting uses mock AI with **live** prices. The API `message` says so. Desk intelligence on the dashboard still compiles a rules brief without keys.
 
 ### Generate brief smoke test (owner)
 

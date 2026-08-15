@@ -138,6 +138,66 @@ describe("catalyst attribution", () => {
     expect(result.headline).not.toMatch(/because/i);
   });
 
+  it("uses an explicit window so ticker-search headlines outside the session still attribute", () => {
+    const result = attributeMove({
+      quote: {
+        ticker: "TSLA",
+        changePercent: null,
+        relativeVolume: null,
+        flags: [],
+        session: "closed",
+      },
+      events: [
+        event({
+          id: "older-wire",
+          title: "Tesla unveils cheaper Model Y",
+          eventType: "product",
+          eventTypeLabel: "Product",
+          publishedAt: "2026-08-10T14:00:00.000Z",
+          tickers: [
+            {
+              ticker: "TSLA",
+              name: "Tesla",
+              role: "primary",
+              confidence: "low",
+              method: "alias",
+            },
+          ],
+          sources: [
+            {
+              id: "older-wire-src",
+              title: "Tesla unveils cheaper Model Y",
+              url: "https://finnhub.example/tsla",
+              publishedAt: "2026-08-10T14:00:00.000Z",
+              sourceClass: "wire",
+              providerName: "finnhub",
+              sourceQuality: "secondary",
+            },
+          ],
+          representative: {
+            id: "older-wire-src",
+            title: "Tesla unveils cheaper Model Y",
+            url: "https://finnhub.example/tsla",
+            publishedAt: "2026-08-10T14:00:00.000Z",
+            sourceClass: "wire",
+            providerName: "finnhub",
+            sourceQuality: "secondary",
+          },
+        }),
+      ],
+      session: "closed",
+      now: NOW,
+      window: {
+        start: "2026-08-10T14:00:00.000Z",
+        end: NOW.toISOString(),
+        label: "Matching headlines",
+      },
+      matchLowConfidence: true,
+    });
+    expect(result.attribution).toBe("likely_catalyst");
+    expect(result.headline).toMatch(/Tesla unveils cheaper Model Y/);
+  });
+
   it("says unknown when no ticker-matched or related headline exists", () => {
     const result = attributeMove({
       quote: {

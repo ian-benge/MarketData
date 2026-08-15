@@ -1,5 +1,6 @@
 import type { Env } from "@/lib/env";
 import { getEnv, mocksAllowed } from "@/lib/env";
+import { gatewayConfigured } from "@/lib/desk-intel/models";
 import type {
   AiProvider,
   CorporateEventsProvider,
@@ -204,6 +205,19 @@ export function createDefaultSourceRegistry(): SourceRegistryEntry[] {
       requiresEnv: ["OPENAI_API_KEY"],
     },
     {
+      id: "ai-gateway",
+      name: "Vercel AI Gateway",
+      category: "ai",
+      enabled: true,
+      priority: 5,
+      sourceClass: "secondary",
+      health: "unknown",
+      rateLimit: { maxRequestsPerMinute: 60 },
+      retry: DEFAULT_RETRY,
+      requiresEnv: ["AI_GATEWAY_API_KEY"],
+      notes: "Preferred LLM router. Use AI_GATEWAY_API_KEY, or VERCEL_OIDC_TOKEN on Vercel (VERCEL=1).",
+    },
+    {
       id: "anthropic",
       name: "Anthropic",
       category: "ai",
@@ -404,7 +418,8 @@ export function createProviders(
   const hasOpenAi = Boolean(env.OPENAI_API_KEY);
   const hasAnthropic = Boolean(env.ANTHROPIC_API_KEY);
   const hasGemini = Boolean(env.GOOGLE_GENERATIVE_AI_API_KEY);
-  const hasAi = hasOpenAi || hasAnthropic || hasGemini;
+  const hasGateway = gatewayConfigured(env);
+  const hasAi = hasOpenAi || hasAnthropic || hasGemini || hasGateway;
   const hasResend = Boolean(env.RESEND_API_KEY);
   // EDGAR needs no API key; prefer live outside mock mode or when User-Agent set
   const hasEdgar = Boolean(env.EDGAR_USER_AGENT?.trim()) || !mocksAllowed(env);

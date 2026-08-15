@@ -8,6 +8,11 @@ import { assembleEvents, eventsToHeadlines } from "./assemble";
 import { attributeMoves } from "./attribution";
 import { coverageLinksFrom, peerMapFrom } from "./coverage-graph";
 import { ingestMarketNews } from "./ingest";
+import {
+  focusAttributionWindow,
+  focusTickersFrom,
+  hydrateFocusEvidence,
+} from "./focus";
 import { detectSignificantMove } from "./move-detect";
 import { searchEvents } from "./search";
 import { parseNewsQuery } from "./search-parse";
@@ -379,6 +384,7 @@ export async function searchIntelligence(
     quotes?: QuoteContext[];
     session?: string | null;
     ingest?: boolean;
+    parsed?: ParsedNewsQuery;
   },
 ): Promise<{
   parsed: ParsedNewsQuery;
@@ -386,16 +392,15 @@ export async function searchIntelligence(
   moves: MoveExplanation[];
   bundle: IntelligenceBundle;
 }> {
-  const parsed = parseNewsQuery(
-    filters.query ?? rawQuery,
-    new Date(),
-    context?.session,
-  );
+  const parsed =
+    context?.parsed ??
+    parseNewsQuery(filters.query ?? rawQuery, new Date(), context?.session);
+  const focusTickers = focusTickersFrom(parsed, filters);
   const bundle = await getIntelligenceBundle(env, {
     coverage: context?.coverage,
     coverageTickers: context?.coverageTickers,
     quotes: context?.quotes,
-    priorityTickers: parsed.tickers,
+    priorityTickers: focusTickers,
     session: context?.session,
     ingest: context?.ingest,
   });
@@ -413,6 +418,18 @@ export async function searchIntelligence(
       pool = [...pool, ...extra.filter((event) => !seen.has(event.id))];
     }
   }
+  const hydrated = await hydrateFocusEvidence(env, focusTickers, {
+    events: pool,
+    quotes: resolveQuotes({
+      quotes: context?.quotes,
+      session: context?.session,
+    }),
+    session: context?.session,
+    coverage: context?.coverage,
+    coverageTickers: context?.coverageTickers,
+    ingest: context?.ingest,
+  });
+  pool = hydrated.events;
   const { results } = searchEvents(
     pool,
     rawQuery,
@@ -421,32 +438,51 @@ export async function searchIntelligence(
     context?.session,
   );
   let moves = bundle.moves;
-  if (parsed.intent === "why_moving" && parsed.whyTicker) {
-    const quotes = resolveQuotes({
-      quotes: context?.quotes,
-      session: context?.session,
-    });
+  const focusTicker =
+    parsed.whyTicker ??
+    (filters.tickers?.length === 1 ? filters.tickers[0]!.toUpperCase() : null);
+  if (focusTicker && (parsed.intent === "why_moving" || filters.tickers?.length === 1)) {
     const quote =
-      quotes.find((row) => row.ticker.toUpperCase() === parsed.whyTicker) ?? {
-        ticker: parsed.whyTicker,
+      hydrated.quotes.find((row) => row.ticker.toUpperCase() === focusTicker) ?? {
+        ticker: focusTicker,
         changePercent: null,
         relativeVolume: null,
         flags: [],
         session: context?.session ?? null,
       };
     const links = context?.coverage ?? [];
+    const attributionEvents = results.length ? results : pool;
     moves = attributeMoves(
       [quote],
-      pool,
+      attributionEvents,
       context?.session ?? quote.session,
       new Date(),
       peerMapFrom(links),
       new Map(
         links.map((row) => [row.ticker, [...row.themeNames, ...row.sectorNames]]),
       ),
+      {
+        window: focusAttributionWindow({
+          events: attributionEvents,
+          session: context?.session ?? quote.session,
+          since: filters.since,
+          until: filters.until,
+          parsedRange: parsed.timeRange,
+        }),
+        matchLowConfidence: true,
+      },
     );
   }
-  return { parsed, events: results, moves, bundle };
+  return {
+    parsed: {
+      ...parsed,
+      tickers: focusTickers.length ? focusTickers : parsed.tickers,
+      whyTicker: parsed.whyTicker ?? focusTicker,
+    },
+    events: results,
+    moves,
+    bundle,
+  };
 }
 
 export function coverageFromCollections(

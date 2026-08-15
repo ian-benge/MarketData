@@ -156,6 +156,17 @@ Mock limitations: static demo headlines on `demo.news.local`.
 
 Mock limitations: two demo 8-K / 10-Q rows.
 
+## Desk intelligence (LLM overlay)
+
+| | |
+| --- | --- |
+| **Uses** | Session brief, why-moving narratives, book-risk overlap, news digest, grounded ask, and optional report synthesis. Rules compilation always runs. Models only rewrite inside an evidence pack |
+| **Env** | Prefer `AI_GATEWAY_API_KEY` or Vercel OIDC (`VERCEL_OIDC_TOKEN`). Direct `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` still work as fallbacks |
+| **Models** | `DESK_INTEL_MODEL_FAST` (default `google/gemini-3.7-flash`) and `DESK_INTEL_MODEL_STRONG` (default `anthropic/claude-sonnet-5`) |
+| **Honesty** | Generated text cannot invent prices, events, or citations. Unknown attribution is never sent to the model for a causal story. Failed grounding falls back to the rules compilation |
+| **Cache** | `desk_intelligence_briefs` keyed by firm + kind + subject + evidence hash. `ai_usage_events` records provider/model/latency |
+| **Cron** | `/api/cron/intel` every 15 minutes; `/api/cron/tick` also refreshes a session brief after news ingest |
+
 ## Resend (email)
 
 | | |

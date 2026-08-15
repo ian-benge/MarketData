@@ -7,6 +7,10 @@
     {
       "path": "/api/cron/worker",
       "schedule": "5 14 * * *"
+    },
+    {
+      "path": "/api/cron/intel",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

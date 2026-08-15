@@ -259,6 +259,24 @@ export function AppShell({
       });
     }
     if (q.length >= 2) {
+      const tickerLike = /^[A-Za-z][A-Za-z0-9.]{0,5}$/.test(q);
+      if (tickerLike) {
+        const symbol = q.toUpperCase();
+        rows.push({
+          key: "why-moving",
+          label: `Why is ${symbol} moving?`,
+          description: "Evidence-backed tape explanation",
+          href: `/news?q=${encodeURIComponent(`why is ${symbol} moving today`)}`,
+          icon: Activity,
+        });
+      }
+      rows.push({
+        key: "ask-desk",
+        label: `Ask the desk: “${q}”`,
+        description: "Answer from this session’s evidence only",
+        href: `/news?ask=${encodeURIComponent(q)}`,
+        icon: MessageSquareText,
+      });
       rows.push({
         key: "search-news",
         label: `Search headlines for “${q}”`,
@@ -390,7 +408,7 @@ export function AppShell({
   }
 
   const primaryMobileItems = items.filter((item) =>
-    ["/dashboard", "/positions", "/watchlists"].includes(item.href),
+    ["/dashboard", "/news", "/positions", "/watchlists"].includes(item.href),
   );
 
   return (

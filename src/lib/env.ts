@@ -103,6 +103,18 @@ export const envSchema = z.object({
   AI_DEFAULT_PROVIDER: z
     .enum(["openai", "anthropic", "gemini"])
     .default("openai"),
+  AI_GATEWAY_API_KEY: optionalString,
+  DESK_INTEL_MODEL_FAST: z.string().default("google/gemini-3.7-flash"),
+  DESK_INTEL_MODEL_STRONG: z.string().default("anthropic/claude-sonnet-5"),
+  DESK_INTEL_ENABLED: z
+    .union([z.boolean(), z.enum(["true", "false", "1", "0"])])
+    .optional()
+    .transform((value) => {
+      if (value === undefined) return true;
+      if (typeof value === "boolean") return value;
+      return value === "true" || value === "1";
+    }),
+  DESK_INTEL_IN_FIXTURES: boolFromEnv,
 
   RESEND_API_KEY: optionalString,
   EMAIL_FROM: optionalString,
