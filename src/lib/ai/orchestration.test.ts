@@ -180,4 +180,43 @@ describe("AiOrchestration", () => {
       }),
     ).rejects.toThrow(/timed out|AiOrchestration failed/);
   });
+
+  it("does not pass gateway model ids to direct providers", async () => {
+    let openaiModel: string | undefined = "unset";
+    const gateway = makeProvider("gateway", async () => {
+      throw new Error("Unauthenticated request to AI Gateway.");
+    });
+    const openai = makeProvider("openai", async (request) => {
+      openaiModel = request.model;
+      return {
+        data: request.schema.parse({
+          labels: ["earnings"],
+          confidence: 0.8,
+        }),
+        providerName: "openai",
+        model: "gpt-test",
+        latencyMs: 4,
+      };
+    });
+
+    const orch = new AiOrchestration({
+      useMock: false,
+      env: { ...baseEnv, AI_GATEWAY_API_KEY: "sk-test" },
+      providers: { gateway, openai },
+      defaultProvider: "openai",
+      fallbackOrder: [],
+      maxAttemptsPerProvider: 1,
+      timeoutMs: 5_000,
+    });
+
+    const result = await orch.generateStructured({
+      task: "session_brief",
+      userPrompt: "brief",
+      schema: SimpleSchema,
+      model: "anthropic/claude-sonnet-5",
+    });
+
+    expect(result.providerName).toBe("openai");
+    expect(openaiModel).toBeUndefined();
+  });
 });

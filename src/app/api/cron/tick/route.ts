@@ -16,7 +16,15 @@ import {
 } from "@/lib/providers/forex-factory/calendar";
 import { enqueueDueReportRuns } from "@/lib/reports/enqueue";
 import { resolveStaleInstruments } from "@/lib/watchlists/resolve";
-import { getIntelligenceBundle } from "@/lib/intelligence/service";
+import { getIntelligenceBundle, quotesFromMarketCache } from "@/lib/intelligence/service";
+import { generateBookRisk, generateSessionBrief } from "@/lib/desk-intel/generate";
+import { buildEvidencePack } from "@/lib/desk-intel/evidence";
+import { selectDeskCalendar } from "@/lib/desk-intel/context";
+import { scheduleUnexplainedBookAlerts } from "@/lib/desk-intel/book-alerts";
+import { saveBrief } from "@/lib/desk-intel/store";
+import { loadDashboardCatalystCalendar } from "@/lib/market-data/catalyst-calendar-load";
+import { loadOpenPositionTickers } from "@/lib/positions/store";
+import { DEFAULT_FIRM_UUID } from "@/lib/reports/editions";
 
 export async function GET(request: Request) {
   return POST(request);
@@ -77,6 +85,7 @@ export async function POST(request: Request) {
     let newsRefresh: "refreshed" | "failed" | "skipped" | "persist_failed" =
       "skipped";
     let newsPersistNote: string | null = null;
+    let deskBrief: "refreshed" | "failed" | "skipped" = "skipped";
     if (!fixturesEnabled()) {
       try {
         const bundle = await getIntelligenceBundle(env, { force: true });
@@ -86,6 +95,28 @@ export async function POST(request: Request) {
         );
         newsPersistNote = persistGap?.message ?? null;
         newsRefresh = persistGap ? "persist_failed" : "refreshed";
+        try {
+          const [calendar, inBookTickers] = await Promise.all([
+            loadDashboardCatalystCalendar(env).catch(() => []),
+            loadOpenPositionTickers(env.FIRM_ID).catch(() => []),
+          ]);
+          const pack = buildEvidencePack({
+            bundle,
+            quotes: quotesFromMarketCache(),
+            inBookTickers,
+            calendar: selectDeskCalendar(calendar),
+            session: bundle.moves[0]?.session ?? null,
+          });
+          const envelope = await generateSessionBrief(pack, { env });
+          const firmId = env.FIRM_ID ?? DEFAULT_FIRM_UUID;
+          await saveBrief(firmId, envelope, null);
+          const risk = await generateBookRisk(pack, { env });
+          await saveBrief(firmId, risk, null);
+          scheduleUnexplainedBookAlerts({ firmId, pack, risk: risk.data });
+          deskBrief = "refreshed";
+        } catch {
+          deskBrief = "failed";
+        }
       } catch {
         newsRefresh = "failed";
       }
@@ -130,6 +161,7 @@ export async function POST(request: Request) {
       catalystRefresh,
       newsRefresh,
       newsPersistNote,
+      deskBrief,
       instrumentResolve,
       marketRefresh: marketRefresh
         ? {

@@ -24,6 +24,7 @@ import { PositionsBookTabs } from "@/components/positions/PositionsBookTabs";
 import { PositionsTable } from "@/components/positions/PositionsTable";
 import { PositionsPrivacyProvider } from "@/components/positions/privacy-context";
 import { PositionsValuePrivacyToggle } from "@/components/positions/PositionsPrivacy";
+import { BookRiskPanel } from "@/components/intel/BookRiskPanel";
 import {
   applyAccountValueToSnapshot,
   toPositionRecord,
@@ -1183,25 +1184,27 @@ export function PositionsWorkspace({
 
       <div className="flex min-w-0 flex-col gap-3">
         {snapshot.ownerLocked ? null : (
-          <>
+          <div className="order-1 min-w-0">
+            <PositionsMetricsStrip
+              snapshot={displaySnapshot}
+              onAccountValueChange={
+                snapshot.canEdit &&
+                snapshot.books.find((book) => book.id === snapshot.bookId)
+                  ?.source !== "snaptrade"
+                  ? handleAccountValue
+                  : undefined
+              }
+              savingAccountValue={savingAccountValue}
+            />
+          </div>
+        )}
         <div className="order-1 min-w-0">
-          <PositionsMetricsStrip
-            snapshot={displaySnapshot}
-            onAccountValueChange={
-              snapshot.canEdit &&
-              snapshot.books.find((book) => book.id === snapshot.bookId)
-                ?.source !== "snaptrade"
-                ? handleAccountValue
-                : undefined
-            }
-            savingAccountValue={savingAccountValue}
-          />
+          <BookRiskPanel />
         </div>
-
-        <div className="order-3 min-w-0 lg:order-2">
-          <PositionsAttribution snapshot={displaySnapshot} />
-        </div>
-          </>
+        {snapshot.ownerLocked ? null : (
+          <div className="order-3 min-w-0 lg:order-2">
+            <PositionsAttribution snapshot={displaySnapshot} />
+          </div>
         )}
 
         <div className="order-2 min-w-0 space-y-3 lg:order-3">

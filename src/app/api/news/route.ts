@@ -1,6 +1,7 @@
 import { handleRouteError, jsonOk } from "@/lib/api/http";
 import { requirePermission } from "@/lib/auth/authorize";
 import { getEnv } from "@/lib/env";
+import { interpretNewsQuery } from "@/lib/desk-intel/service";
 import { EVENT_TYPES, type EventType } from "@/lib/intelligence/types";
 import {
   coverageFromCollections,
@@ -24,6 +25,10 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const q = url.searchParams.get("q") ?? url.searchParams.get("query") ?? "";
     const ticker = url.searchParams.get("ticker");
+    const tickersFromParam = (ticker ?? "")
+      .split(",")
+      .map((value) => value.trim().toUpperCase())
+      .filter(Boolean);
     const eventType = asEventType(url.searchParams.get("type"));
     const theme = url.searchParams.get("theme");
     const source = url.searchParams.get("source");
@@ -42,17 +47,31 @@ export async function GET(request: Request) {
     ]);
     const coverage = coverageFromCollections(lists.lists, sectors.sectors);
     const session = inferUsEquitySession();
+    const env = getEnv();
+    const interpreted = q.trim()
+      ? await interpretNewsQuery(user, q, env).catch(() => null)
+      : null;
+    const tickers = [
+      ...new Set([
+        ...tickersFromParam,
+        ...(interpreted?.tickers ?? []),
+      ]),
+    ];
 
     const result = await searchIntelligence(
-      getEnv(),
+      env,
       q,
       {
         query: q,
-        tickers: ticker ? [ticker.toUpperCase()] : undefined,
-        eventTypes: eventType ? [eventType] : undefined,
-        themes: theme ? [theme] : undefined,
+        tickers: tickers.length ? tickers : undefined,
+        eventTypes: eventType
+          ? [eventType]
+          : interpreted?.eventTypes.length
+            ? interpreted.eventTypes
+            : undefined,
+        themes: theme ? [theme] : interpreted?.themes.length ? interpreted.themes : undefined,
         sources: source ? [source] : undefined,
-        materialOnly: material,
+        materialOnly: material || Boolean(interpreted?.materialOnly),
         since: since ?? windowRange?.start,
         until: until ?? windowRange?.end,
         limit: Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 100) : 60,
@@ -63,6 +82,7 @@ export async function GET(request: Request) {
         quotes: quotesFromMarketCache(),
         session,
         ingest,
+        parsed: interpreted ?? undefined,
       },
     );
 

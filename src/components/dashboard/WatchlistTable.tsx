@@ -15,6 +15,7 @@ import { ChipToggle } from "@/components/ui/ChipToggle";
 import { Panel } from "@/components/ui/Panel";
 import { EmptyHint } from "@/components/ui/StatePanel";
 import { WhyMovingBadge } from "@/components/news/WhyMovingBadge";
+import { MoveNarrativeLoader } from "@/components/intel/MoveNarrativeLoader";
 import type { MoveExplanation } from "@/lib/intelligence/types";
 import type {
   DashboardWatchlistRow,
@@ -265,6 +266,14 @@ export function WatchlistTable({
         {data?.stale ? " Yahoo enrichment is stale." : ""}
         {data?.error ? ` ${data.error}` : ""}
       </p>
+      {selectedSymbol ? (
+        <div className="border-t border-[var(--ib-border-subtle)] px-3 py-2">
+          <MoveNarrativeLoader
+            ticker={selectedSymbol}
+            explanation={whyByTicker.get(selectedSymbol.toUpperCase())}
+          />
+        </div>
+      ) : null}
     </Panel>
   );
 }

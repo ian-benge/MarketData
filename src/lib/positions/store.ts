@@ -862,7 +862,9 @@ export async function closeStoredPosition(
   }
 }
 
-export async function loadOpenPositionTickers(): Promise<string[]> {
+export async function loadOpenPositionTickers(
+  firmId?: string | null,
+): Promise<string[]> {
   if (fixturesEnabled()) {
     return [
       ...new Set(
@@ -875,10 +877,9 @@ export async function loadOpenPositionTickers(): Promise<string[]> {
   if (!canCreateAdminClient()) return [];
   try {
     const admin = createAdminClient();
-    const { data, error } = await admin
-      .from("positions")
-      .select("ticker")
-      .eq("status", "open");
+    let query = admin.from("positions").select("ticker").eq("status", "open");
+    if (firmId) query = query.eq("firm_id", firmId);
+    const { data, error } = await query;
     if (error || !data) return [];
     return [
       ...new Set(

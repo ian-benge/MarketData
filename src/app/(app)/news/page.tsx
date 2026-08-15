@@ -19,6 +19,7 @@ export default async function NewsPage({
     theme?: string;
     material?: string;
     window?: string;
+    ask?: string;
   }>;
 }) {
   await requirePermission("viewDashboard");
@@ -31,6 +32,7 @@ export default async function NewsPage({
       initialTheme={params.theme}
       initialMaterial={params.material === "1"}
       initialWindow={params.window}
+      initialAsk={params.ask ?? ""}
     />
   );
 }

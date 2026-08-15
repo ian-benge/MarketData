@@ -10,11 +10,13 @@ import { detectMaterialMovers } from "@/lib/domain/material-movers";
 import { AiOrchestration } from "@/lib/ai/orchestration";
 import {
   CausalSynthesisSchema,
+  EditorialPassSchema,
   ExecutiveSummarySchema,
   HeadlineClassificationSchema,
   PriorEditionAuditSchema,
 } from "@/lib/ai/schemas";
 import { EDITORIAL_MANDATE, PROMPT_VERSIONS } from "@/lib/ai/prompt-versions";
+import { applyModelDraft } from "@/lib/desk-intel/report-merge";
 import { demoMarketSnapshot } from "@/lib/fixtures/demo-market";
 import { demoNewsItems } from "@/lib/fixtures/demo-news";
 import { demoReportDocument } from "@/lib/fixtures/demo-report";
@@ -513,7 +515,7 @@ export class ReportPipeline {
       tickers: detected.news[0]?.tickers ?? ["SPY"],
     };
 
-    await this.orchestration.generateStructured({
+    const classification = await this.orchestration.generateStructured({
       task: "headline_classification",
       userPrompt: `Classify themes for ${ctx.input.edition} ${ctx.input.tradingDate}`,
       schema: HeadlineClassificationSchema,
@@ -521,12 +523,25 @@ export class ReportPipeline {
       fixture: headlineFixture,
     });
 
-    await this.orchestration.generateStructured({
+    const newsEvidence = detected.news.slice(0, 12).map((item) => ({
+      id: item.id,
+      title: item.title,
+      url: item.url,
+      tickers: item.tickers,
+      publisher: item.publisher,
+    }));
+    const moverEvidence = detected.movers.slice(0, 12).map((item) => ({
+      ticker: item.ticker,
+      changePercent: item.changePercent,
+      last: item.last,
+    }));
+
+    const synthesis = await this.orchestration.generateStructured({
       task: "causal_synthesis",
       systemPrompt: EDITORIAL_MANDATE,
       userPrompt: JSON.stringify({
-        movers: detected.movers,
-        news: detected.news.slice(0, 5),
+        movers: moverEvidence,
+        news: newsEvidence,
       }),
       schema: CausalSynthesisSchema,
       promptVersion: PROMPT_VERSIONS.causal_synthesis,
@@ -598,9 +613,20 @@ export class ReportPipeline {
       calendarKind: ctx.input.calendarKind,
     });
 
-    await this.orchestration.generateStructured({
+    const drafting = await this.orchestration.generateStructured({
       task: "section_drafting",
-      userPrompt: "Draft executive summary bullets from evidence.",
+      systemPrompt: EDITORIAL_MANDATE,
+      userPrompt: JSON.stringify({
+        title: document.title,
+        executiveBullets: document.executiveBullets,
+        sources: document.sources.map((source) => ({
+          id: source.id,
+          title: source.title,
+          url: source.url,
+        })),
+        news: newsEvidence,
+        movers: moverEvidence,
+      }),
       schema: ExecutiveSummarySchema,
       promptVersion: PROMPT_VERSIONS.section_drafting,
       fixture: {
@@ -614,7 +640,48 @@ export class ReportPipeline {
       },
     });
 
-    return { document, priorThesisIds: priorDocuments.flatMap((d) => d.theses.map((t) => t.id)) };
+    const editorial = await this.orchestration.generateStructured({
+      task: "editorial_pass",
+      systemPrompt: EDITORIAL_MANDATE,
+      userPrompt: JSON.stringify({
+        headline: drafting.data.headline,
+        bullets: drafting.data.bullets,
+        synthesis: synthesis.data.summary,
+      }),
+      schema: EditorialPassSchema,
+      promptVersion: PROMPT_VERSIONS.editorial_pass,
+      fixture: {
+        revisedHeadline: drafting.data.headline,
+        revisedBullets: drafting.data.bullets.map((bullet) => bullet.text),
+        sectionEdits: [],
+        flags: [],
+      },
+    });
+
+    const evidence = evidenceBundleFromMarket(detected.market, detected.news, {
+      extraNumbers: extraNumbersFromDocument(document),
+    });
+    const merged = applyModelDraft(
+      document,
+      {
+        synthesis: synthesis.data,
+        executive: drafting.data,
+        editorial: editorial.data,
+      },
+      evidence,
+    );
+    if (classification.data.labels.length) {
+      merged.document.labels = [
+        ...new Set([...merged.document.labels, ...classification.data.labels]),
+      ];
+    }
+
+    return {
+      document: merged.document,
+      priorThesisIds: priorDocuments.flatMap((d) => d.theses.map((t) => t.id)),
+      intelApplied: merged.applied,
+      intelSkipped: merged.skipped,
+    };
   }
 
   private async validateClaims(ctx: StageContext) {

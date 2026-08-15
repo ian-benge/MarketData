@@ -84,6 +84,75 @@ export type IngestResult = {
   gaps: CoverageGap[];
 };
 
+const COMPANY_NEWS_TTL_MS = 2 * 60 * 1000;
+const companyNewsCache = new Map<string, { expiresAt: number; result: IngestResult }>();
+
+export function resetCompanyNewsCache() {
+  companyNewsCache.clear();
+}
+
+/** Issuer-tagged Finnhub company news for explicit ticker search / why-moving. */
+export async function ingestCompanyNews(
+  env: Env,
+  tickers: string[],
+): Promise<IngestResult> {
+  const sources: SourceStatus[] = [];
+  const gaps: CoverageGap[] = [];
+  const priority = [...new Set(tickers.map((ticker) => ticker.toUpperCase()).filter(Boolean))].slice(
+    0,
+    COMPANY_TICKER_CAP,
+  );
+  if (!priority.length) return { items: [], sources, gaps };
+
+  const cacheKey = priority.slice().sort().join(",");
+  const hit = companyNewsCache.get(cacheKey);
+  if (hit && hit.expiresAt > Date.now()) return hit.result;
+
+  if (!env.FINNHUB_API_KEY) {
+    return {
+      items: [],
+      sources: [
+        {
+          id: "finnhub-company",
+          label: "Finnhub company news",
+          status: "unavailable",
+          note: "FINNHUB_API_KEY is not set. Issuer-tagged company news is unavailable.",
+          itemCount: 0,
+        },
+      ],
+      gaps: [
+        {
+          code: "finnhub_unkeyed",
+          message:
+            "Finnhub is not keyed. Company-tagged headlines are limited to RSS entity resolution and EDGAR.",
+        },
+      ],
+    };
+  }
+
+  const finnhub = new FinnhubNewsProvider({ apiKey: env.FINNHUB_API_KEY });
+  const company = await Promise.allSettled([
+    finnhub.search({ tickers: priority, limit: 40 }),
+  ]).then((rows) => rows[0]!);
+  sources.push(status("finnhub-company", "Finnhub company news", company));
+  if (company.status === "rejected") {
+    gaps.push({
+      code: "company_news_error",
+      message: `Company news for ${priority.join(", ")} failed. Watchlist attribution may miss issuer-specific copy.`,
+    });
+  }
+  const result: IngestResult = {
+    items: company.status === "fulfilled" ? mergeItems([company.value]) : [],
+    sources,
+    gaps,
+  };
+  companyNewsCache.set(cacheKey, {
+    expiresAt: Date.now() + COMPANY_NEWS_TTL_MS,
+    result,
+  });
+  return result;
+}
+
 export async function ingestMarketNews(
   env: Env,
   options?: { priorityTickers?: string[] },
@@ -113,36 +182,10 @@ export async function ingestMarketNews(
     if (general.status === "fulfilled") groups.push(general.value);
   }
 
-  const priority = [...new Set((options?.priorityTickers ?? []).map((t) => t.toUpperCase()))].slice(
-    0,
-    COMPANY_TICKER_CAP,
-  );
-  if (env.FINNHUB_API_KEY && priority.length) {
-    const finnhub = new FinnhubNewsProvider({ apiKey: env.FINNHUB_API_KEY });
-    const company = await Promise.allSettled([
-      finnhub.search({ tickers: priority, limit: 40 }),
-    ]).then((rows) => rows[0]!);
-    sources.push(status("finnhub-company", "Finnhub company news", company));
-    if (company.status === "fulfilled") groups.push(company.value);
-    else {
-      gaps.push({
-        code: "company_news_error",
-        message: `Company news for ${priority.join(", ")} failed. Watchlist attribution may miss issuer-specific copy.`,
-      });
-    }
-  } else if (!env.FINNHUB_API_KEY) {
-    sources.push({
-      id: "finnhub-company",
-      label: "Finnhub company news",
-      status: "unavailable",
-      note: "FINNHUB_API_KEY is not set. Issuer-tagged company news is unavailable.",
-      itemCount: 0,
-    });
-    gaps.push({
-      code: "finnhub_unkeyed",
-      message: "Finnhub is not keyed. Company-tagged headlines are limited to RSS entity resolution and EDGAR.",
-    });
-  }
+  const company = await ingestCompanyNews(env, options?.priorityTickers ?? []);
+  sources.push(...company.sources);
+  gaps.push(...company.gaps);
+  if (company.items.length) groups.push(company.items);
 
   if (env.MASSIVE_API_KEY) {
     try {
