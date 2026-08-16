@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
+import { fromZonedTime } from "date-fns-tz";
 import {
   AlertTriangle,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Moon,
   Search,
   Sun,
@@ -14,6 +15,7 @@ import {
 } from "lucide-react";
 import { EarningsHistoryPanel } from "@/components/dashboard/EarningsHistoryChart";
 import { Badge } from "@/components/ui/Badge";
+import { ChipToggle } from "@/components/ui/ChipToggle";
 import { Panel } from "@/components/ui/Panel";
 import { StatusIndicator } from "@/components/ui/StatusIndicator";
 import {
@@ -25,6 +27,7 @@ import {
   type AvgVolumeFilter,
   type MarketCapFilter,
 } from "@/lib/market-data/earnings/display-filter";
+import { rankOverviewEarningsRisk } from "@/lib/market-data/earnings/overview-risk";
 import type { EarningsHistorySnapshot } from "@/lib/market-data/earnings/history-types";
 import {
   EARNINGS_REFRESH_MS,
@@ -33,7 +36,8 @@ import {
   type EarningsSession,
   type EarningsSourceHealth,
 } from "@/lib/market-data/earnings/types";
-import { addCalendarDays } from "@/lib/market-data/earnings/window";
+import { looksLikeListedTicker, toCanonicalSymbol } from "@/lib/market-data/earnings/symbols";
+import { addCalendarDays, foldWeekendReportDate, mondayOfChicagoWeek } from "@/lib/market-data/earnings/window";
 import {
   CHICAGO_TZ,
   chicagoDateString,
@@ -62,12 +66,6 @@ const SESSION_LABEL: Record<EarningsSession, string> = {
 
 function addChicagoDays(yyyyMmDd: string, days: number): string {
   return addCalendarDays(yyyyMmDd, days);
-}
-
-function mondayWeekStart(seed: Date): string {
-  const key = chicagoDateString(seed);
-  const weekday = Number(formatInTimeZone(seed, CHICAGO_TZ, "i"));
-  return addChicagoDays(key, 1 - weekday);
 }
 
 function formatChipDay(iso: string) {
@@ -262,8 +260,12 @@ function SessionColumn({
 
 export function EarningsCalendar({
   onSelectSymbol,
+  coverageTickers,
+  inBookTickers,
 }: {
   onSelectSymbol?: (ticker: string) => void;
+  coverageTickers?: readonly string[];
+  inBookTickers?: readonly string[];
 }) {
   const [data, setData] = useState<EarningsCalendarSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
@@ -278,12 +280,12 @@ export function EarningsCalendar({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [history, setHistory] = useState<EarningsHistorySnapshot | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
 
     async function pull() {
-      if (document.visibilityState === "hidden") return;
       try {
         const response = await fetch("/api/market/earnings", { cache: "no-store" });
         if (!response.ok || cancelled) return;
@@ -296,16 +298,18 @@ export function EarningsCalendar({
       }
     }
 
+    function pullIfVisible() {
+      if (document.visibilityState === "hidden") return;
+      void pull();
+    }
+
     void pull();
-    const interval = window.setInterval(pull, EARNINGS_REFRESH_MS);
-    const onVisible = () => {
-      if (document.visibilityState === "visible") void pull();
-    };
-    document.addEventListener("visibilitychange", onVisible);
+    const interval = window.setInterval(pullIfVisible, EARNINGS_REFRESH_MS);
+    document.addEventListener("visibilitychange", pullIfVisible);
     return () => {
       cancelled = true;
       window.clearInterval(interval);
-      document.removeEventListener("visibilitychange", onVisible);
+      document.removeEventListener("visibilitychange", pullIfVisible);
     };
   }, []);
 
@@ -314,6 +318,17 @@ export function EarningsCalendar({
     [weekStart],
   );
   const today = chicagoDateString(new Date());
+  const riskRows = useMemo(
+    () =>
+      rankOverviewEarningsRisk({
+        events: data?.events ?? [],
+        today,
+        coverageTickers,
+        inBookTickers,
+        limit: 8,
+      }),
+    [coverageTickers, data?.events, inBookTickers, today],
+  );
   const activeDay = weekDays.includes(selectedDay)
     ? selectedDay
     : weekDays.includes(today)
@@ -324,7 +339,7 @@ export function EarningsCalendar({
     () =>
       applyEarningsDisplayFilters(data?.events ?? [], {
         weekStart: weekDays[0]!,
-        weekEnd: weekDays[4]!,
+        weekEnd: addChicagoDays(weekDays[0]!, 6),
         session: sessionFilter,
         query,
         marketCap: marketCapFilter,
@@ -351,61 +366,29 @@ export function EarningsCalendar({
         : [],
     [data?.events, searchNeedle, searchScope],
   );
+  const bestMatch = useMemo(
+    () =>
+      searchNeedle
+        ? pickBestEarningsSearchMatch(data?.events ?? [], searchScope, today)
+        : null,
+    [data?.events, searchNeedle, searchScope, today],
+  );
+  const matchId = bestMatch?.id ?? null;
+  const matchDate = bestMatch?.reportDate ?? null;
 
-  function jumpToSearchMatch(
-    nextQuery: string,
-    overrides?: Partial<{
-      session: SessionFilter;
-      marketCap: MarketCapFilter;
-      avgVolume: AvgVolumeFilter;
-    }>,
-  ) {
-    const needle = nextQuery.trim();
-    if (!needle || !data?.events.length) return;
-    const match = pickBestEarningsSearchMatch(
-      data.events,
-      {
-        session: overrides?.session ?? sessionFilter,
-        query: needle,
-        marketCap: overrides?.marketCap ?? marketCapFilter,
-        avgVolume: overrides?.avgVolume ?? avgVolumeFilter,
-      },
-      today,
-    );
-    if (!match) {
-      setSelectedId(null);
-      return;
-    }
-    setWeekStart(mondayWeekStart(fromZonedTime(`${match.reportDate}T12:00:00`, CHICAGO_TZ)));
-    setSelectedDay(match.reportDate);
-    setSelectedId(match.id);
-  }
-
-  function onQueryChange(next: string) {
-    setQuery(next);
-    jumpToSearchMatch(next);
-  }
-
-  function onMarketCapChange(value: MarketCapFilter) {
-    setMarketCapFilter(value);
-    if (searchNeedle) jumpToSearchMatch(searchNeedle, { marketCap: value });
-  }
-
-  function onAvgVolumeChange(value: AvgVolumeFilter) {
-    setAvgVolumeFilter(value);
-    if (searchNeedle) jumpToSearchMatch(searchNeedle, { avgVolume: value });
-  }
-
-  function onSessionChange(value: SessionFilter) {
-    setSessionFilter(value);
-    if (searchNeedle) jumpToSearchMatch(searchNeedle, { session: value });
-  }
+  useEffect(() => {
+    if (!matchId || !matchDate) return;
+    setWeekStart(mondayOfChicagoWeek(matchDate));
+    setSelectedDay(foldWeekendReportDate(matchDate));
+    setSelectedId(matchId);
+  }, [matchId, matchDate]);
 
   const byDay = useMemo(() => {
     const map = new Map<string, EarningsCalendarEvent[]>();
     for (const day of weekDays) map.set(day, []);
     for (const event of filtered) {
-      map.get(event.reportDate)?.push(event);
+      const chipDay = foldWeekendReportDate(event.reportDate);
+      map.get(chipDay)?.push(event);
     }
     return map;
   }, [filtered, weekDays]);
@@ -414,18 +397,27 @@ export function EarningsCalendar({
   const beforeOpen = dayEvents.filter((event) => event.session === "bmo" || event.session === "during");
   const afterClose = dayEvents.filter((event) => event.session === "amc");
   const unconfirmed = dayEvents.filter((event) => event.session === "unknown");
-  const selected = dayEvents.find((event) => event.id === selectedId) ?? null;
-  const selectedTicker = selected?.ticker ?? null;
-  const selectedName = selected?.companyName ?? null;
+  const selected =
+    dayEvents.find((event) => event.id === selectedId) ??
+    (bestMatch && bestMatch.id === selectedId ? bestMatch : null);
+  const queryTicker =
+    looksLikeListedTicker(searchNeedle) ? toCanonicalSymbol(searchNeedle) : null;
+  const historyTicker =
+    selected?.ticker ?? (searchMatches.length === 0 ? queryTicker : null);
+  const historyName = selected?.companyName ?? null;
 
   useEffect(() => {
-    if (!selectedTicker) return;
+    if (!historyTicker) {
+      setHistory(null);
+      setHistoryLoading(false);
+      return;
+    }
     let cancelled = false;
     void (async () => {
       setHistoryLoading(true);
       try {
-        const params = new URLSearchParams({ symbol: selectedTicker });
-        if (selectedName) params.set("name", selectedName);
+        const params = new URLSearchParams({ symbol: historyTicker });
+        if (historyName) params.set("name", historyName);
         const response = await fetch(`/api/market/earnings/history?${params}`, {
           cache: "no-store",
         });
@@ -433,8 +425,8 @@ export function EarningsCalendar({
         if (!response.ok) {
           const body = (await response.json().catch(() => null)) as { error?: string } | null;
           setHistory({
-            ticker: selectedTicker,
-            companyName: selectedName,
+            ticker: historyTicker,
+            companyName: historyName,
             asOf: new Date().toISOString(),
             stale: false,
             usingFixtures: false,
@@ -452,8 +444,8 @@ export function EarningsCalendar({
       } catch {
         if (!cancelled) {
           setHistory({
-            ticker: selectedTicker,
-            companyName: selectedName,
+            ticker: historyTicker,
+            companyName: historyName,
             asOf: new Date().toISOString(),
             stale: false,
             usingFixtures: false,
@@ -473,54 +465,139 @@ export function EarningsCalendar({
     return () => {
       cancelled = true;
     };
-  }, [selectedTicker, selectedName]);
+  }, [historyTicker, historyName]);
 
   function selectId(id: string) {
     setSelectedId((current) => (current === id ? null : id));
   }
 
+  function onQueryChange(next: string) {
+    setQuery(next);
+  }
+
+  function onSessionChange(value: SessionFilter) {
+    setSessionFilter(value);
+  }
+
+  function onMarketCapChange(value: MarketCapFilter) {
+    setMarketCapFilter(value);
+  }
+
+  function onAvgVolumeChange(value: AvgVolumeFilter) {
+    setAvgVolumeFilter(value);
+  }
+
   return (
     <Panel
-      title="Earnings calendar"
-      description={`Earnings scheduled · full slate · estimates + expected move · ${data?.sourceLabel ?? "loading"}`}
+      title="Earnings risk"
+      description={
+        expanded
+          ? `Earnings scheduled · full slate · estimates + expected move · ${data?.sourceLabel ?? "loading"}`
+          : `Today / tomorrow ∩ coverage ∪ book ∪ high expected move · ${data?.sourceLabel ?? "loading"}`
+      }
       bodyClassName="space-y-3 p-3"
       actions={
         <div className="flex flex-wrap items-center gap-2">
           {data ? <SourceHealth data={data} /> : null}
-          <label className="relative hidden sm:block">
-            <Search
+          {expanded ? (
+            <label className="relative hidden sm:block">
+              <Search
+                aria-hidden="true"
+                className="pointer-events-none absolute top-1/2 left-2 size-3 -translate-y-1/2 text-[var(--ib-text-muted)]"
+              />
+              <input
+                type="search"
+                value={query}
+                onChange={(event) => onQueryChange(event.target.value)}
+                placeholder="Search ticker or company"
+                className="h-7 max-sm:min-h-11 w-44 rounded-[3px] border border-[var(--ib-border-subtle)] bg-transparent pr-2 pl-6 font-mono text-[10px] text-[var(--ib-text-primary)] outline-none placeholder:text-[var(--ib-text-muted)] focus:border-[var(--ib-border-control)]"
+              />
+            </label>
+          ) : null}
+          {expanded ? (
+            <div className="flex rounded-[3px] border border-[var(--ib-border-subtle)]">
+              {(["all", "bmo", "amc"] as const).map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  aria-pressed={sessionFilter === item}
+                  onClick={() => onSessionChange(item)}
+                  className={cn(
+                    "h-7 max-sm:min-h-11 px-2 font-mono text-[10px] uppercase",
+                    sessionFilter === item
+                      ? "bg-[var(--ib-surface-3)] text-[var(--ib-text-primary)]"
+                      : "text-[var(--ib-text-muted)] hover:text-[var(--ib-text-primary)]",
+                  )}
+                >
+                  {item === "all" ? "All" : item.toUpperCase()}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <ChipToggle
+            pressed={expanded}
+            aria-expanded={expanded}
+            onClick={() => setExpanded((value) => !value)}
+            className="normal-case tracking-[0.08em]"
+          >
+            {expanded ? "Collapse" : "Full calendar"}
+            <ChevronDown
               aria-hidden="true"
-              className="pointer-events-none absolute top-1/2 left-2 size-3 -translate-y-1/2 text-[var(--ib-text-muted)]"
+              className={cn("size-3.5 transition-transform", expanded ? "rotate-180" : null)}
             />
-            <input
-              type="search"
-              value={query}
-              onChange={(event) => onQueryChange(event.target.value)}
-              placeholder="Search ticker or company"
-              className="h-7 max-sm:min-h-11 w-44 rounded-[3px] border border-[var(--ib-border-subtle)] bg-transparent pr-2 pl-6 font-mono text-[10px] text-[var(--ib-text-primary)] outline-none placeholder:text-[var(--ib-text-muted)] focus:border-[var(--ib-border-control)]"
-            />
-          </label>
-          <div className="flex rounded-[3px] border border-[var(--ib-border-subtle)]">
-            {(["all", "bmo", "amc"] as const).map((item) => (
-              <button
-                key={item}
-                type="button"
-                aria-pressed={sessionFilter === item}
-                onClick={() => onSessionChange(item)}
-                className={cn(
-                  "h-7 max-sm:min-h-11 px-2 font-mono text-[10px] uppercase",
-                  sessionFilter === item
-                    ? "bg-[var(--ib-surface-3)] text-[var(--ib-text-primary)]"
-                    : "text-[var(--ib-text-muted)] hover:text-[var(--ib-text-primary)]",
-                )}
-              >
-                {item === "all" ? "All" : item.toUpperCase()}
-              </button>
-            ))}
-          </div>
+          </ChipToggle>
         </div>
       }
     >
+      {!expanded ? (
+        <div className="space-y-2">
+          {loading && !data ? (
+            <p className="py-6 text-center text-[13px] text-[var(--ib-text-muted)]">
+              Loading earnings calendar…
+            </p>
+          ) : null}
+          {riskRows.length ? (
+            <ul className="divide-y divide-[var(--ib-border-subtle)] border-y border-[var(--ib-border-subtle)]">
+              {riskRows.map((event) => {
+                const inBook = (inBookTickers ?? []).some(
+                  (ticker) => ticker.toUpperCase() === event.ticker.toUpperCase(),
+                );
+                const onCoverage = (coverageTickers ?? []).some(
+                  (ticker) => ticker.toUpperCase() === event.ticker.toUpperCase(),
+                );
+                return (
+                  <li key={event.id} className="flex items-center gap-2 py-1.5">
+                    <button
+                      type="button"
+                      className="w-14 shrink-0 text-left font-mono text-[12px] font-semibold text-[var(--ib-text-primary)] hover:text-[var(--ib-maroon-300)]"
+                      onClick={() => onSelectSymbol?.(event.ticker)}
+                    >
+                      {event.ticker}
+                    </button>
+                    <span className="w-16 shrink-0 font-mono text-[10px] uppercase text-[var(--ib-text-muted)]">
+                      {event.reportDate.slice(5)} {SESSION_LABEL[event.session]}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--ib-text-secondary)]">
+                      {event.impliedMove
+                        ? `${event.impliedMove.percent.toFixed(1)}% implied`
+                        : "Implied —"}
+                    </span>
+                    {inBook ? <Badge tone="warn">Book</Badge> : null}
+                    {onCoverage && !inBook ? <Badge tone="info">Cov</Badge> : null}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : data ? (
+            <p className="py-6 text-center text-[12px] text-[var(--ib-text-muted)]">
+              No coverage, book, or high expected-move prints in the next session window.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {expanded ? (
+        <>
       <div className="flex items-center justify-between gap-2">
         <button
           type="button"
@@ -554,7 +631,7 @@ export function EarningsCalendar({
               aria-pressed={active}
               onClick={() => {
                 setSelectedDay(day);
-                setSelectedId(null);
+                if (!searchNeedle) setSelectedId(null);
               }}
               className={cn(
                 "rounded-[4px] border px-2 py-1.5 text-center transition-colors",
@@ -655,12 +732,12 @@ export function EarningsCalendar({
         </p>
       ) : null}
 
-      {data && !dayEvents.length ? (
+      {data && !dayEvents.length && !selected ? (
         <p className="rounded-[4px] border border-dashed border-[var(--ib-border-subtle)] px-3 py-8 text-center text-[12px] text-[var(--ib-text-muted)]">
           {data.error
             ? data.error
             : searchNeedle && searchMatches.length === 0
-              ? `No companies match “${searchNeedle}” with the current filters in the loaded calendar window.`
+              ? `No companies match “${searchNeedle}” in the loaded calendar window.`
               : searchNeedle && searchMatches.length > 0
                 ? `“${searchNeedle}” is on the calendar, but not on ${formatLongDay(activeDay)} with the current filters.`
                 : "No companies on the calendar for this day."}
@@ -801,6 +878,23 @@ export function EarningsCalendar({
             loading={historyLoading}
           />
         </div>
+      ) : historyTicker ? (
+        <div className="rounded-[4px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-inset)] px-3 py-2.5">
+          <p className="font-mono text-[9px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
+            {historyTicker} · next and previous prints
+          </p>
+          <p className="mt-1 text-[11px] text-[var(--ib-text-muted)]">
+            No matching row in this week’s filtered calendar. Showing earnings history for{" "}
+            {historyTicker}.
+          </p>
+          <EarningsHistoryPanel
+            key={historyTicker}
+            ticker={historyTicker}
+            companyName={historyName}
+            data={history?.ticker === historyTicker ? history : null}
+            loading={historyLoading}
+          />
+        </div>
       ) : null}
 
       <p className="text-[10px] leading-4 text-[var(--ib-text-muted)]">
@@ -814,6 +908,8 @@ export function EarningsCalendar({
           : ""}
         {data?.error ? ` · ${data.error}` : ""}
       </p>
+        </>
+      ) : null}
     </Panel>
   );
 }

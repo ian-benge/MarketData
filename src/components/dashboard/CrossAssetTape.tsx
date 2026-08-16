@@ -4,7 +4,13 @@ import { ArrowDownRight, ArrowRight, ArrowUpRight } from "lucide-react";
 import type { MarketPulseDriverId } from "@/lib/market-data/market-pulse";
 import type { NormalizedQuote } from "@/lib/providers/types";
 import { cn } from "@/lib/utils/cn";
-import { formatMarketTime, formatPrice, formatSignedPercent, marketTone, marketToneBarClass, marketToneClass } from "@/lib/utils/format";
+import {
+  formatMarketTime,
+  formatPrice,
+  formatSignedPercent,
+  marketTone,
+  marketToneClass,
+} from "@/lib/utils/format";
 
 type TapeTile = {
   symbols: string[];
@@ -20,6 +26,12 @@ type TapeGroup = {
   tiles: TapeTile[];
 };
 
+type TapeItem = {
+  group: TapeGroup;
+  config: TapeTile;
+  quote: NormalizedQuote;
+};
+
 const TAPE_GROUPS: TapeGroup[] = [
   {
     id: "index",
@@ -33,7 +45,7 @@ const TAPE_GROUPS: TapeGroup[] = [
   },
   {
     id: "rates-credit",
-    label: "Rates / credit",
+    label: "Rates",
     tiles: [
       { symbols: ["TLT"], short: "Rates", name: "Long duration", meaning: "TLT is the available duration proxy; a cash Treasury curve is not present in this payload.", driver: "rates" },
       { symbols: ["HYG"], short: "HY credit", name: "High yield", meaning: "HYG is an ETF price, not an OAS spread.", driver: "credit" },
@@ -50,7 +62,7 @@ const TAPE_GROUPS: TapeGroup[] = [
   },
   {
     id: "commodity",
-    label: "Commodity / crypto",
+    label: "Cmdty",
     tiles: [
       { symbols: ["WTI", "USO"], short: "Oil", name: "Inflation impulse", meaning: "USO is an oil ETF proxy, not a WTI futures strip.", driver: "oil" },
       { symbols: ["XAU", "GLD"], short: "Gold", name: "Defensive demand", meaning: "Gold is tape context, not a scored Pulse driver.", driver: null },
@@ -59,129 +71,221 @@ const TAPE_GROUPS: TapeGroup[] = [
   },
 ];
 
-function sessionBadge(quote: NormalizedQuote, marketSession?: string | null) {
-  const session = marketSession ?? quote.marketSession;
-  if (session === "premarket") return "PRE";
-  if (session === "regular") return "RTH";
-  if (session === "afterhours") return "AH";
-  return "EOD";
+function ToneIcon({ value }: { value: number | null | undefined }) {
+  const tone = marketTone(value);
+  const Icon =
+    tone === "positive" ? ArrowUpRight : tone === "negative" ? ArrowDownRight : ArrowRight;
+  return <Icon aria-hidden="true" className="size-3 shrink-0" />;
 }
 
-export function CrossAssetTape({ quotes, asOf, marketSession, selectedSymbol, onSelectSymbol, activeDriver, onActiveDriver }: { quotes: NormalizedQuote[]; asOf?: string | null; marketSession?: string | null; selectedSymbol?: string; onSelectSymbol?: (ticker: string) => void; activeDriver?: MarketPulseDriverId | null; onActiveDriver?: (driver: MarketPulseDriverId | null) => void }) {
-  const byTicker = new Map(quotes.map((quote) => [quote.ticker.toUpperCase(), quote]));
-  const groups = TAPE_GROUPS.map((group) => ({
-    ...group,
-    tiles: group.tiles
-      .map((config) => ({ config, quote: config.symbols.map((symbol) => byTicker.get(symbol)).find(Boolean) }))
-      .filter((item): item is { config: TapeTile; quote: NormalizedQuote } => Boolean(item.quote)),
-  })).filter((group) => group.tiles.length);
+function TapeQuote({
+  item,
+  groupLabel,
+  selected,
+  highlighted,
+  asOf,
+  onSelectSymbol,
+  onActiveDriver,
+  inert,
+}: {
+  item: TapeItem;
+  groupLabel?: string | null;
+  selected: boolean;
+  highlighted: boolean;
+  asOf?: string | null;
+  onSelectSymbol?: (ticker: string) => void;
+  onActiveDriver?: (driver: MarketPulseDriverId | null) => void;
+  inert?: boolean;
+}) {
+  const { config, quote } = item;
+  return (
+    <li
+      className="group relative flex shrink-0 items-center"
+      onMouseEnter={() => onActiveDriver?.(config.driver)}
+      onMouseLeave={() => onActiveDriver?.(null)}
+      onFocus={() => onActiveDriver?.(config.driver)}
+      onBlur={() => onActiveDriver?.(null)}
+    >
+      {groupLabel ? (
+        <span className="px-2 font-mono text-[9px] uppercase tracking-[0.14em] text-[var(--ib-text-muted)]">
+          {groupLabel}
+        </span>
+      ) : null}
+      <button
+        type="button"
+        tabIndex={inert ? -1 : undefined}
+        aria-pressed={inert ? undefined : selected}
+        aria-label={`Select ${quote.ticker}`}
+        title={`${quote.ticker} · ${config.short} · ${config.name}`}
+        onClick={() => onSelectSymbol?.(quote.ticker)}
+        className={cn(
+          "flex items-center gap-1.5 rounded-[3px] px-2 py-1 font-mono text-[12px] transition-colors",
+          selected
+            ? "bg-[var(--ib-surface-selected)]"
+            : highlighted
+              ? "bg-[var(--ib-surface-2)]"
+              : "hover:bg-[var(--ib-surface-hover)]",
+        )}
+      >
+        <span className="font-semibold tracking-wide text-[var(--ib-text-primary)]">
+          {quote.ticker}
+        </span>
+        <span
+          className={cn(
+            "inline-flex items-center gap-0.5 tabular-nums",
+            marketToneClass(quote.changePercent),
+          )}
+        >
+          <ToneIcon value={quote.changePercent} />
+          {formatSignedPercent(quote.changePercent)}
+        </span>
+      </button>
+      <div
+          role="tooltip"
+          className="pointer-events-none absolute bottom-[calc(100%+8px)] left-1/2 z-20 hidden w-64 -translate-x-1/2 rounded-[5px] border border-[var(--ib-border-strong)] bg-[var(--ib-surface-3)] p-3 text-[10px] leading-4 text-[var(--ib-text-secondary)] shadow-[var(--shadow-float)] group-hover:block group-focus-within:block"
+        >
+          <p className="font-semibold text-[var(--ib-text-primary)]">
+            {quote.ticker} · {config.short}
+          </p>
+          <p className="mt-0.5 text-[var(--ib-text-muted)]">{config.name}</p>
+          <p className="mt-1">{config.meaning}</p>
+          <dl className="mt-2 space-y-1 border-t border-[var(--ib-border-subtle)] pt-2 font-mono text-[9px]">
+            <div className="flex justify-between gap-3">
+              <dt>Last</dt>
+              <dd>{formatPrice(quote.last, quote.ticker)}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt>Source</dt>
+              <dd className="truncate">{quote.providerName}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt>Timestamp</dt>
+              <dd>{formatMarketTime(quote.providerTimestamp || asOf)}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt>Coverage</dt>
+              <dd className="truncate">
+                {quote.sourceQuality} · {quote.delayStatus}
+              </dd>
+            </div>
+          </dl>
+        </div>
+    </li>
+  );
+}
 
-  if (!groups.length) {
+function TapeSequence({
+  items,
+  clone = false,
+  selectedSymbol,
+  activeDriver,
+  asOf,
+  onSelectSymbol,
+  onActiveDriver,
+}: {
+  items: TapeItem[];
+  clone?: boolean;
+  selectedSymbol?: string;
+  activeDriver?: MarketPulseDriverId | null;
+  asOf?: string | null;
+  onSelectSymbol?: (ticker: string) => void;
+  onActiveDriver?: (driver: MarketPulseDriverId | null) => void;
+}) {
+  return (
+    <ul
+      aria-hidden={clone || undefined}
+      className={cn(
+        "flex shrink-0 items-center gap-1 pr-8",
+        clone && "tape-marquee-clone",
+      )}
+    >
+      {items.map((item, index) => {
+        const showGroup = index === 0 || item.group.id !== items[index - 1]?.group.id;
+        return (
+          <TapeQuote
+            key={`${clone ? "clone" : "live"}-${item.quote.ticker}`}
+            item={item}
+            groupLabel={showGroup ? item.group.label : null}
+            selected={selectedSymbol === item.quote.ticker}
+            highlighted={item.config.driver != null && activeDriver === item.config.driver}
+            asOf={asOf}
+            onSelectSymbol={onSelectSymbol}
+            onActiveDriver={onActiveDriver}
+            inert={clone}
+          />
+        );
+      })}
+    </ul>
+  );
+}
+
+export function CrossAssetTape({
+  quotes,
+  asOf,
+  selectedSymbol,
+  onSelectSymbol,
+  activeDriver,
+  onActiveDriver,
+}: {
+  quotes: NormalizedQuote[];
+  asOf?: string | null;
+  marketSession?: string | null;
+  selectedSymbol?: string;
+  onSelectSymbol?: (ticker: string) => void;
+  activeDriver?: MarketPulseDriverId | null;
+  onActiveDriver?: (driver: MarketPulseDriverId | null) => void;
+}) {
+  const byTicker = new Map(quotes.map((quote) => [quote.ticker.toUpperCase(), quote]));
+  const items = TAPE_GROUPS.flatMap((group) =>
+    group.tiles
+      .map((config) => {
+        const quote = config.symbols.map((symbol) => byTicker.get(symbol)).find(Boolean);
+        return quote ? { group, config, quote } : null;
+      })
+      .filter((item): item is TapeItem => Boolean(item)),
+  );
+
+  if (!items.length) {
     return (
-      <div className="rounded-[6px] border border-dashed border-[var(--ib-border-strong)] bg-[var(--ib-surface-inset)] px-4 py-8 text-center">
-        <p className="text-[12px] text-[var(--ib-text-secondary)]">Cross-asset quotes are unavailable.</p>
-        <p className="mt-1 text-[10px] text-[var(--ib-text-muted)]">The Pulse score and tape remain withheld until verified session data arrives.</p>
+      <div className="flex h-9 items-center px-3">
+        <p className="text-[11px] text-[var(--ib-text-muted)]">
+          Cross-asset quotes are unavailable.
+        </p>
       </div>
     );
   }
 
+  const durationSec = Math.max(32, items.length * 3.6);
+
   return (
-    <div className="space-y-3">
-      {groups.map((group) => (
-        <div key={group.id}>
-          <p className="mb-1.5 font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--ib-text-muted)]">
-            {group.label}
-          </p>
-          <ul className="grid grid-cols-2 gap-1.5 md:grid-cols-4">
-            {group.tiles.map(({ config, quote }) => {
-              const tone = marketTone(quote.changePercent);
-              const Icon = tone === "positive" ? ArrowUpRight : tone === "negative" ? ArrowDownRight : ArrowRight;
-              const selected = selectedSymbol === quote.ticker;
-              const highlighted = config.driver != null && activeDriver === config.driver;
-              return (
-                <li
-                  key={quote.ticker}
-                  className="group relative min-w-0"
-                  onMouseEnter={() => onActiveDriver?.(config.driver)}
-                  onMouseLeave={() => onActiveDriver?.(null)}
-                  onFocus={() => onActiveDriver?.(config.driver)}
-                  onBlur={() => onActiveDriver?.(null)}
-                >
-                  <button
-                    type="button"
-                    aria-pressed={selected}
-                    aria-label={`Select ${quote.ticker}`}
-                    onClick={() => onSelectSymbol?.(quote.ticker)}
-                    className={cn(
-                      "relative h-full min-h-[92px] w-full overflow-hidden rounded-[6px] border bg-[var(--ib-surface-inset)] p-2.5 text-left transition-[border-color,background-color]",
-                      selected
-                        ? "border-[var(--ib-maroon-500)] bg-[var(--ib-surface-selected)]"
-                        : highlighted
-                          ? "border-[var(--ib-text-muted)] bg-[var(--ib-surface-2)]"
-                          : "border-[var(--ib-border-subtle)] hover:border-[var(--ib-border-control)] hover:bg-[var(--ib-surface-hover)]",
-                    )}
-                  >
-                    <span
-                      aria-hidden="true"
-                      className={cn("absolute inset-y-0 left-0 w-0.5", marketToneBarClass(quote.changePercent))}
-                    />
-                    <div className="flex items-start justify-between gap-2 pl-1">
-                      <div className="min-w-0">
-                        <p className="truncate font-mono text-[9px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">{config.short}</p>
-                        <p className="mt-0.5 truncate text-[10px] text-[var(--ib-text-secondary)]">{config.name}</p>
-                      </div>
-                      <span className="rounded-[3px] border border-[var(--ib-border-strong)] px-1.5 py-0.5 font-mono text-[8px] text-[var(--ib-text-muted)]">
-                        {sessionBadge(quote, marketSession)}
-                      </span>
-                    </div>
-                    <div className="mt-2.5 flex items-end justify-between gap-2 pl-1">
-                      <div>
-                        <p className="font-mono text-[11px] font-semibold text-[var(--ib-text-primary)]">
-                          {quote.ticker} <span className="text-[14px] tabular-nums">{formatPrice(quote.last, quote.ticker)}</span>
-                        </p>
-                        <p
-                          className={cn(
-                            "mt-1 inline-flex items-center gap-1 font-mono text-[10px]",
-                            marketToneClass(quote.changePercent),
-                          )}
-                        >
-                          <Icon className="size-3" />
-                          {formatSignedPercent(quote.changePercent)}
-                        </p>
-                      </div>
-                    </div>
-                  </button>
-                  <div
-                    role="tooltip"
-                    className="pointer-events-none absolute bottom-[calc(100%+6px)] left-0 z-20 hidden w-64 rounded-[5px] border border-[var(--ib-border-strong)] bg-[var(--ib-surface-3)] p-3 text-[10px] leading-4 text-[var(--ib-text-secondary)] shadow-[var(--shadow-float)] group-hover:block group-focus-within:block"
-                  >
-                    <p className="font-semibold text-[var(--ib-text-primary)]">
-                      {quote.ticker} · {config.short}
-                    </p>
-                    <p className="mt-1">{config.meaning}</p>
-                    <dl className="mt-2 space-y-1 border-t border-[var(--ib-border-subtle)] pt-2 font-mono text-[9px]">
-                      <div className="flex justify-between gap-3">
-                        <dt>Source</dt>
-                        <dd className="truncate">{quote.providerName}</dd>
-                      </div>
-                      <div className="flex justify-between gap-3">
-                        <dt>Timestamp</dt>
-                        <dd>{formatMarketTime(quote.providerTimestamp || asOf)}</dd>
-                      </div>
-                      <div className="flex justify-between gap-3">
-                        <dt>Coverage</dt>
-                        <dd className="truncate">
-                          {quote.sourceQuality} · {quote.delayStatus}
-                        </dd>
-                      </div>
-                    </dl>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      ))}
+    <div
+      className="tape-marquee-viewport min-w-0 flex-1 overflow-hidden"
+      role="region"
+      aria-label="Cross-asset tape"
+      title="Hover to pause · click a proxy to highlight it"
+    >
+      <div
+        className="tape-marquee flex w-max items-center"
+        style={{ animationDuration: `${durationSec}s` }}
+      >
+        <TapeSequence
+          items={items}
+          selectedSymbol={selectedSymbol}
+          activeDriver={activeDriver}
+          asOf={asOf}
+          onSelectSymbol={onSelectSymbol}
+          onActiveDriver={onActiveDriver}
+        />
+        <TapeSequence
+          items={items}
+          clone
+          selectedSymbol={selectedSymbol}
+          activeDriver={activeDriver}
+          asOf={asOf}
+          onSelectSymbol={onSelectSymbol}
+          onActiveDriver={onActiveDriver}
+        />
+      </div>
     </div>
   );
 }

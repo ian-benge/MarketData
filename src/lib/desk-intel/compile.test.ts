@@ -21,7 +21,8 @@ describe("desk-intel rules compilation", () => {
     });
     expect(brief.headline).toMatch(/US equities are closed/i);
     expect(brief.headline).toContain("2026-08-14");
-    expect(brief.sessionRead).toMatch(/US equities are closed/i);
+    expect(brief.sessionRead).not.toMatch(/US equities are closed/i);
+    expect(brief.sessionRead).toMatch(/catalyst|tape|moves/i);
   });
 
   it("keeps unexplained tape unknown and flags the IREN book name", () => {

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   earningsCoverageWindow,
+  foldWeekendReportDate,
   isDateInInclusiveWindow,
+  mondayOfChicagoWeek,
   parseIsoDateOnly,
 } from "@/lib/market-data/earnings/window";
 
@@ -33,5 +35,12 @@ describe("earnings date window", () => {
     expect(isDateInInclusiveWindow("2027-02-11", "2026-08-10", "2027-02-10")).toBe(
       false,
     );
+  });
+
+  it("maps Saturday and Sunday prints onto that week's Friday chip", () => {
+    expect(mondayOfChicagoWeek("2026-08-22")).toBe("2026-08-17");
+    expect(foldWeekendReportDate("2026-08-22")).toBe("2026-08-21");
+    expect(foldWeekendReportDate("2026-08-23")).toBe("2026-08-21");
+    expect(foldWeekendReportDate("2026-08-19")).toBe("2026-08-19");
   });
 });

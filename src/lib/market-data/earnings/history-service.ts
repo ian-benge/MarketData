@@ -18,9 +18,13 @@ import {
   type DailyClose,
   type EarningsHistorySnapshot,
   type EarningsHistorySourceHealth,
+  type HistoricalQuarter,
   type HistoricalSourceObservation,
 } from "@/lib/market-data/earnings/history-types";
-import type { EarningsCalendarProvider } from "@/lib/market-data/earnings/types";
+import {
+  EARNINGS_LOOKAHEAD_DAYS,
+  type EarningsCalendarProvider,
+} from "@/lib/market-data/earnings/types";
 import { toAlphaVantageSymbol, toCanonicalSymbol, toFinnhubSymbol } from "@/lib/market-data/earnings/symbols";
 import { addCalendarDays } from "@/lib/market-data/earnings/window";
 import { fetchYahooDailyCloses } from "@/lib/market-data/earnings/yahoo";
@@ -71,12 +75,14 @@ async function fetchFinnhubHistory(
   env: Env,
   canonical: string,
   fetchImpl: typeof fetch,
+  now: Date,
 ): Promise<{ rows: HistoricalSourceObservation[]; health: EarningsHistorySourceHealth }> {
   if (!env.FINNHUB_API_KEY) {
     return { rows: [], health: emptyHealth(false, "FINNHUB_API_KEY is not set") };
   }
-  const today = chicagoDateString(new Date());
+  const today = chicagoDateString(now);
   const from = addCalendarDays(today, -365 * 3);
+  const to = addCalendarDays(today, EARNINGS_LOOKAHEAD_DAYS);
   const symbol = toFinnhubSymbol(canonical);
   try {
     const earningsUrl = new URL("https://finnhub.io/api/v1/stock/earnings");
@@ -85,7 +91,7 @@ async function fetchFinnhubHistory(
     const calendarUrl = new URL("https://finnhub.io/api/v1/calendar/earnings");
     calendarUrl.searchParams.set("symbol", symbol);
     calendarUrl.searchParams.set("from", from);
-    calendarUrl.searchParams.set("to", today);
+    calendarUrl.searchParams.set("to", to);
     calendarUrl.searchParams.set("token", env.FINNHUB_API_KEY);
     const [earningsRes, calendarRes] = await Promise.all([
       fetchImpl(earningsUrl.toString(), {
@@ -322,14 +328,38 @@ function fixtureHistory(ticker: string, companyName: string | null): EarningsHis
   };
 }
 
+function selectHistoryQuarters(
+  merged: HistoricalQuarter[],
+  today: string,
+): HistoricalQuarter[] {
+  const hasActual = (row: HistoricalQuarter) =>
+    row.epsActual != null || row.revenueActual != null;
+  const reported = merged.filter(hasActual);
+  const upcoming = merged
+    .filter(
+      (row): row is HistoricalQuarter & { reportDate: string } =>
+        row.reportDate != null && row.reportDate >= today && !hasActual(row),
+    )
+    .sort((a, b) => a.reportDate.localeCompare(b.reportDate));
+  const nextPrint = upcoming[0];
+  if (nextPrint) {
+    return [nextPrint, ...reported.filter((row) => row.id !== nextPrint.id)].slice(
+      0,
+      HISTORICAL_QUARTER_COUNT,
+    );
+  }
+  return (reported.length ? reported : merged).slice(0, HISTORICAL_QUARTER_COUNT);
+}
+
 async function loadLive(
   env: Env,
   canonical: string,
   deps: HistoryDeps,
 ): Promise<EarningsHistorySnapshot> {
+  const now = deps.now ?? new Date();
   const fetchImpl = deps.finnhubFetch ?? fetch;
   const [finnhub, alpha] = await Promise.all([
-    fetchFinnhubHistory(env, canonical, fetchImpl),
+    fetchFinnhubHistory(env, canonical, fetchImpl, now),
     fetchAlphaVantageHistory(env, canonical, deps.alphaVantageFetch),
   ]);
   let merged = mergeHistoricalObservations(
@@ -339,8 +369,7 @@ async function loadLive(
   const yahoo = await loadYahooBars(canonical, deps);
   merged = attachPriceReactions(merged, yahoo.closes);
 
-  const reported = merged.filter((row) => row.epsActual != null || row.revenueActual != null);
-  const quarters = (reported.length ? reported : merged).slice(0, HISTORICAL_QUARTER_COUNT);
+  const quarters = selectHistoryQuarters(merged, chicagoDateString(now));
 
   const snapshot: EarningsHistorySnapshot = {
     ticker: canonical,

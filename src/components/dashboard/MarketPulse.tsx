@@ -182,10 +182,11 @@ export function MarketPulse(props: MarketPulseProps) {
         </div>
       </div>
 
-      <div className="p-3 sm:p-4">
-        <div className="mb-2.5">
-          <p className="font-mono text-[9px] uppercase tracking-[0.14em] text-[var(--ib-text-muted)]">Cross-asset tape</p>
-          <p className="mt-1 text-[11px] text-[var(--ib-text-secondary)]">Verified session moves · select a proxy to highlight it</p>
+      <div className="flex min-h-9 items-stretch border-t border-[var(--ib-border-subtle)]">
+        <div className="flex shrink-0 items-center border-r border-[var(--ib-border-subtle)] bg-[var(--ib-surface-2)] px-3">
+          <p className="font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-[var(--ib-text-muted)]">
+            Tape
+          </p>
         </div>
         <CrossAssetTape quotes={props.quotes} asOf={props.asOf} marketSession={props.marketSession} selectedSymbol={props.selectedSymbol} onSelectSymbol={props.onSelectSymbol} activeDriver={activeDriver} onActiveDriver={setActiveDriver} />
       </div>

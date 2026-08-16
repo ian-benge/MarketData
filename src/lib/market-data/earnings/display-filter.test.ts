@@ -154,4 +154,54 @@ describe("earnings search across the calendar window", () => {
       )?.ticker,
     ).toBe("AMD");
   });
+
+  it("finds a ticker even when market cap is still unquoted under the $10B filter", () => {
+    const events = [
+      event({
+        ticker: "TSLA",
+        companyName: "Tesla Inc",
+        reportDate: "2026-10-21",
+        marketCap: null,
+        avgVolume: null,
+        quoteStatus: "missing",
+      }),
+      event({ ticker: "MSFT", reportDate: "2026-08-12" }),
+    ];
+    const matches = findEarningsSearchMatches(events, {
+      session: "all",
+      query: "tsla",
+      marketCap: "10b",
+      avgVolume: "any",
+    });
+    expect(matches.map((item) => item.ticker)).toEqual(["TSLA"]);
+    expect(
+      pickBestEarningsSearchMatch(
+        events,
+        { session: "all", query: "tsla", marketCap: "10b", avgVolume: "any" },
+        "2026-08-16",
+      )?.ticker,
+    ).toBe("TSLA");
+  });
+
+  it("keeps a searched ticker visible in the week even with unknown size", () => {
+    const events = [
+      event({
+        ticker: "TSLA",
+        reportDate: "2026-08-19",
+        marketCap: null,
+        avgVolume: null,
+        quoteStatus: "missing",
+      }),
+      event({ ticker: "TINY", reportDate: "2026-08-19", marketCap: 2_000_000_000 }),
+    ];
+    const filtered = applyEarningsDisplayFilters(events, {
+      weekStart: "2026-08-17",
+      weekEnd: "2026-08-23",
+      session: "all",
+      query: "tsla",
+      marketCap: "10b",
+      avgVolume: "any",
+    });
+    expect(filtered.visible.map((item) => item.ticker)).toEqual(["TSLA"]);
+  });
 });

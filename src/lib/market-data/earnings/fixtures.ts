@@ -4,7 +4,8 @@ import {
   type EarningsCalendarEvent,
   type EarningsCalendarSnapshot,
 } from "@/lib/market-data/earnings/types";
-import { earningsCoverageWindow } from "@/lib/market-data/earnings/window";
+import { addCalendarDays, earningsCoverageWindow } from "@/lib/market-data/earnings/window";
+import { chicagoDateString } from "@/lib/scheduling/chicago-schedule";
 
 function mockEvent(
   event: Omit<
@@ -45,16 +46,20 @@ function mockEvent(
 }
 
 export function fixtureEarningsSnapshot(
-  now = new Date("2026-08-11T20:00:00.000Z"),
+  now = new Date(),
 ): EarningsCalendarSnapshot {
   const asOf = now.toISOString();
   const window = earningsCoverageWindow(now);
+  const today = chicagoDateString(now);
+  const tomorrow = addCalendarDays(today, 1);
+  const inTwo = addCalendarDays(today, 2);
+  const nextWeek = addCalendarDays(today, 7);
   const events: EarningsCalendarEvent[] = [
     mockEvent({
       id: "mock-earn-nvda",
       ticker: "NVDA",
       companyName: "NVIDIA Corp",
-      reportDate: "2026-08-12",
+      reportDate: today,
       session: "amc",
       fiscalPeriod: "Q2 2027",
       epsEstimate: 1.01,
@@ -82,7 +87,7 @@ export function fixtureEarningsSnapshot(
       id: "mock-earn-amzn",
       ticker: "AMZN",
       companyName: "Amazon.com Inc",
-      reportDate: "2026-08-13",
+      reportDate: tomorrow,
       session: "amc",
       fiscalPeriod: "Q2 2026",
       epsEstimate: 1.32,
@@ -110,7 +115,7 @@ export function fixtureEarningsSnapshot(
       id: "mock-earn-wmt",
       ticker: "WMT",
       companyName: "Walmart Inc",
-      reportDate: "2026-08-14",
+      reportDate: inTwo,
       session: "bmo",
       fiscalPeriod: "Q2 2026",
       epsEstimate: 0.61,
@@ -138,7 +143,7 @@ export function fixtureEarningsSnapshot(
       id: "mock-earn-hd",
       ticker: "HD",
       companyName: "Home Depot Inc",
-      reportDate: "2026-08-18",
+      reportDate: nextWeek,
       session: "bmo",
       fiscalPeriod: "Q2 2026",
       epsEstimate: 4.72,
@@ -156,7 +161,7 @@ export function fixtureEarningsSnapshot(
       id: "mock-earn-dg",
       ticker: "DG",
       companyName: "Dollar General Corp",
-      reportDate: "2026-08-12",
+      reportDate: today,
       session: "bmo",
       fiscalPeriod: "Q2 2026",
       epsEstimate: 1.42,
@@ -184,7 +189,7 @@ export function fixtureEarningsSnapshot(
       id: "mock-earn-cava",
       ticker: "CAVA",
       companyName: "CAVA Group Inc",
-      reportDate: "2026-08-12",
+      reportDate: tomorrow,
       session: "amc",
       fiscalPeriod: "Q2 2026",
       epsEstimate: 0.14,
@@ -212,7 +217,7 @@ export function fixtureEarningsSnapshot(
       id: "mock-earn-rkt",
       ticker: "RKT",
       companyName: "Rocket Companies Inc",
-      reportDate: "2026-08-12",
+      reportDate: inTwo,
       session: "unknown",
       fiscalPeriod: "Q2 2026",
       epsEstimate: 0.08,

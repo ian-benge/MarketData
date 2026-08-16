@@ -78,6 +78,16 @@ export function earningsProviderFetchWindow(
   };
 }
 
-export function utcCalendarDate(now = new Date()): string {
-  return now.toISOString().slice(0, 10);
+export function foldWeekendReportDate(yyyyMmDd: string): string {
+  const monday = mondayOfChicagoWeek(yyyyMmDd);
+  const friday = addCalendarDays(monday, 4);
+  const sunday = addCalendarDays(monday, 6);
+  if (yyyyMmDd > friday && yyyyMmDd <= sunday) return friday;
+  return yyyyMmDd;
+}
+
+export function mondayOfChicagoWeek(yyyyMmDd: string): string {
+  const noon = fromZonedTime(`${yyyyMmDd}T12:00:00`, CHICAGO_TZ);
+  const weekday = Number(formatInTimeZone(noon, CHICAGO_TZ, "i"));
+  return addCalendarDays(yyyyMmDd, 1 - weekday);
 }

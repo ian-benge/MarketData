@@ -1,21 +1,35 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { BookImpactStrip } from "@/components/dashboard/BookImpactStrip";
 import { CatalystCalendar } from "@/components/dashboard/CatalystCalendar";
 import { DivergenceNotes } from "@/components/dashboard/DivergenceNotes";
 import { EarningsCalendar } from "@/components/dashboard/EarningsCalendar";
+import { FactorTape } from "@/components/dashboard/FactorTape";
 import { FedWatchPanel } from "@/components/dashboard/FedWatchPanel";
-import { DashboardMarketBoard } from "@/components/dashboard/DashboardMarketBoard";
+import { FocusContextPanel } from "@/components/dashboard/FocusContextPanel";
 import { HeadlineFeed } from "@/components/dashboard/HeadlineFeed";
+import { MarketChart } from "@/components/dashboard/MarketChart";
 import { MaterialMoversPanel } from "@/components/dashboard/MaterialMoversPanel";
-import { SectorHeatmap } from "@/components/dashboard/SectorHeatmap";
-import { WatchlistTable } from "@/components/dashboard/WatchlistTable";
 import { OverviewStatusChrome } from "@/components/dashboard/OverviewStatusChrome";
+import { SectorHeatmap } from "@/components/dashboard/SectorHeatmap";
+import { ThemeTape } from "@/components/dashboard/ThemeTape";
+import { WatchlistTable } from "@/components/dashboard/WatchlistTable";
+import { DashboardMarketBoard } from "@/components/dashboard/DashboardMarketBoard";
 import { SessionIntelligence } from "@/components/intel/SessionIntelligence";
 import { StaleBanner } from "@/components/ui/StaleBanner";
+import {
+  attachMovesToBookImpact,
+  compactBookImpact,
+  emptyBookImpact,
+  isPositionsSnapshot,
+  type DashboardBookImpact,
+} from "@/lib/dashboard/book-impact";
+import { buildFocusContext } from "@/lib/dashboard/focus-context";
 import type { DashboardSnapshot } from "@/lib/fixtures/dashboard";
 import { buildAttentionItems } from "@/lib/market-data/overview-attention";
 import {
+  buildFactorTiles,
   buildSectorHeatmap,
   buildSharedMarketAnalytics,
   overviewDivergenceNotes,
@@ -24,31 +38,53 @@ import { joinMaterialMovers } from "@/lib/market-data/overview-movers";
 import { attributeMoves } from "@/lib/intelligence/attribution";
 import { detectSignificantMove } from "@/lib/intelligence/move-detect";
 import { calculateMarketPulse } from "@/lib/market-data/market-pulse";
+import {
+  initialCoveragePick,
+  sameCoveragePick,
+  watchlistForPick,
+  type CoveragePick,
+} from "@/lib/dashboard/coverage-pick";
 import type { DashboardWatchlistSnapshot } from "@/lib/market-data/watchlist-types";
 
 const LIVE_POLL_MS = 15_000;
+const BOOK_POLL_MS = 30_000;
 
 export function LiveMarketOverview({
   initial,
+  initialBookImpact,
   selectedSymbol,
   selectedListId,
+  selectedSectorId,
   live,
+  chartMode,
   pulseLoading = false,
 }: {
   initial: DashboardSnapshot;
+  initialBookImpact?: DashboardBookImpact;
   selectedSymbol: string;
   selectedListId?: string;
+  selectedSectorId?: string;
   live: boolean;
+  chartMode: "mock" | "provider" | "unavailable";
   pulseLoading?: boolean;
 }) {
   const [data, setData] = useState(initial);
+  const [book, setBook] = useState<DashboardBookImpact>(
+    () => initialBookImpact ?? emptyBookImpact(null),
+  );
+  const [refreshError, setRefreshError] = useState<string | null>(null);
   const [focusSymbol, setFocusSymbol] = useState(selectedSymbol);
   const [listOverride, setListOverride] = useState<DashboardWatchlistSnapshot | null>(
     null,
   );
-  const listIdRef = useRef<string | null>(
-    selectedListId ?? initial.watchlist?.listId ?? null,
+  const [pick, setPick] = useState<CoveragePick | null>(() =>
+    initialCoveragePick(selectedSectorId, selectedListId, initial.watchlist?.listId),
   );
+  const pickRef = useRef<CoveragePick | null>(pick);
+  pickRef.current = pick;
+  const movesRef = useRef(data.intelligence?.moves);
+  movesRef.current = data.intelligence?.moves;
+  const skipInitialPollDelay = useRef(false);
 
   function selectSymbol(ticker: string) {
     setFocusSymbol(ticker);
@@ -58,42 +94,74 @@ export function LiveMarketOverview({
     window.history.replaceState({}, "", url);
   }
 
-  function writeListId(listId: string | null) {
-    listIdRef.current = listId;
+  function writePick(next: CoveragePick | null) {
+    pickRef.current = next;
+    setPick(next);
     if (typeof window === "undefined") return;
     const url = new URL(window.location.href);
-    if (listId) url.searchParams.set("listId", listId);
-    else url.searchParams.delete("listId");
+    if (next?.type === "sector") {
+      url.searchParams.set("sectorId", next.id);
+      url.searchParams.delete("listId");
+    } else if (next?.id) {
+      url.searchParams.set("listId", next.id);
+      url.searchParams.delete("sectorId");
+    } else {
+      url.searchParams.delete("listId");
+      url.searchParams.delete("sectorId");
+    }
     window.history.replaceState({}, "", url);
   }
 
   useEffect(() => {
     if (!live) return;
     let cancelled = false;
+    const requested = pickRef.current;
+    const delay = skipInitialPollDelay.current ? 0 : 1_500;
+    skipInitialPollDelay.current = true;
 
     async function pull() {
       if (document.visibilityState === "hidden") return;
       try {
         const params = new URLSearchParams({ live: "1" });
-        const listId = listIdRef.current;
-        if (listId) params.set("listId", listId);
+        if (requested?.type === "sector") params.set("sectorId", requested.id);
+        else if (requested?.id) params.set("listId", requested.id);
         const response = await fetch(`/api/dashboard?${params.toString()}`, {
           cache: "no-store",
         });
-        if (!response.ok || cancelled) return;
+        if (cancelled) return;
+        if (!response.ok) {
+          setRefreshError(
+            `Live refresh failed (${response.status}). Showing last successful snapshot.`,
+          );
+          return;
+        }
+        if ((pickRef.current || requested) && !sameCoveragePick(pickRef.current, requested)) {
+          return;
+        }
         const next = (await response.json()) as DashboardSnapshot;
         if (cancelled) return;
+        if ((pickRef.current || requested) && !sameCoveragePick(pickRef.current, requested)) {
+          return;
+        }
         setData(next);
-        setListOverride((current) =>
-          current && current.listId !== next.watchlist?.listId ? current : null,
-        );
+        setRefreshError(null);
+        setListOverride((current) => {
+          if (!current) return null;
+          if (current.listId === next.watchlist?.listId) return null;
+          if (pickRef.current && current.listId !== pickRef.current.id) return null;
+          return current;
+        });
       } catch {
-        /* keep last valid snapshot */
+        if (!cancelled) {
+          setRefreshError(
+            "Live refresh failed. Showing last successful snapshot. Tape, news, and calendars keep their own source labels.",
+          );
+        }
       }
     }
 
-    const timeout = window.setTimeout(pull, 1_500);
-    const interval = window.setInterval(pull, LIVE_POLL_MS);
+    const timeout = window.setTimeout(() => void pull(), delay);
+    const interval = window.setInterval(() => void pull(), LIVE_POLL_MS);
     const onVisible = () => {
       if (document.visibilityState === "visible") void pull();
     };
@@ -104,30 +172,80 @@ export function LiveMarketOverview({
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisible);
     };
+  }, [live, pick?.id, pick?.type]);
+
+  useEffect(() => {
+    if (!live) return;
+    let cancelled = false;
+    async function pullBook() {
+      if (document.visibilityState === "hidden") return;
+      try {
+        const response = await fetch("/api/positions", { cache: "no-store" });
+        if (cancelled) return;
+        if (!response.ok) {
+          setBook((prev) => ({
+            ...prev,
+            error: `Book refresh failed (${response.status}). Showing last successful blotter.`,
+            stale: true,
+          }));
+          return;
+        }
+        const payload: unknown = await response.json();
+        if (cancelled) return;
+        if (!isPositionsSnapshot(payload)) {
+          setBook((prev) => ({
+            ...prev,
+            error: "Book refresh returned an incomplete blotter. Showing last successful data.",
+            stale: true,
+          }));
+          return;
+        }
+        setBook(compactBookImpact(payload, movesRef.current ?? []));
+      } catch {
+        if (!cancelled) {
+          setBook((prev) => ({
+            ...prev,
+            error: "Book refresh failed. Showing last successful blotter.",
+            stale: true,
+          }));
+        }
+      }
+    }
+    void pullBook();
+    const interval = window.setInterval(() => void pullBook(), BOOK_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
   }, [live]);
 
-  async function selectWatchlist(nextListId: string) {
-    writeListId(nextListId);
-    if (nextListId === data.watchlist?.listId) {
-      setListOverride(null);
-      return;
-    }
+  async function selectCollection(next: CoveragePick) {
+    if (sameCoveragePick(next, pickRef.current)) return;
+    writePick(next);
     try {
-      const response = await fetch(
-        `/api/market/watchlist?listId=${encodeURIComponent(nextListId)}`,
-        { cache: "no-store" },
-      );
+      const params =
+        next.type === "sector"
+          ? `sectorId=${encodeURIComponent(next.id)}`
+          : `listId=${encodeURIComponent(next.id)}`;
+      const response = await fetch(`/api/market/watchlist?${params}`, {
+        cache: "no-store",
+      });
       if (!response.ok) return;
+      if (!sameCoveragePick(pickRef.current, next)) return;
       setListOverride((await response.json()) as DashboardWatchlistSnapshot);
     } catch {
       /* keep last */
     }
   }
 
-  const watchlist =
-    listOverride && listOverride.listId !== data.watchlist?.listId
-      ? listOverride
-      : (data.watchlist ?? null);
+  const watchlist = watchlistForPick(pick, listOverride, data.watchlist);
+  const bookDigest = useMemo(
+    () => attachMovesToBookImpact(book, data.intelligence?.moves ?? []),
+    [book, data.intelligence?.moves],
+  );
+  const inBookTickers = data.coverage?.inBookTickers?.length
+    ? data.coverage.inBookTickers
+    : bookDigest.openTickers;
 
   const watchlistMoves = useMemo(() => {
     const events = data.intelligence?.events ?? [];
@@ -160,6 +278,13 @@ export function LiveMarketOverview({
     () => buildSharedMarketAnalytics({ quotes: data.tape }),
     [data.tape],
   );
+  const tapeChangeByTicker = useMemo(() => {
+    const map = new Map<string, number | null>();
+    for (const quote of data.tape) {
+      map.set(quote.ticker.toUpperCase(), quote.changePercent ?? null);
+    }
+    return map;
+  }, [data.tape]);
   const movers = useMemo(
     () =>
       joinMaterialMovers(
@@ -178,6 +303,7 @@ export function LiveMarketOverview({
     ],
   );
   const sectors = useMemo(() => buildSectorHeatmap(data.tape), [data.tape]);
+  const factors = useMemo(() => buildFactorTiles(data.tape), [data.tape]);
   const pulse = useMemo(
     () =>
       calculateMarketPulse({
@@ -211,8 +337,10 @@ export function LiveMarketOverview({
         asOf: data.asOf,
         coverage: data.coverage,
         marketSession: data.marketSession,
+        book: bookDigest,
       }),
     [
+      bookDigest,
       data.asOf,
       data.calendar,
       data.coverage,
@@ -228,6 +356,30 @@ export function LiveMarketOverview({
     () => overviewDivergenceNotes(shared.variantViews),
     [shared.variantViews],
   );
+  const focus = useMemo(
+    () =>
+      buildFocusContext({
+        ticker: focusSymbol,
+        tape: data.tape,
+        watchlist,
+        coverage: data.coverage,
+        movers,
+        headlines: data.headlines,
+        explanations: watchlistMoves,
+        book: bookDigest,
+      }),
+    [
+      bookDigest,
+      data.coverage,
+      data.headlines,
+      data.tape,
+      focusSymbol,
+      movers,
+      watchlist,
+      watchlistMoves,
+    ],
+  );
+
   return (
     <div className="space-y-3">
       <OverviewStatusChrome
@@ -240,11 +392,22 @@ export function LiveMarketOverview({
         licenseWarning={data.licenseWarning}
         universeCoverage={data.universeCoverageLabel}
         providers={data.providers}
+        refreshError={refreshError}
         items={attention}
         onSelectSymbol={selectSymbol}
       />
 
-      <SessionIntelligence onSelectSymbol={selectSymbol} />
+      <BookImpactStrip
+        key="book-impact"
+        book={bookDigest}
+        onSelectSymbol={selectSymbol}
+      />
+
+      <SessionIntelligence
+        key="desk-intelligence"
+        compact
+        onSelectSymbol={selectSymbol}
+      />
 
       {data.stale && data.latencyClass !== "unavailable" ? (
         <StaleBanner asOf={data.asOf} />
@@ -265,37 +428,67 @@ export function LiveMarketOverview({
         pulse={pulse}
         loading={pulseLoading}
       >
-        <div className="grid min-w-0 gap-3 xl:grid-cols-12">
-          <div className="min-w-0 space-y-3 xl:col-span-8">
-            <SectorHeatmap
-              cells={sectors}
-              deskSectors={data.coverage?.deskSectors}
-              onSelectSymbol={selectSymbol}
-              selectedSymbol={focusSymbol}
-            />
-            <MaterialMoversPanel
-              movers={movers}
-              coverageNotes={data.moversCoverageNotes}
-              latestReport={data.latestReport}
-              onSelectSymbol={selectSymbol}
-              selectedSymbol={focusSymbol}
-            />
-          </div>
-          <div className="min-w-0 space-y-3 xl:col-span-4">
-            <DivergenceNotes notes={divergence} />
-          </div>
-        </div>
+        <FactorTape tiles={factors} onSelectSymbol={selectSymbol} />
+        <ThemeTape
+          sectors={data.coverage?.deskSectors ?? []}
+          selectedSectorId={pick?.type === "sector" ? pick.id : undefined}
+          onSelectSymbol={selectSymbol}
+          onSelectSector={(sectorId) => {
+            void selectCollection({ type: "sector", id: sectorId });
+          }}
+        />
       </DashboardMarketBoard>
+
+      <div className="grid min-w-0 gap-3 xl:grid-cols-12">
+        <div id="market-chart" className="min-w-0 scroll-mt-3 xl:col-span-8">
+          <MarketChart
+            initialSeries={{}}
+            initialSymbol={focusSymbol}
+            symbol={focusSymbol}
+            onSymbolChange={selectSymbol}
+            coverageLabel={data.latencyCoverageLabel ?? null}
+            asOf={data.asOf}
+            mode={chartMode}
+          />
+        </div>
+        <div className="min-w-0 space-y-3 xl:col-span-4">
+          <FocusContextPanel focus={focus} onSelectSymbol={selectSymbol} />
+          <MaterialMoversPanel
+            movers={movers}
+            selectedSymbol={focusSymbol}
+            onSelectSymbol={selectSymbol}
+            latestReport={data.latestReport}
+          />
+          <SectorHeatmap
+            cells={sectors}
+            deskSectors={data.coverage?.deskSectors}
+            onSelectSymbol={selectSymbol}
+            onSelectSector={(sectorId) => {
+              void selectCollection({ type: "sector", id: sectorId });
+              document
+                .getElementById("watchlist")
+                ?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }}
+            selectedSymbol={focusSymbol}
+            selectedSectorId={pick?.type === "sector" ? pick.id : undefined}
+            tapeChangeByTicker={tapeChangeByTicker}
+            spyChange={shared.spyChange}
+          />
+          <DivergenceNotes notes={divergence} />
+        </div>
+      </div>
 
       <div className="grid min-w-0 gap-3 xl:grid-cols-12">
         <div id="watchlist" className="min-w-0 scroll-mt-3 xl:col-span-8">
           <WatchlistTable
             data={watchlist}
             onSelectSymbol={selectSymbol}
-            onSelectList={selectWatchlist}
-            inBookTickers={data.coverage?.inBookTickers}
+            onSelectCollection={selectCollection}
+            selectedCollection={pick}
+            inBookTickers={inBookTickers}
             selectedSymbol={focusSymbol}
             explanations={watchlistMoves}
+            deskSectors={data.coverage?.deskSectors}
           />
         </div>
         <div className="min-w-0 xl:col-span-4">
@@ -310,13 +503,17 @@ export function LiveMarketOverview({
       </div>
 
       <div className="grid min-w-0 gap-3 xl:grid-cols-12">
-        <div id="fedwatch" className="min-w-0 scroll-mt-3 xl:col-span-6">
+        <div id="fedwatch" className="min-w-0 scroll-mt-3 xl:col-span-4">
           <FedWatchPanel />
         </div>
-        <div id="earnings-calendar" className="min-w-0 scroll-mt-3 xl:col-span-3">
-          <EarningsCalendar onSelectSymbol={selectSymbol} />
+        <div id="earnings-calendar" className="min-w-0 scroll-mt-3 xl:col-span-4">
+          <EarningsCalendar
+            onSelectSymbol={selectSymbol}
+            coverageTickers={data.coverage?.coverageSymbolSet}
+            inBookTickers={inBookTickers}
+          />
         </div>
-        <div id="catalyst-calendar" className="min-w-0 scroll-mt-3 xl:col-span-3">
+        <div id="catalyst-calendar" className="min-w-0 scroll-mt-3 xl:col-span-4">
           <CatalystCalendar events={data.calendar} />
         </div>
       </div>

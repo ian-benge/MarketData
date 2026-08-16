@@ -106,6 +106,54 @@ function toWatchlistSources(lists: CoverageWatchlist[]): WatchlistListSource[] {
   }));
 }
 
+function watchlistSourcesForSelection(input: {
+  lists: WatchlistListSource[];
+  sectors: Array<{
+    id: string;
+    name: string;
+    symbols: string[];
+    archivedAt?: string | null;
+    slug?: string | null;
+  }>;
+  listId?: string | null;
+  sectorId?: string | null;
+}): { sources: WatchlistListSource[]; selectedId?: string | null } {
+  const sector = input.sectorId
+    ? (input.sectors.find(
+        (row) =>
+          !row.archivedAt &&
+          (row.id === input.sectorId || row.slug === input.sectorId),
+      ) ?? null)
+    : null;
+  if (!sector) {
+    return { sources: input.lists, selectedId: input.sectorId ?? input.listId };
+  }
+  return {
+    sources: [
+      ...input.lists,
+      {
+        id: sector.id,
+        name: sector.name,
+        isDefault: false,
+        symbols: sector.symbols,
+        visibility: "shared",
+      },
+    ],
+    selectedId: sector.id,
+  };
+}
+
+function omitSyntheticWatchlistLists(
+  snapshot: DashboardWatchlistSnapshot,
+  watchlistIds: Iterable<string>,
+): DashboardWatchlistSnapshot {
+  const allowed = new Set(watchlistIds);
+  return {
+    ...snapshot,
+    lists: snapshot.lists.filter((list) => allowed.has(list.id)),
+  };
+}
+
 function unavailableDashboard(
   licenseWarning: string | null,
   extra?: Partial<DashboardSnapshot>,
@@ -160,11 +208,24 @@ function providerList(env: ReturnType<typeof getEnv>): DashboardSnapshot["provid
   }
 }
 
-async function fixtureCoverage(user: SessionUser, listId?: string | null) {
+async function fixtureCoverage(
+  user: SessionUser,
+  listId?: string | null,
+  sectorId?: string | null,
+) {
   const lists = fixtureWatchlistRecords(user.id);
   const sectors = fixtureSectorRecords();
-  const sources = toWatchlistSources(visibleOverviewLists(lists, user.id));
-  const watchlist = fixtureWatchlistSnapshot(listId, { lists: sources });
+  const listSources = toWatchlistSources(visibleOverviewLists(lists, user.id));
+  const { sources, selectedId } = watchlistSourcesForSelection({
+    lists: listSources,
+    sectors,
+    listId,
+    sectorId,
+  });
+  const watchlist = omitSyntheticWatchlistLists(
+    fixtureWatchlistSnapshot(selectedId, { lists: sources }),
+    listSources.map((list) => list.id),
+  );
   const inBookTickers = await loadOpenPositionTickers(user.firmId).catch(
     () => [] as string[],
   );
@@ -182,6 +243,7 @@ async function fixtureCoverage(user: SessionUser, listId?: string | null) {
 export async function loadDashboardSnapshot(options: {
   user: SessionUser;
   listId?: string | null;
+  sectorId?: string | null;
   live?: boolean;
 }): Promise<DashboardSnapshot> {
   const env = getEnv();
@@ -195,6 +257,7 @@ export async function loadDashboardSnapshot(options: {
     const { watchlist, coverage } = await fixtureCoverage(
       options.user,
       options.listId,
+      options.sectorId,
     );
     const intelligence = await getIntelligenceBundle(env, {
       coverageTickers: coverage.coverageSymbolSet,
@@ -247,22 +310,36 @@ export async function loadDashboardSnapshot(options: {
     persistence: storedLists.persistence,
   }));
   const visible = visibleOverviewLists(storedLists.lists, options.user.id);
-  const sources = toWatchlistSources(visible);
+  const listSources = toWatchlistSources(visible);
+  const { sources, selectedId } = watchlistSourcesForSelection({
+    lists: listSources,
+    sectors: storedSectors.sectors,
+    listId: options.listId,
+    sectorId: options.sectorId,
+  });
   const persistence = storedLists.persistence;
   const inBookTickers = await loadOpenPositionTickers(options.user.firmId).catch(
     () => [] as string[],
   );
 
+  async function loadWatchlist(tape: DashboardSnapshot["tape"]) {
+    if (persistence === "unavailable") {
+      return emptyWatchlistSnapshot(
+        "Coverage persistence is not connected in this environment.",
+      );
+    }
+    const snapshot = await getWatchlistSnapshot(env, tape, selectedId, {
+      lists: sources,
+      useFixtures: false,
+    });
+    return omitSyntheticWatchlistLists(
+      snapshot,
+      listSources.map((list) => list.id),
+    );
+  }
+
   if (!cached) {
-    const watchlist =
-      persistence === "unavailable"
-        ? emptyWatchlistSnapshot(
-            "Coverage persistence is not connected in this environment.",
-          )
-        : await getWatchlistSnapshot(env, [], options.listId, {
-            lists: sources,
-            useFixtures: false,
-          });
+    const watchlist = await loadWatchlist([]);
     const research = await getDashboardResearch(env).catch(() => ({
       headlines: [] as DashboardSnapshot["headlines"],
       calendar: [] as DashboardSnapshot["calendar"],
@@ -286,15 +363,7 @@ export async function loadDashboardSnapshot(options: {
     });
   }
 
-  const watchlist =
-    persistence === "unavailable"
-      ? emptyWatchlistSnapshot(
-          "Coverage persistence is not connected in this environment.",
-        )
-      : await getWatchlistSnapshot(env, cached.tape, options.listId, {
-          lists: sources,
-          useFixtures: false,
-        });
+  const watchlist = await loadWatchlist(cached.tape);
   const coverage = buildDashboardCoverageDigest({
     user: options.user,
     tape: cached.tape,
@@ -344,4 +413,4 @@ export async function loadDashboardSnapshot(options: {
   };
 }
 
-export { toWatchlistSources };
+export { toWatchlistSources, watchlistSourcesForSelection, omitSyntheticWatchlistLists };

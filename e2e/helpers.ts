@@ -5,9 +5,8 @@ export async function demoLogin(page: Page, role: "admin" | "member") {
     data: { role },
   });
   expect(response.ok()).toBe(true);
-  await page.goto("/dashboard");
+  await page.goto("/dashboard", { waitUntil: "load", timeout: 45_000 });
   await expect(page).toHaveURL(/\/dashboard/, { timeout: 15_000 });
-  await page.waitForLoadState("networkidle");
 }
 
 export async function openCreateCoverage(page: Page) {

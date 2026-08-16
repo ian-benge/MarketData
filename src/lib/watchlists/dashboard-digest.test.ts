@@ -192,4 +192,33 @@ describe("buildDashboardCoverageDigest", () => {
     );
     expect(digest.inBookTickers).toEqual(["NVDA"]);
   });
+
+  it("uses the basket benchmark 1D when constituents are not on the tape", () => {
+    const digest = buildDashboardCoverageDigest({
+      user: { id: "user-a" },
+      tape: [quote("SPY", 0.4), quote("URA", 3.2)],
+      lists: [
+        list({
+          id: "wl-core",
+          name: "Tape",
+          isDefault: true,
+          symbols: ["SPY"],
+        }),
+      ],
+      sectors: [
+        sector({
+          id: "sec-uranium",
+          name: "Uranium Miners",
+          kind: "theme",
+          navGroup: "energy_materials",
+          symbols: ["CCJ", "NXE"],
+          benchmarkSymbol: "URA",
+        }),
+      ],
+    });
+    const row = digest.deskSectors.find((item) => item.id === "sec-uranium");
+    expect(row?.displayTicker).toBe("URA");
+    expect(row?.avg1dPercent).toBe(3.2);
+    expect(row?.vsSpy1dPercent).toBe(2.8);
+  });
 });

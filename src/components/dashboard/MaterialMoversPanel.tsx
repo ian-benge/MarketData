@@ -1,82 +1,65 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ArrowDown, ArrowUp } from "lucide-react";
+import Link from "next/link";
 import { Badge } from "@/components/ui/Badge";
 import { Panel } from "@/components/ui/Panel";
 import { EmptyHint } from "@/components/ui/StatePanel";
-import type { MoveExplanation } from "@/lib/intelligence/types";
+import { LatestReportLine, type LatestReport } from "@/components/dashboard/LatestReportCard";
 import type { JoinedMover } from "@/lib/market-data/overview-movers";
 import { cn } from "@/lib/utils/cn";
 import {
   formatPrice,
+  formatRelativeVolume,
   formatSignedPercent,
   formatVolume,
   marketToneClass,
 } from "@/lib/utils/format";
-import { LatestReportLine, type LatestReport } from "@/components/dashboard/LatestReportCard";
-import { MoveNarrativeLoader } from "@/components/intel/MoveNarrativeLoader";
 
-type SortKey = "symbol" | "change" | "last" | "volume";
+type SortKey = "change" | "rvol" | "volume" | "symbol";
 
-function explanationFromMover(
-  mover?: JoinedMover,
-): MoveExplanation | undefined {
-  if (!mover?.attribution) return undefined;
-  return {
-    ticker: mover.ticker,
-    significant: true,
-    changePercent: mover.changePercent,
-    relativeVolume: mover.relativeVolume,
-    session: null,
-    flags: [],
-    direction: mover.direction,
-    attribution: mover.attribution,
-    confidence: mover.confidence ?? "unknown",
-    evidenceNature: mover.evidenceNature ?? "inference",
-    causalStatus: mover.causalStatus,
-    headline: mover.headlineTitle ?? "Unknown catalyst",
-    detail: mover.headlineTitle ?? "",
-    supportingEvents: [],
-    relatedTickers: [],
-    themes: [],
-    window: { start: "", end: "", label: "session" },
-    coverageGap: mover.coverageNotes,
-  };
+const CAUSAL_LABEL: Record<JoinedMover["causalStatus"], string> = {
+  confirmed: "Confirmed",
+  reported: "Reported",
+  inferred: "Inferred",
+  unclear: "Unclear",
+};
+
+function causalTone(status: JoinedMover["causalStatus"]): "positive" | "info" | "warn" | "neutral" {
+  if (status === "confirmed") return "positive";
+  if (status === "reported") return "info";
+  if (status === "inferred") return "warn";
+  return "neutral";
 }
 
 export function MaterialMoversPanel({
   movers,
-  coverageNotes,
-  latestReport,
-  onSelectSymbol,
   selectedSymbol,
+  onSelectSymbol,
+  latestReport,
 }: {
   movers: JoinedMover[];
-  coverageNotes?: string | null;
-  latestReport?: LatestReport | null;
-  onSelectSymbol?: (ticker: string) => void;
   selectedSymbol?: string;
+  onSelectSymbol?: (ticker: string) => void;
+  latestReport?: LatestReport | null;
 }) {
   const [sortKey, setSortKey] = useState<SortKey>("change");
   const [descending, setDescending] = useState(true);
-
   const sorted = useMemo(() => {
     const next = [...movers];
     next.sort((a, b) => {
       let result = 0;
       if (sortKey === "symbol") result = a.ticker.localeCompare(b.ticker);
-      if (sortKey === "change") {
-        result = Math.abs(a.changePercent) - Math.abs(b.changePercent);
-      }
-      if (sortKey === "last") result = a.last - b.last;
+      if (sortKey === "change") result = Math.abs(a.changePercent) - Math.abs(b.changePercent);
+      if (sortKey === "rvol") result = (a.relativeVolume ?? -1) - (b.relativeVolume ?? -1);
       if (sortKey === "volume") result = (a.volume ?? -1) - (b.volume ?? -1);
       return descending ? -result : result;
     });
     return next;
   }, [descending, movers, sortKey]);
+  const notes = movers.find((row) => row.coverageNotes)?.coverageNotes ?? null;
 
-  function toggleSort(next: SortKey) {
+  function toggle(next: SortKey) {
     if (sortKey === next) setDescending((value) => !value);
     else {
       setSortKey(next);
@@ -84,115 +67,101 @@ export function MaterialMoversPanel({
     }
   }
 
-  const SortIcon = descending ? ArrowDown : ArrowUp;
-
   return (
     <Panel
       title="Material movers"
-      description="Tracked-universe material prints, not a raw % sort"
+      description="Tracked-universe names that clear materiality — not a raw % sort of the tape"
       bodyClassName="p-0"
     >
-      <div
-        data-testid="material-movers"
-        className="w-full min-w-0 overflow-x-auto terminal-scroll"
-      >
-        {sorted.length ? (
-          <table className="w-full min-w-[420px] border-collapse text-left text-[12px]">
+      {sorted.length ? (
+        <div
+          className="max-h-[18rem] overflow-auto terminal-scroll"
+          role="region"
+          aria-label="Material movers"
+        >
+          <table className="w-full min-w-[28rem] border-collapse text-left text-[12px]">
             <caption className="sr-only">
-              Material movers with catalyst join. Select a symbol to highlight it.
+              Material movers with last price, session change, relative volume, and catalyst status.
             </caption>
             <thead>
               <tr className="border-b border-[var(--ib-border-strong)] bg-[var(--ib-surface-2)] font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
                 {(
                   [
                     ["symbol", "Symbol", "left"],
-                    ["last", "Last", "right"],
-                    ["change", "|1d|", "right"],
+                    ["change", "1d %", "right"],
+                    ["rvol", "Rvol", "right"],
                     ["volume", "Volume", "right"],
                   ] as const
                 ).map(([key, label, align]) => (
                   <th
                     key={key}
-                    className={cn(
-                      "sticky top-0 z-10 h-8 bg-[var(--ib-surface-2)] px-3 font-medium",
-                      align === "right" && "text-right",
-                    )}
+                    scope="col"
+                    className={cn("sticky top-0 z-10 h-8 bg-[var(--ib-surface-2)] px-2.5 font-medium", align === "right" && "text-right")}
                   >
                     <button
                       type="button"
-                      onClick={() => toggleSort(key)}
                       aria-pressed={sortKey === key}
+                      aria-label={`Sort movers by ${label}`}
+                      onClick={() => toggle(key)}
                       className="inline-flex items-center gap-1 uppercase tracking-[0.08em]"
                     >
                       {label}
-                      {sortKey === key ? (
-                        <SortIcon aria-hidden="true" className="size-3" />
-                      ) : null}
                     </button>
                   </th>
                 ))}
-                <th className="sticky top-0 z-10 h-8 bg-[var(--ib-surface-2)] px-3 font-medium">
+                <th className="sticky top-0 z-10 h-8 bg-[var(--ib-surface-2)] px-2.5 font-medium">
                   Catalyst
                 </th>
               </tr>
             </thead>
             <tbody>
-              {sorted.map((mover) => {
-                const selected =
-                  selectedSymbol?.toUpperCase() === mover.ticker.toUpperCase();
+              {sorted.map((row) => {
+                const selected = selectedSymbol?.toUpperCase() === row.ticker;
                 return (
                   <tr
-                    key={mover.ticker}
+                    key={row.ticker}
                     className={cn(
                       "border-b border-[var(--ib-border-subtle)] last:border-0 hover:bg-[var(--ib-surface-hover)]",
                       onSelectSymbol && "cursor-pointer",
                       selected && "bg-[var(--ib-surface-selected)]",
                     )}
-                    onClick={() => onSelectSymbol?.(mover.ticker)}
+                    onClick={() => onSelectSymbol?.(row.ticker)}
                   >
-                    <td className="h-9 px-3">
+                    <td className="h-9 px-2.5">
                       <button
                         type="button"
-                        onClick={() => onSelectSymbol?.(mover.ticker)}
-                        className="inline-flex min-h-8 max-sm:min-h-11 items-center font-mono font-medium text-[var(--ib-text-primary)] hover:text-[var(--ib-maroon-300)]"
+                        aria-label={`Select ${row.ticker}`}
                         aria-current={selected ? "true" : undefined}
-                        aria-label={`Select ${mover.ticker}`}
+                        className="font-mono font-medium text-[var(--ib-text-primary)] hover:text-[var(--ib-maroon-300)]"
+                        onClick={() => onSelectSymbol?.(row.ticker)}
                       >
-                        {mover.ticker}
+                        {row.ticker}
                       </button>
+                      <span className="ml-2 font-mono text-[10px] text-[var(--ib-text-muted)]">
+                        {formatPrice(row.last, row.ticker)}
+                      </span>
                     </td>
-                    <td className="px-3 text-right font-mono">
-                      {formatPrice(mover.last, mover.ticker)}
+                    <td className={cn("px-2.5 text-right font-mono", marketToneClass(row.changePercent))}>
+                      {formatSignedPercent(row.changePercent)}
                     </td>
-                    <td
-                      className={cn(
-                        "px-3 text-right font-mono",
-                        marketToneClass(mover.changePercent),
-                      )}
-                    >
-                      {formatSignedPercent(mover.changePercent)}
+                    <td className="px-2.5 text-right font-mono text-[var(--ib-text-secondary)]">
+                      {formatRelativeVolume(row.relativeVolume)}
                     </td>
-                    <td className="px-3 text-right font-mono text-[var(--ib-text-secondary)]">
-                      {formatVolume(mover.volume)}
+                    <td className="px-2.5 text-right font-mono text-[var(--ib-text-secondary)]">
+                      {formatVolume(row.volume)}
                     </td>
-                    <td className="px-3">
+                    <td className="max-w-[12rem] px-2.5">
                       <div className="flex min-w-0 items-center gap-1.5">
-                        <Badge
-                          tone={
-                            mover.causalStatus === "confirmed"
-                              ? "positive"
-                              : mover.causalStatus === "inferred"
-                                ? "warn"
-                                : mover.causalStatus === "reported"
-                                  ? "info"
-                                  : "neutral"
-                          }
-                        >
-                          {mover.confidence ?? mover.causalStatus}
+                        <Badge tone={causalTone(row.causalStatus)}>
+                          {CAUSAL_LABEL[row.causalStatus]}
                         </Badge>
-                        <span className="min-w-0 truncate text-[11px] text-[var(--ib-text-secondary)]">
-                          {mover.headlineTitle ?? "No matching headline"}
-                        </span>
+                        {row.headlineTitle ? (
+                          <span className="min-w-0 truncate text-[11px] text-[var(--ib-text-secondary)]" title={row.headlineTitle}>
+                            {row.headlineTitle}
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-[var(--ib-text-muted)]">No matching headline</span>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -200,27 +169,21 @@ export function MaterialMoversPanel({
               })}
             </tbody>
           </table>
-        ) : (
-          <EmptyHint>No material movers on this snapshot.</EmptyHint>
-        )}
-      </div>
-      <div className="space-y-1 border-t border-[var(--ib-border-subtle)] px-3 py-2">
-        {selectedSymbol ? (
-          <div className="mb-2">
-            <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
-              Why {selectedSymbol} is moving
-            </p>
-            <MoveNarrativeLoader
-              ticker={selectedSymbol}
-              explanation={explanationFromMover(
-                sorted.find((row) => row.ticker === selectedSymbol),
-              )}
-            />
-          </div>
-        ) : null}
-        {coverageNotes ? (
-          <p className="text-[10px] leading-4 text-[var(--ib-text-muted)]">{coverageNotes}</p>
-        ) : null}
+        </div>
+      ) : (
+        <div role="region" aria-label="Material movers">
+          <EmptyHint className="py-8">
+            No names currently clear material-mover thresholds for this universe.
+          </EmptyHint>
+        </div>
+      )}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--ib-border-subtle)] px-3 py-2">
+        <p className="text-[10px] leading-4 text-[var(--ib-text-muted)]">
+          {notes ?? "Materiality uses the same thresholds as research reports."}{" "}
+          <Link href="/news" className="text-[var(--ib-maroon-300)] hover:underline">
+            Open Material News
+          </Link>
+        </p>
         <LatestReportLine report={latestReport ?? null} />
       </div>
     </Panel>

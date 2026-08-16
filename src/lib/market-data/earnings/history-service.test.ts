@@ -154,4 +154,61 @@ describe("getEarningsHistorySnapshot", () => {
     expect(snapshot.quarters.length).toBe(8);
     expect(snapshot.quarters.some((row) => row.epsActual == null)).toBe(true);
   });
+
+  it("keeps the soonest upcoming unreported print as the next quarter", async () => {
+    const now = new Date("2026-08-16T15:00:00.000Z");
+    let calendarTo: string | null = null;
+    const snapshot = await getEarningsHistorySnapshot(testEnv(), "TSLA", {
+      now,
+      useFixtures: false,
+      companyName: "Tesla",
+      finnhubFetch: async (input) => {
+        const url = String(input);
+        if (url.includes("/calendar/earnings")) {
+          calendarTo = new URL(url).searchParams.get("to");
+          return jsonResponse({
+            earningsCalendar: [
+              {
+                symbol: "TSLA",
+                date: "2026-10-21",
+                hour: "amc",
+                quarter: 3,
+                year: 2026,
+                epsActual: null,
+                epsEstimate: 0.54,
+                revenueActual: null,
+                revenueEstimate: 25_000_000_000,
+              },
+              {
+                symbol: "TSLA",
+                date: "2026-07-23",
+                hour: "amc",
+                quarter: 2,
+                year: 2026,
+                epsActual: 0.4,
+                epsEstimate: 0.43,
+                revenueActual: 22_000_000_000,
+                revenueEstimate: 22_500_000_000,
+              },
+            ],
+          });
+        }
+        return jsonResponse([]);
+      },
+      alphaVantageFetch: async () => jsonResponse({ quarterlyEarnings: [] }),
+      yahooCloses: async () => [],
+    });
+
+    expect(calendarTo).toBeTruthy();
+    expect(calendarTo! > "2026-08-16").toBe(true);
+    expect(snapshot.quarters[0]).toMatchObject({
+      reportDate: "2026-10-21",
+      epsActual: null,
+      epsEstimate: 0.54,
+    });
+    expect(snapshot.quarters[1]).toMatchObject({
+      reportDate: "2026-07-23",
+      epsActual: 0.4,
+    });
+  });
 });

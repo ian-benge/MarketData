@@ -15,6 +15,7 @@ export type BadgeProps = {
     | "brand"
     | "mock";
   className?: string;
+  title?: string;
 };
 
 const tones: Record<NonNullable<BadgeProps["tone"]>, string> = {
@@ -37,9 +38,10 @@ const tones: Record<NonNullable<BadgeProps["tone"]>, string> = {
   mock: "bg-[color-mix(in_oklab,var(--state-mock)_12%,transparent)] text-[var(--state-mock)] border-[color-mix(in_oklab,var(--state-mock)_38%,transparent)]",
 };
 
-export function Badge({ children, tone = "neutral", className }: BadgeProps) {
+export function Badge({ children, tone = "neutral", className, title }: BadgeProps) {
   return (
     <span
+      title={title}
       className={cn(
         "inline-flex items-center rounded-[3px] border px-1.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.07em] tabular-nums",
         tones[tone],

@@ -1,4 +1,5 @@
 import type { Env } from "@/lib/env";
+import { isDemoAuthEnabled } from "@/lib/auth/demo";
 import {
   calculateMeetings,
   targetFromBounds,
@@ -297,6 +298,19 @@ async function loadFedWatch(env: Env): Promise<FedWatchSnapshot> {
 }
 
 export async function getFedWatchSnapshot(env: Env): Promise<FedWatchSnapshot> {
+  if (isDemoAuthEnabled(env)) {
+    return snapshot({
+      asOf: new Date().toISOString(),
+      source: "unavailable",
+      delayed: true,
+      stale: false,
+      currentTarget: null,
+      effr: null,
+      meetings: [],
+      error:
+        "Demo mode does not call CME FedWatch or ZQ futures. Rate probabilities are not invented.",
+    });
+  }
   if (snapshotCache && snapshotCache.expiresAt > Date.now()) {
     return snapshotCache.value;
   }

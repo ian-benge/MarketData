@@ -214,7 +214,6 @@ export function compileSessionBrief(pack: EvidencePack): SessionBrief {
       : "No material clustered headlines or significant tape names in the current evidence window.";
 
   const sessionBits = [
-    closedLead,
     unexplained.length > 0
       ? `${unexplained.length} significant name${unexplained.length === 1 ? "" : "s"} lack a verified catalyst.`
       : significant
@@ -231,7 +230,6 @@ export function compileSessionBrief(pack: EvidencePack): SessionBrief {
     sectorWide[0]
       ? `${themeLabel(sectorWide[0][0])} is moving as a group (${unique(sectorWide[0][1]).join(", ")}).`
       : null,
-    "Treat non-confirmed labels as inference. Unknown stays unknown.",
   ].filter(Boolean);
 
   return {

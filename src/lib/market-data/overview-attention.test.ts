@@ -80,6 +80,7 @@ const coverage: DashboardCoverageDigest = {
       unusualCount: 1,
       leaders: ["NVDA"],
       benchmarkSymbol: "XLK",
+      displayTicker: "XLK",
       symbolCount: 2,
       quotedCount: 2,
     },
@@ -137,6 +138,47 @@ describe("buildAttentionItems", () => {
       items.some((item) => item.kind === "coverage" && item.ticker === "NVDA"),
     ).toBe(true);
     expect(items.filter((item) => item.ticker === "AMD").length).toBe(1);
+  });
+
+  it("promotes an unexplained book name", () => {
+    const items = buildAttentionItems({
+      drivers: [driver()],
+      movers: [mover("AMD", 3.1)],
+      sectors: [{ key: "XLK", label: "Tech", changePercent: 1.2, available: true }],
+      spyChange: 0.4,
+      watchlist: [],
+      calendar: [],
+      asOf: "2026-08-14T17:00:00.000Z",
+      coverage,
+      marketSession: "regular",
+      book: {
+        asOf: "2026-08-14T17:00:00.000Z",
+        openCount: 1,
+        quotedCount: 1,
+        ownerLocked: false,
+        persistence: "fixtures",
+        dayPnl: 40,
+        dayPercent: 1.1,
+        largestWeight: 0.2,
+        contributors: [
+          {
+            ticker: "CEG",
+            side: "long",
+            dayPnl: 40,
+            dayPercent: 2.4,
+            unexplained: true,
+          },
+        ],
+        unexplainedTickers: ["CEG"],
+        openTickers: ["CEG"],
+        error: null,
+        stale: false,
+        usingFixtures: true,
+      },
+    });
+    expect(items.some((item) => item.kind === "book" && item.ticker === "CEG")).toBe(
+      true,
+    );
   });
 
   it("does not promote Friday movers or weekend RVOL when the session is closed", () => {

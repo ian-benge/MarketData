@@ -244,7 +244,6 @@ export function FedWatchPanel() {
     let cancelled = false;
 
     async function pull() {
-      if (document.visibilityState === "hidden") return;
       try {
         const response = await fetch("/api/market/fedwatch", { cache: "no-store" });
         if (!response.ok || cancelled) return;
@@ -264,16 +263,18 @@ export function FedWatchPanel() {
       }
     }
 
+    function pullIfVisible() {
+      if (document.visibilityState === "hidden") return;
+      void pull();
+    }
+
     void pull();
-    const interval = window.setInterval(pull, expanded ? FEDWATCH_REFRESH_MS : 60_000);
-    const onVisible = () => {
-      if (document.visibilityState === "visible") void pull();
-    };
-    document.addEventListener("visibilitychange", onVisible);
+    const interval = window.setInterval(pullIfVisible, expanded ? FEDWATCH_REFRESH_MS : 60_000);
+    document.addEventListener("visibilitychange", pullIfVisible);
     return () => {
       cancelled = true;
       window.clearInterval(interval);
-      document.removeEventListener("visibilitychange", onVisible);
+      document.removeEventListener("visibilitychange", pullIfVisible);
     };
   }, [expanded]);
 
@@ -366,10 +367,10 @@ export function FedWatchPanel() {
               </div>
             ))}
           </dl>
-          <ProbabilityChart
-            meeting={meeting}
-            targetLabel={formatFedFundsRange(data.currentTarget?.label)}
-          />
+          <p className="text-[10px] leading-4 text-[var(--ib-text-muted)]">
+            CME FedWatch probabilities from listed-rate futures. Expand for the full target-rate histogram.
+            Current target {formatFedFundsRange(data.currentTarget?.label) ?? "—"}.
+          </p>
         </div>
       ) : null}
 

@@ -33,9 +33,37 @@ export function SignalDrivers({ drivers, activeDriver, onActiveDriver, onSelectS
                   if (ticker) onSelectSymbol?.(ticker);
                 }}
               >
-                <div className="flex items-baseline justify-between gap-2"><span className="truncate text-[10px] font-medium text-[var(--ib-text-secondary)]">{driver.label}</span><span className={cn("font-mono text-[10px] font-semibold", value == null ? "text-[var(--ib-text-muted)]" : marketToneClass(value))}>{signedContribution(value)}</span></div>
-                <div className="relative mt-1.5 h-1.5 overflow-hidden rounded-full bg-[var(--ib-surface-2)]"><span className="absolute left-1/2 top-0 h-full w-px bg-[var(--ib-border-control)]" />{value != null && value !== 0 ? <span className={cn("absolute top-0 h-full", positive ? "left-1/2 bg-[var(--market-positive)]" : "right-1/2 bg-[var(--market-negative)]")} style={{ width: `${width}%` }} /> : null}</div>
-                <div className="mt-1 flex items-center justify-between gap-2 font-mono text-[8px] text-[var(--ib-text-muted)]"><span className="truncate">{driver.metric}</span><span>{Math.round(driver.weight * 100)}% wt</span></div>
+                <span className="flex items-baseline justify-between gap-2">
+                  <span className="truncate text-[10px] font-medium text-[var(--ib-text-secondary)]">
+                    {driver.label}
+                  </span>
+                  <span
+                    className={cn(
+                      "font-mono text-[10px] font-semibold",
+                      value == null ? "text-[var(--ib-text-muted)]" : marketToneClass(value),
+                    )}
+                  >
+                    {signedContribution(value)}
+                  </span>
+                </span>
+                <span className="relative mt-1.5 block h-1.5 overflow-hidden rounded-full bg-[var(--ib-surface-2)]">
+                  <span className="absolute left-1/2 top-0 h-full w-px bg-[var(--ib-border-control)]" />
+                  {value != null && value !== 0 ? (
+                    <span
+                      className={cn(
+                        "absolute top-0 h-full",
+                        positive
+                          ? "left-1/2 bg-[var(--market-positive)]"
+                          : "right-1/2 bg-[var(--market-negative)]",
+                      )}
+                      style={{ width: `${width}%` }}
+                    />
+                  ) : null}
+                </span>
+                <span className="mt-1 flex items-center justify-between gap-2 font-mono text-[8px] text-[var(--ib-text-muted)]">
+                  <span className="truncate">{driver.metric}</span>
+                  <span>{Math.round(driver.weight * 100)}% wt</span>
+                </span>
               </button>
             </li>
           );

@@ -82,7 +82,9 @@ describe("SessionIntelligence", () => {
     });
     expect(screen.getAllByText("XYZ").length).toBeGreaterThan(0);
     expect(screen.getByText(/Rules compilation/)).toBeTruthy();
-    expect(screen.getByText("fact")).toBeTruthy();
+    expect(screen.getByText("Primary")).toBeTruthy();
+    expect(screen.queryByText(UNKNOWN_MOVE_COPY)).toBeNull();
+    expect(screen.getByRole("heading", { name: /Unexplained tape/i })).toBeTruthy();
     expect(vi.mocked(fetch).mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 });

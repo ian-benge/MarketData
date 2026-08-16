@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { WatchlistTable } from "@/components/dashboard/WatchlistTable";
 import type { DashboardWatchlistSnapshot } from "@/lib/market-data/watchlist-types";
 
@@ -45,12 +45,79 @@ const snapshot: DashboardWatchlistSnapshot = {
   error: null,
 };
 
+afterEach(() => {
+  cleanup();
+});
+
 describe("WatchlistTable", () => {
   it("links Manage lists to the selected watchlist on Watchlists", () => {
     render(<WatchlistTable data={snapshot} />);
     const link = screen.getByRole("link", { name: "Manage lists" });
     expect(link.getAttribute("href")).toBe("/watchlists?listId=wl-core");
-    expect(screen.getByText("Personal")).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: "Watchlist or sector" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Market Tape" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "My desk · personal" })).toBeTruthy();
+  });
+
+  it("lists shared sectors and themes in the picker", () => {
+    render(
+      <WatchlistTable
+        data={snapshot}
+        deskSectors={[
+          {
+            id: "sec-chips",
+            name: "Semiconductors",
+            kind: "theme",
+            navGroup: "ai_compute",
+            vsSpy1dPercent: 2.1,
+            avg1dPercent: 1.4,
+            breadth: 0.8,
+            unusualCount: 1,
+            leaders: ["NVDA"],
+            benchmarkSymbol: "SMH",
+            displayTicker: "SMH",
+            symbolCount: 4,
+            quotedCount: 4,
+          },
+        ]}
+      />,
+    );
+    expect(screen.getByRole("option", { name: "Semiconductors" })).toBeTruthy();
+  });
+
+  it("keeps the picker on the chosen collection and reports the change", () => {
+    const onSelectCollection = vi.fn();
+    render(
+      <WatchlistTable
+        data={snapshot}
+        selectedCollection={{ type: "sector", id: "sec-chips" }}
+        onSelectCollection={onSelectCollection}
+        deskSectors={[
+          {
+            id: "sec-chips",
+            name: "Semiconductors",
+            kind: "theme",
+            navGroup: "ai_compute",
+            vsSpy1dPercent: 2.1,
+            avg1dPercent: 1.4,
+            breadth: 0.8,
+            unusualCount: 1,
+            leaders: ["NVDA"],
+            benchmarkSymbol: "SMH",
+            displayTicker: "SMH",
+            symbolCount: 4,
+            quotedCount: 4,
+          },
+        ]}
+      />,
+    );
+    const picker = screen.getByRole("combobox", { name: "Watchlist or sector" });
+    expect((picker as HTMLSelectElement).value).toBe("sector:sec-chips");
+    fireEvent.change(picker, { target: { value: "watchlist:wl-desk" } });
+    expect(onSelectCollection).toHaveBeenCalledWith({
+      type: "watchlist",
+      id: "wl-desk",
+    });
   });
 
   it("links a Why-moving badge to headline search without inventing a cause", () => {

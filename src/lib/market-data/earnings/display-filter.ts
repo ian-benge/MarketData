@@ -98,19 +98,18 @@ export type EarningsSearchScope = {
   avgVolume: AvgVolumeFilter;
 };
 
-/** Search the full loaded calendar (not just the visible week). */
+/** Search the full loaded calendar (not just the visible week). Size filters
+ *  stay off for search: quote enrichment only covers a budgeted subset, so a
+ *  ticker hunt must not vanish because market cap is still null. */
 export function findEarningsSearchMatches(
   events: EarningsCalendarEvent[],
   filters: EarningsSearchScope,
 ): EarningsCalendarEvent[] {
   const needle = filters.query.trim().toLowerCase();
   if (!needle) return [];
-  const minCap = marketCapThreshold(filters.marketCap);
-  const minVolume = avgVolumeThreshold(filters.avgVolume);
   return events.filter((event) => {
     if (filters.session !== "all" && event.session !== filters.session) return false;
-    if (!matchesQuery(event, needle)) return false;
-    return passesSizeFilters(event, minCap, minVolume).ok;
+    return matchesQuery(event, needle);
   });
 }
 
@@ -173,6 +172,8 @@ export function applyEarningsDisplayFilters(
       return false;
     }
     if (!matchesQuery(event, needle)) return false;
+
+    if (needle) return true;
 
     const size = passesSizeFilters(event, minCap, minVolume);
     if (!size.ok) {

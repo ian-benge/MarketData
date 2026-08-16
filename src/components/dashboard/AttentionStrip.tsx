@@ -36,6 +36,7 @@ const KIND_RAIL: Record<AttentionItem["kind"], string> = {
   driver: "bg-[var(--ib-maroon-300)]",
   sector: "bg-[var(--state-info)]",
   coverage: "bg-[var(--ib-maroon-300)]",
+  book: "bg-[var(--state-warning)]",
 };
 
 export function AttentionStrip({
@@ -52,9 +53,9 @@ export function AttentionStrip({
       className="overflow-hidden rounded-[6px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-1)]"
     >
       <div className="flex min-w-0">
-        <p className="hidden shrink-0 items-center border-r border-[var(--ib-border-subtle)] px-2.5 font-mono text-[9px] font-semibold uppercase tracking-[0.14em] text-[var(--ib-maroon-300)] sm:flex">
+        <span className="hidden shrink-0 items-center border-r border-[var(--ib-border-subtle)] px-2.5 font-mono text-[9px] font-semibold uppercase tracking-[0.14em] text-[var(--ib-maroon-300)] sm:flex">
           Attention
-        </p>
+        </span>
         <ol className="flex min-w-0 flex-1 divide-x divide-[var(--ib-border-subtle)] overflow-x-auto terminal-scroll">
           {items.map((item, index) => {
             const clickable = Boolean(item.ticker && onSelectSymbol);
@@ -68,10 +69,10 @@ export function AttentionStrip({
                     index === 0 ? "opacity-100" : "opacity-70",
                   )}
                 />
-                <p className="font-mono text-[9px] uppercase tracking-[0.1em] text-[var(--ib-text-muted)]">
+                <span className="block font-mono text-[9px] uppercase tracking-[0.1em] text-[var(--ib-text-muted)]">
                   {item.kicker}
-                </p>
-                <p
+                </span>
+                <span
                   className={cn(
                     "mt-1 flex items-start gap-1 text-[12px] leading-4",
                     index === 0
@@ -81,7 +82,7 @@ export function AttentionStrip({
                 >
                   <ToneIcon print={item.print} />
                   <span className="min-w-0 truncate">{item.print}</span>
-                </p>
+                </span>
               </>
             );
             return (

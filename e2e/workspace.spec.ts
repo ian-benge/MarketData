@@ -57,15 +57,22 @@ test.describe("research workspace interactions", () => {
     ).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Primary market chart" }),
-    ).toHaveCount(0);
+    ).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "Material movers" }),
+    ).toBeVisible();
 
-    const watchlistIwm = page.getByRole("button", {
-      name: "Select IWM",
-    });
+    const watchlistIwm = page
+      .getByRole("region", { name: "Watchlist table" })
+      .getByRole("button", {
+        name: "Select IWM",
+      });
     await watchlistIwm.click();
     await expect(page).toHaveURL(/symbol=IWM/);
 
-    const symbolSort = page.getByRole("button", { name: "Symbol" });
+    const symbolSort = page
+      .getByRole("region", { name: "Watchlist table" })
+      .getByRole("button", { name: "Symbol" });
     await symbolSort.click();
     await expect(symbolSort).toHaveAttribute("aria-pressed", "true");
     await expect(
@@ -73,7 +80,7 @@ test.describe("research workspace interactions", () => {
         .getByRole("region", { name: "Watchlist table" })
         .locator("tbody tr")
         .first(),
-    ).toContainText("AAPL");
+    ).toContainText("DIA");
   });
 
   test("watchlists deep links select a list from the URL", async ({ page }) => {

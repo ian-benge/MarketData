@@ -41,7 +41,7 @@ const WORKBENCH_NAV: NavItem[] = [
     href: "/dashboard",
     label: "Market Overview",
     shortLabel: "Market",
-    description: "Session, chart, watchlist, and catalysts",
+    description: "Regime, tape, coverage, book, and the next catalysts",
     icon: BarChart3,
   },
   {

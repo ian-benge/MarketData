@@ -8,6 +8,7 @@ import {
   attachRelativeStrength,
   buildSectorBoard,
   flagsFor,
+  relativeTo,
 } from "@/lib/watchlists/analytics";
 import { emptyCoverageQuote, groupAverages } from "@/lib/watchlists/assemble";
 import type {
@@ -46,6 +47,7 @@ export type DashboardCoverageDigest = {
     unusualCount: number;
     leaders: string[];
     benchmarkSymbol: string | null;
+    displayTicker: string | null;
     symbolCount: number;
     quotedCount: number;
   }>;
@@ -150,6 +152,9 @@ export function buildDashboardCoverageDigest(input: {
     exceptionUniverse,
     coverageSymbolSet,
     boardSectors.flatMap((sector) => sector.symbols),
+    boardSectors.flatMap((sector) =>
+      sector.benchmarkSymbol ? [sector.benchmarkSymbol] : [],
+    ),
     ["SPY"],
   ]);
   const rawQuotes = quoteTickers.map((ticker) =>
@@ -188,22 +193,40 @@ export function buildDashboardCoverageDigest(input: {
     }));
 
   const board = buildSectorBoard(boardSectors, flaggedByTicker, spy1d);
+  const symbolsById = new Map(boardSectors.map((row) => [row.id, row.symbols]));
   const deskSectors = board
     .filter((row) => row.kind !== "screen" || row.quotedCount > 0)
-    .map((row) => ({
-      id: row.id,
-      name: row.name,
-      kind: row.kind,
-      navGroup: row.navGroup,
-      vsSpy1dPercent: row.vsSpy1dPercent,
-      avg1dPercent: row.avg1dPercent,
-      breadth: row.breadth,
-      unusualCount: row.unusualCount,
-      leaders: row.leaders,
-      benchmarkSymbol: row.benchmarkSymbol,
-      symbolCount: row.symbolCount,
-      quotedCount: row.quotedCount,
-    }));
+    .map((row) => {
+      const members = symbolsById.get(row.id) ?? [];
+      const displayTicker =
+        row.benchmarkSymbol ??
+        row.leaders[0] ??
+        members.find((ticker) => flaggedByTicker.get(ticker)?.last != null) ??
+        members[0] ??
+        null;
+      const fallback1d = displayTicker
+        ? (flaggedByTicker.get(displayTicker.toUpperCase())?.change1dPercent ??
+          flaggedByTicker.get(displayTicker)?.change1dPercent ??
+          null)
+        : null;
+      const avg1dPercent = row.avg1dPercent ?? fallback1d;
+      return {
+        id: row.id,
+        name: row.name,
+        kind: row.kind,
+        navGroup: row.navGroup,
+        vsSpy1dPercent: row.vsSpy1dPercent ?? relativeTo(avg1dPercent, spy1d),
+        avg1dPercent,
+        breadth: row.breadth,
+        unusualCount: row.unusualCount,
+        leaders: row.leaders.length ? row.leaders : displayTicker ? [displayTicker] : [],
+        benchmarkSymbol: row.benchmarkSymbol,
+        displayTicker,
+        symbolCount: row.symbolCount,
+        quotedCount:
+          row.quotedCount || (fallback1d != null && displayTicker ? 1 : 0),
+      };
+    });
 
   return {
     lists: visible.map((list) => ({

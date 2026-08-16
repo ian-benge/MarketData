@@ -54,6 +54,7 @@ export function SessionControlStrip({
   licenseWarning,
   providers,
   universeCoverage,
+  refreshError,
 }: {
   session?: string | null;
   asOf: string;
@@ -64,6 +65,7 @@ export function SessionControlStrip({
   licenseWarning?: string | null;
   providers?: ProviderHealthRow[];
   universeCoverage?: string | null;
+  refreshError?: string | null;
 }) {
   const [healthOpen, setHealthOpen] = useState(false);
   const healthRef = useRef<HTMLDivElement>(null);
@@ -203,6 +205,15 @@ export function SessionControlStrip({
           </div>
         </div>
       </div>
+      {refreshError ? (
+        <div className="flex items-start gap-2 border-t border-[color-mix(in_oklab,var(--state-warning)_28%,var(--ib-border-subtle))] bg-[color-mix(in_oklab,var(--state-warning)_6%,transparent)] px-3 py-2 text-[11px] leading-4 text-[var(--state-warning)]">
+          <ShieldAlert
+            aria-hidden="true"
+            className="mt-0.5 size-3.5 shrink-0"
+          />
+          <span>{refreshError}</span>
+        </div>
+      ) : null}
       {licenseWarning ? (
         <div className="flex items-start gap-2 border-t border-[color-mix(in_oklab,var(--state-warning)_28%,var(--ib-border-subtle))] bg-[color-mix(in_oklab,var(--state-warning)_6%,transparent)] px-3 py-2 text-[11px] leading-4 text-[var(--state-warning)]">
           <ShieldAlert

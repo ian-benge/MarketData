@@ -11,11 +11,9 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { buttonStyles } from "@/components/ui/Button";
-import { ChipToggle } from "@/components/ui/ChipToggle";
 import { Panel } from "@/components/ui/Panel";
 import { EmptyHint } from "@/components/ui/StatePanel";
 import { WhyMovingBadge } from "@/components/news/WhyMovingBadge";
-import { MoveNarrativeLoader } from "@/components/intel/MoveNarrativeLoader";
 import type { MoveExplanation } from "@/lib/intelligence/types";
 import type {
   DashboardWatchlistRow,
@@ -32,6 +30,15 @@ import {
   marketToneClass,
 } from "@/lib/utils/format";
 import { RVOL_FLAG_THRESHOLD } from "@/lib/watchlists/analytics";
+import {
+  coveragePickValue,
+  parseCoveragePick,
+  type CoveragePick,
+} from "@/lib/dashboard/coverage-pick";
+import type { DashboardCoverageDigest } from "@/lib/watchlists/dashboard-digest";
+import { NAV_GROUP_LABELS, NAV_GROUPS } from "@/lib/watchlists/taxonomy";
+
+type FirmSector = DashboardCoverageDigest["deskSectors"][number];
 
 type SortKey =
   | "list"
@@ -67,6 +74,10 @@ function ToneIcon({ value }: { value: number | null }) {
   );
 }
 
+function listLabel(list: { name: string; visibility: "shared" | "personal" }) {
+  return list.visibility === "personal" ? `${list.name} · personal` : list.name;
+}
+
 function percentCell(value: number | null) {
   return (
     <td className={cn("px-3 text-right font-mono", marketToneClass(value))}>
@@ -78,17 +89,21 @@ function percentCell(value: number | null) {
 export function WatchlistTable({
   data,
   onSelectSymbol,
-  onSelectList,
+  onSelectCollection,
   inBookTickers,
   selectedSymbol,
   explanations,
+  deskSectors = [],
+  selectedCollection,
 }: {
   data: DashboardWatchlistSnapshot | null | undefined;
   onSelectSymbol?: (ticker: string) => void;
-  onSelectList?: (listId: string) => void;
+  onSelectCollection?: (next: CoveragePick) => void;
   inBookTickers?: readonly string[];
   selectedSymbol?: string;
   explanations?: MoveExplanation[];
+  deskSectors?: FirmSector[];
+  selectedCollection?: CoveragePick | null;
 }) {
   const [sortKey, setSortKey] = useState<SortKey>("rvol");
   const [descending, setDescending] = useState(true);
@@ -102,9 +117,41 @@ export function WatchlistTable({
     for (const row of explanations ?? []) map.set(row.ticker.toUpperCase(), row);
     return map;
   }, [explanations]);
-  const manageHref = data?.listId
-    ? `/watchlists?listId=${encodeURIComponent(data.listId)}`
-    : "/watchlists";
+  const lists = data?.lists ?? [];
+  const selectedIsWatchlist = lists.some((list) => list.id === data?.listId);
+  const selectedIsSector = deskSectors.some((sector) => sector.id === data?.listId);
+  const selectedValue =
+    coveragePickValue(selectedCollection) ||
+    (data?.listId
+      ? selectedIsWatchlist
+        ? `watchlist:${data.listId}`
+        : `sector:${data.listId}`
+      : "");
+  const selectedOptionKnown =
+    !selectedValue ||
+    lists.some((list) => `watchlist:${list.id}` === selectedValue) ||
+    deskSectors.some((sector) => `sector:${sector.id}` === selectedValue) ||
+    Boolean(data?.listId && !selectedIsWatchlist && !selectedIsSector);
+  const manageHref = selectedCollection
+    ? selectedCollection.type === "watchlist"
+      ? `/watchlists?listId=${encodeURIComponent(selectedCollection.id)}`
+      : `/watchlists?sectorId=${encodeURIComponent(selectedCollection.id)}`
+    : data?.listId
+      ? selectedIsWatchlist
+        ? `/watchlists?listId=${encodeURIComponent(data.listId)}`
+        : `/watchlists?sectorId=${encodeURIComponent(data.listId)}`
+      : "/watchlists";
+  const selectedLabel =
+    selectedCollection?.type === "watchlist"
+      ? (lists.find((list) => list.id === selectedCollection.id)?.name ?? data?.listName)
+      : selectedCollection?.type === "sector"
+        ? (deskSectors.find((sector) => sector.id === selectedCollection.id)?.name ??
+          data?.listName)
+        : data?.listName;
+  const sectorGroups = NAV_GROUPS.map((group) => ({
+    group,
+    rows: deskSectors.filter((sector) => sector.navGroup === group),
+  })).filter((entry) => entry.rows.length);
 
   const sorted = useMemo(() => {
     const next = [...(rows ?? [])];
@@ -140,28 +187,48 @@ export function WatchlistTable({
     <Panel
       title="Watchlist"
       description={
-        data
-          ? `${data.listName} · price, 1d, from open, 1w, rvol, cap, volume`
+        selectedLabel
+          ? `${selectedLabel} · price, 1d, from open, 1w, rvol, cap, volume`
           : "Configured names with session and weekly context"
       }
       bodyClassName="p-0"
       actions={
         <div className="flex min-w-0 flex-wrap items-center justify-end gap-1">
-          <div className="flex min-w-0 flex-1 flex-nowrap gap-1 overflow-x-auto terminal-scroll">
-            {(data?.lists ?? []).map((list) => (
-              <ChipToggle
-                key={list.id}
-                onClick={() => onSelectList?.(list.id)}
-                pressed={data?.listId === list.id}
-                className="normal-case tracking-[0.04em]"
-              >
-                {list.visibility === "personal" ? (
-                  <span className="text-[var(--ib-maroon-300)]">Personal</span>
-                ) : null}
-                {list.name}
-              </ChipToggle>
-            ))}
-          </div>
+          {lists.length || deskSectors.length ? (
+            <select
+              aria-label="Watchlist or sector"
+              className="field-control h-7 max-sm:min-h-11 w-[12.5rem] max-w-full py-0 text-[11px]"
+              value={selectedValue}
+              onChange={(event) => {
+                const next = parseCoveragePick(event.target.value);
+                if (next) onSelectCollection?.(next);
+              }}
+            >
+              {lists.length ? (
+                <optgroup label="Watchlists">
+                  {lists.map((list) => (
+                    <option key={list.id} value={`watchlist:${list.id}`}>
+                      {listLabel(list)}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null}
+              {data?.listId && !selectedOptionKnown ? (
+                <option value={selectedValue || `sector:${data.listId}`}>
+                  {data.listName}
+                </option>
+              ) : null}
+              {sectorGroups.map((entry) => (
+                <optgroup key={entry.group} label={NAV_GROUP_LABELS[entry.group]}>
+                  {entry.rows.map((sector) => (
+                    <option key={sector.id} value={`sector:${sector.id}`}>
+                      {sector.name}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          ) : null}
           <Link
             href={manageHref}
             className={buttonStyles({
@@ -176,7 +243,7 @@ export function WatchlistTable({
       }
     >
       <div
-        className="w-full min-w-0 overflow-x-auto xl:max-h-[min(32rem,calc(100dvh-14rem))] xl:overflow-y-auto terminal-scroll"
+        className="h-[28rem] w-full min-w-0 overflow-auto overscroll-contain terminal-scroll"
         tabIndex={0}
         role="region"
         aria-label="Watchlist table"
@@ -266,14 +333,6 @@ export function WatchlistTable({
         {data?.stale ? " Yahoo enrichment is stale." : ""}
         {data?.error ? ` ${data.error}` : ""}
       </p>
-      {selectedSymbol ? (
-        <div className="border-t border-[var(--ib-border-subtle)] px-3 py-2">
-          <MoveNarrativeLoader
-            ticker={selectedSymbol}
-            explanation={whyByTicker.get(selectedSymbol.toUpperCase())}
-          />
-        </div>
-      ) : null}
     </Panel>
   );
 }

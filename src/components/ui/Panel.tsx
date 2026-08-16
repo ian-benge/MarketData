@@ -1,6 +1,7 @@
 import { cn } from "@/lib/utils/cn";
 
 export type PanelProps = {
+  id?: string;
   title?: string;
   description?: string;
   actions?: React.ReactNode;
@@ -11,6 +12,7 @@ export type PanelProps = {
 };
 
 export function Panel({
+  id,
   title,
   description,
   actions,
@@ -21,6 +23,7 @@ export function Panel({
 }: PanelProps) {
   return (
     <section
+      id={id}
       className={cn(
         "min-w-0 overflow-hidden rounded-[6px] border",
         variant === "default" &&

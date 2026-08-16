@@ -85,6 +85,12 @@ export function prioritizeCoverageSymbols(
     }
   }
 
+  // One proxy per basket so the heatmap still has a 1D print when the
+  // universe cap drops the rest of the constituents.
+  for (const sector of activeSectors) {
+    add(sector.benchmarkSymbol ?? sector.symbols[0] ?? "");
+  }
+
   roundRobinAdd(
     activeSectors
       .filter((sector) => sector.kind === "sector")

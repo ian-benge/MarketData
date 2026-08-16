@@ -137,4 +137,24 @@ describe("getWatchlistSnapshot", () => {
     ]);
     expect(snapshot.rows.map((row) => row.ticker)).toEqual(["NVDA"]);
   });
+
+  it("does not silently substitute the default list for an unknown id", async () => {
+    const snapshot = await getWatchlistSnapshot(testEnv(), [], "missing-list", {
+      useFixtures: false,
+      lists: [
+        {
+          id: "wl-core",
+          name: "Market Tape",
+          isDefault: true,
+          symbols: ["SPY"],
+          visibility: "shared",
+        },
+      ],
+      yahooQuotes: async () => new Map(),
+      yahooWeekCloses: async () => new Map(),
+    });
+    expect(snapshot.listId).toBe("missing-list");
+    expect(snapshot.rows).toEqual([]);
+    expect(snapshot.error).toMatch(/not found/i);
+  });
 });

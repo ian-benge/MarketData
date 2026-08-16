@@ -76,12 +76,8 @@ function lists(deps: WatchlistDeps = {}): DashboardWatchlistList[] {
 function pickList(listId?: string | null, deps: WatchlistDeps = {}) {
   const all = sourceLists(deps);
   if (!all.length) return null;
-  return (
-    all.find((list) => list.id === listId) ??
-    all.find((list) => list.isDefault) ??
-    all[0] ??
-    null
-  );
+  if (listId) return all.find((list) => list.id === listId) ?? null;
+  return all.find((list) => list.isDefault) ?? all[0] ?? null;
 }
 
 function emptySnapshot(
@@ -308,7 +304,9 @@ export async function getWatchlistSnapshot(
   if (!list) {
     return emptySnapshot(
       listId ?? undefined,
-      "No watchlists are configured. Open Watchlists & Sectors to add coverage.",
+      listId
+        ? "That watchlist or sector was not found."
+        : "No watchlists are configured. Open Watchlists & Sectors to add coverage.",
       undefined,
       { ...deps, lists: deps.lists ?? [] },
     );

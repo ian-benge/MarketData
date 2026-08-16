@@ -121,9 +121,9 @@ describe("prioritizeCoverageSymbols", () => {
       "DEF1",
       "SPY",
       "TAPE1",
+      "TH1",
       "SEC1",
       "SEC2",
-      "TH1",
     ]);
     expect(symbols).toContain("TH2");
     expect(symbols).toContain("OTHER1");
@@ -150,6 +150,29 @@ describe("prioritizeCoverageSymbols", () => {
       ],
     );
     expect(symbols.slice(0, 4)).toEqual(["A1", "B1", "A2", "A3"]);
+  });
+
+  it("pins each basket's benchmark (or first name) before constituents", () => {
+    const symbols = prioritizeCoverageSymbols(
+      [],
+      [
+        sector({
+          id: "sec-uranium",
+          name: "Uranium",
+          kind: "theme",
+          benchmarkSymbol: "URA",
+          symbols: ["CCJ", "NXE", "URA"],
+        }),
+        sector({
+          id: "sec-bio",
+          name: "Biotech",
+          kind: "industry",
+          benchmarkSymbol: "XBI",
+          symbols: ["VRTX", "REGN"],
+        }),
+      ],
+    );
+    expect(symbols.slice(0, 2)).toEqual(["URA", "XBI"]);
   });
 
   it("includes personal lists only when opted in (fixtures)", () => {

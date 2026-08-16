@@ -7,10 +7,11 @@ import type { CausalStatus, NormalizedCalendarEvent } from "@/lib/providers/type
 import { formatSignedPercent } from "@/lib/utils/format";
 import { flagsFor } from "@/lib/watchlists/analytics";
 import type { DashboardCoverageDigest } from "@/lib/watchlists/dashboard-digest";
+import type { DashboardBookImpact } from "@/lib/dashboard/book-impact";
 
 export type AttentionItem = {
   id: string;
-  kind: "driver" | "mover" | "sector" | "rvol" | "event" | "coverage";
+  kind: "driver" | "mover" | "sector" | "rvol" | "event" | "coverage" | "book";
   kicker: string;
   print: string;
   ticker?: string;
@@ -69,6 +70,7 @@ export function buildAttentionItems(input: {
   asOf: string;
   coverage?: DashboardCoverageDigest | null;
   marketSession?: string | null;
+  book?: DashboardBookImpact | null;
 }): AttentionItem[] {
   const usedTickers = new Set<string>();
   const items: AttentionItem[] = [];
@@ -143,6 +145,26 @@ export function buildAttentionItems(input: {
         ? `${coverageHit.ticker} ${formatSignedPercent(coverageHit.change1dPercent)} · ${rvol}`
         : `${coverageHit.ticker} ${formatSignedPercent(coverageHit.change1dPercent)}`,
       ticker: coverageHit.ticker,
+    });
+  }
+
+  const bookHit = tapeLive
+    ? (input.book?.contributors.find(
+        (row) => row.unexplained && !usedTickers.has(row.ticker),
+      ) ??
+      input.book?.contributors.find((row) => !usedTickers.has(row.ticker)))
+    : undefined;
+  if (bookHit) {
+    usedTickers.add(bookHit.ticker);
+    items.push({
+      id: `book-${bookHit.ticker}`,
+      kind: "book",
+      kicker: bookHit.unexplained ? "Book · unexplained" : "Book impact",
+      print:
+        bookHit.dayPercent != null
+          ? `${bookHit.ticker} ${formatSignedPercent(bookHit.dayPercent)}`
+          : bookHit.ticker,
+      ticker: bookHit.ticker,
     });
   }
 

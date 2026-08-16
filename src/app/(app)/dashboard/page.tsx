@@ -6,6 +6,8 @@ import { fixturesEnabled } from "@/lib/api/http";
 import { requirePermission } from "@/lib/auth/authorize";
 import { AuthError } from "@/lib/auth/session";
 import { loadDashboardSnapshot } from "@/lib/dashboard/snapshot";
+import { loadDashboardBookImpact } from "@/lib/dashboard/book-impact-load";
+import { attachMovesToBookImpact, type DashboardBookImpact } from "@/lib/dashboard/book-impact";
 import {
   type DashboardSnapshot,
 } from "@/lib/fixtures/dashboard";
@@ -17,6 +19,7 @@ export const metadata = {
 
 type DashboardView = DashboardSnapshot & {
   unavailableReason?: string | null;
+  bookImpact?: DashboardBookImpact;
 };
 
 type DemoViewState =
@@ -165,11 +168,26 @@ function unavailableDashboard(reason: string): DashboardView {
 
 async function loadDashboard(
   listId?: string | null,
+  sectorId?: string | null,
 ): Promise<DashboardView> {
   try {
     const user = await requirePermission("viewDashboard");
-    const snapshot = await loadDashboardSnapshot({ user, listId, live: false });
-    return { ...snapshot, unavailableReason: null };
+    const [snapshot, rawBook] = await Promise.all([
+      loadDashboardSnapshot({
+        user,
+        listId,
+        sectorId,
+        live: false,
+      }),
+      loadDashboardBookImpact(user).catch(() => undefined),
+    ]);
+    return {
+      ...snapshot,
+      bookImpact: rawBook
+        ? attachMovesToBookImpact(rawBook, snapshot.intelligence?.moves ?? [])
+        : undefined,
+      unavailableReason: null,
+    };
   } catch (error) {
     if (error instanceof AuthError) throw error;
     return unavailableDashboard(
@@ -196,10 +214,11 @@ export default async function DashboardPage({
     generate?: string;
     state?: string;
     listId?: string;
+    sectorId?: string;
   }>;
 }) {
   const params = await searchParams;
-  const snapshot = await loadDashboard(params.listId);
+  const snapshot = await loadDashboard(params.listId, params.sectorId);
   const previewState = fixturesEnabled() ? demoViewState(params.state) : null;
   const data = applyDemoViewState(snapshot, previewState);
   const availableSymbols = new Set([
@@ -215,7 +234,7 @@ export default async function DashboardPage({
         compact
         eyebrow="IB Market Data"
         title="Market Overview"
-        description="Session state, cross-asset tape, and desk coverage. Research only — no order entry."
+        description="Regime, tape, coverage, book, and the next catalysts. Research only — no order entry."
         actions={
           <OnDemandReportButton
             key={params.generate === "1" ? "auto-open" : "manual"}
@@ -245,9 +264,18 @@ export default async function DashboardPage({
 
       <LiveMarketOverview
         initial={data}
+        initialBookImpact={data.bookImpact}
         selectedSymbol={selectedSymbol}
         selectedListId={params.listId}
+        selectedSectorId={params.sectorId}
         live={!fixturesEnabled() && !data.unavailableReason}
+        chartMode={
+          fixturesEnabled()
+            ? "mock"
+            : data.unavailableReason
+              ? "unavailable"
+              : "provider"
+        }
         pulseLoading={previewState === "loading"}
       />
     </div>

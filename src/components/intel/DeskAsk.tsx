@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/Badge";
 import { EvidenceChips } from "@/components/intel/EvidenceChips";
 import { GenerationMeta } from "@/components/intel/GenerationMeta";
 import { fetchIntelProgressive } from "@/components/intel/fetch";
+import { cn } from "@/lib/utils/cn";
 import type { AskAnswer, DeskIntelEnvelope } from "@/lib/desk-intel/types";
 
 export function DeskAsk({
@@ -76,7 +77,7 @@ export function DeskAsk({
           </label>
           <input
             id={compact ? "desk-ask-compact" : "desk-ask"}
-            className="field-control"
+            className={cn("field-control", compact && "h-8 py-0")}
             value={question}
             onChange={(event) => setQuestion(event.target.value)}
             placeholder={
