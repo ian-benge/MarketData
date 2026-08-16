@@ -131,7 +131,7 @@ export async function advanceActiveReportRuns(now = new Date()) {
   const notes: string[] = [];
   if (skipEmail) {
     notes.push(
-      "email skipped — no recipients, no Resend key, or license does not permit email_attachment",
+      "email skipped — report mail is off; only position open/close alerts send",
     );
   }
 

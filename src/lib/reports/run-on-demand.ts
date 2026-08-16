@@ -1,6 +1,7 @@
 import { nanoid } from "nanoid";
 import { AiOrchestration } from "@/lib/ai/orchestration";
 import { fixturesEnabled } from "@/lib/api/http";
+import { reportEmailDisabled } from "@/lib/email/policy";
 import { loadFirmRecipients } from "@/lib/email/recipients";
 import { getEnv, type Env } from "@/lib/env";
 import { licenseAllowsEmailAttachment } from "@/lib/market-data/licensing";
@@ -21,11 +22,12 @@ export function resolveFirmId(sessionFirmId?: string | null): string {
   return sessionFirmId ?? getEnv().FIRM_ID ?? DEFAULT_FIRM_UUID;
 }
 
-/** Email only when recipients, Resend, and the license surface all exist. */
+/** Email only when the reports channel is on, plus recipients, Resend, and license. */
 export function shouldSkipReportEmail(input: {
   recipientCount: number;
   env?: Env;
 }): boolean {
+  if (reportEmailDisabled()) return true;
   const env = input.env ?? getEnv();
   if (input.recipientCount === 0) return true;
   if (!env.RESEND_API_KEY) return true;

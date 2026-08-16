@@ -5,6 +5,7 @@ import { loadFirmRecipients } from "@/lib/email/recipients";
 import { createProviders } from "@/lib/providers/registry";
 import type { DeliveryResult, TransactionalEmailRequest } from "@/lib/providers/types";
 import { formatSignedPercent } from "@/lib/utils/format";
+import { bookAlertEmailDisabled } from "@/lib/email/policy";
 import { uniqueRecipients } from "@/lib/positions/alerts";
 import { firmIdFor, loadBrief, saveBrief } from "./store";
 import type { BookRisk, DeskIntelEnvelope, EvidencePack } from "./types";
@@ -73,6 +74,7 @@ export async function notifyUnexplainedBookMoves(input: {
   const env = getEnv();
   const sent: string[] = [];
   const skipped: string[] = [];
+  if (bookAlertEmailDisabled()) return { sent, skipped: ["disabled"] };
   if (fixturesEnabled() && !input.deps?.send) return { sent, skipped: ["demo"] };
   if (!input.deps?.send && !env.RESEND_API_KEY && !mocksAllowed(env)) {
     return { sent, skipped: ["email-unconfigured"] };
@@ -162,6 +164,7 @@ export function scheduleUnexplainedBookAlerts(input: {
   pack: EvidencePack;
   risk: BookRisk;
 }): void {
+  if (bookAlertEmailDisabled()) return;
   const task = async () => {
     const result = await notifyUnexplainedBookMoves(input);
     if (result.sent.length || result.skipped.some((row) => !row.endsWith("none") && !row.endsWith("already"))) {

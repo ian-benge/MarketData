@@ -7,7 +7,6 @@ vi.mock("@/lib/api/http", async (importOriginal) => {
 import { compileBookRisk } from "./compile";
 import { sampleEvidencePack } from "./scenario";
 import {
-  alertSubjectFor,
   buildBookAlertMessage,
   notifyUnexplainedBookMoves,
   unexplainedBookItems,
@@ -28,7 +27,7 @@ describe("unexplained book alerts", () => {
     expect(message.text).toMatch(/why%20is%20SURG%20moving%20today/);
   });
 
-  it("pages a new unexplained book name once per day", async () => {
+  it("does not send unexplained-book mail while only position alerts are live", async () => {
     const pack = {
       ...sampleEvidencePack(),
       inBookTickers: ["IREN", "XYZ"],
@@ -41,8 +40,7 @@ describe("unexplained book alerts", () => {
       true,
     );
 
-    const sentKeys: string[] = [];
-    const first = await notifyUnexplainedBookMoves({
+    const result = await notifyUnexplainedBookMoves({
       firmId: "a0000000-0000-4000-8000-000000000001",
       pack,
       risk,
@@ -52,44 +50,12 @@ describe("unexplained book alerts", () => {
         loadRecipients: async () => [
           { userId: "u1", email: "desk@example.com", name: "Desk" },
         ],
-        send: async () => ({
-          ok: true,
-          providerName: "test",
-          messageIds: ["m1"],
-          attempted: 1,
-          succeeded: 1,
-          failed: 0,
-          errors: [],
-        }),
-        alreadySent: async (subject) => sentKeys.includes(subject),
-        markSent: async (envelope) => {
-          sentKeys.push(envelope.subject);
-        },
-      },
-    });
-    expect(first.sent).toContain("XYZ");
-
-    const second = await notifyUnexplainedBookMoves({
-      firmId: "a0000000-0000-4000-8000-000000000001",
-      pack,
-      risk,
-      deps: {
-        now: new Date("2026-08-15T18:10:00.000Z"),
-        appUrl: "http://localhost:3000",
-        loadRecipients: async () => [
-          { userId: "u1", email: "desk@example.com", name: "Desk" },
-        ],
         send: async () => {
-          throw new Error("should not send twice");
-        },
-        alreadySent: async (subject) => sentKeys.includes(subject),
-        markSent: async (envelope) => {
-          sentKeys.push(envelope.subject);
+          throw new Error("book alert mail should stay off");
         },
       },
     });
-    expect(second.sent).toEqual([]);
-    expect(second.skipped.some((row) => row.startsWith("XYZ:already"))).toBe(true);
-    expect(sentKeys).toEqual([alertSubjectFor("XYZ", new Date("2026-08-15T18:00:00.000Z"))]);
+    expect(result.sent).toEqual([]);
+    expect(result.skipped).toEqual(["disabled"]);
   });
 });

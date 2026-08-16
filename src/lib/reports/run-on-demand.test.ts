@@ -25,6 +25,18 @@ function env(overrides: Partial<Env> = {}): Env {
 }
 
 describe("shouldSkipReportEmail", () => {
+  it("skips report email while only position alerts are live", () => {
+    expect(
+      shouldSkipReportEmail({
+        recipientCount: 2,
+        env: env({
+          RESEND_API_KEY: "re_test",
+          MARKET_DATA_LICENSE_SCOPE: "redistributable",
+        }),
+      }),
+    ).toBe(true);
+  });
+
   it("skips email under single_user_development even with recipients and Resend", () => {
     expect(
       shouldSkipReportEmail({
@@ -32,27 +44,6 @@ describe("shouldSkipReportEmail", () => {
         env: env({
           RESEND_API_KEY: "re_test",
           MARKET_DATA_LICENSE_SCOPE: "single_user_development",
-        }),
-      }),
-    ).toBe(true);
-  });
-
-  it("allows email only when redistributable, Resend, and recipients exist", () => {
-    expect(
-      shouldSkipReportEmail({
-        recipientCount: 2,
-        env: env({
-          RESEND_API_KEY: "re_test",
-          MARKET_DATA_LICENSE_SCOPE: "redistributable",
-        }),
-      }),
-    ).toBe(false);
-    expect(
-      shouldSkipReportEmail({
-        recipientCount: 0,
-        env: env({
-          RESEND_API_KEY: "re_test",
-          MARKET_DATA_LICENSE_SCOPE: "redistributable",
         }),
       }),
     ).toBe(true);
