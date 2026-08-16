@@ -81,7 +81,19 @@ export type UniverseBuildResult = {
   symbols: string[];
   sources: Record<string, string[]>;
   notes: string[];
+  maxSize: number;
 };
+
+export function trackedUniverseLabel(input: {
+  tracked: number;
+  watchlistRequested: number;
+  cap: number;
+}): string {
+  if (input.watchlistRequested > input.tracked) {
+    return `Tracked ${input.tracked} of ${input.watchlistRequested} watchlist names (cap ${input.cap})`;
+  }
+  return `Tracked ${input.tracked} names (cap ${input.cap})`;
+}
 
 function normalizeSymbol(raw: string): string | null {
   const s = raw.trim().toUpperCase();
@@ -153,17 +165,24 @@ export function buildUniverse(input: UniverseBuildInput): UniverseBuildResult {
 
   const included = new Set(symbols);
   const droppedCoverage = sources.watchlist.filter((symbol) => !included.has(symbol));
-  const notes =
-    droppedCoverage.length > 0
-      ? [
-          `Coverage overflow: dropped ${droppedCoverage.length} symbol${droppedCoverage.length === 1 ? "" : "s"} (${droppedCoverage.slice(0, 16).join(", ")}${droppedCoverage.length > 16 ? ", …" : ""}).`,
-        ]
-      : [];
+  const notes = [
+    trackedUniverseLabel({
+      tracked: symbols.length,
+      watchlistRequested: sources.watchlist.length,
+      cap: maxSize,
+    }),
+  ];
+  if (droppedCoverage.length > 0) {
+    notes.push(
+      `Coverage overflow: dropped ${droppedCoverage.length} symbol${droppedCoverage.length === 1 ? "" : "s"} (${droppedCoverage.slice(0, 16).join(", ")}${droppedCoverage.length > 16 ? ", …" : ""}).`,
+    );
+  }
 
   return {
     requestedAt,
     symbols,
     sources: { ...sources },
     notes,
+    maxSize,
   };
 }

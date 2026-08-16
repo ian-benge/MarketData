@@ -23,6 +23,8 @@ Inventory of every variable in [`src/lib/env.ts`](../src/lib/env.ts). **No secre
 | `NODE_ENV` | `development` \| `test` \| `production` (default `development`) | No | No | ✓ | ✓ | ✓ | Runtime / platform | `check:env`; platform default on Vercel |
 | `NEXT_PUBLIC_APP_URL` | Canonical app origin (links, EDGAR UA fallback, redirects). Default `http://localhost:3000` | No | **Yes** | ✓ | ✓ | ✓ | You / Vercel domain | Must be valid URL matching the deploy |
 | `CRON_SECRET` | Authorizes `/api/cron/tick` and `/api/cron/worker` (`Bearer` or `x-cron-secret`) | **Yes** | No | ○ | ✓ | ✓ | Generate long random | Unauthorized → 401; Local may omit only when demo/fixtures allow cron |
+| `OWNER_UNLOCK_SIGNING_SECRET` | HMAC for teammate-unlock cookies. Do **not** reuse `CRON_SECRET` or the service-role key | **Yes** | No | ○ | ✓ | ✓ | Generate long random | Unlock cookie verify fails if this is missing |
+| `OWNER_UNLOCK_SECRET` | Desk unlock secret for revealing a teammate blotter. Never a login password | **Yes** | No | ○ | ✓ | ✓ | Generate long random | Unlock 401 without it; 20 failures → 429 |
 | `ALLOW_MOCK_PROVIDERS` | Allow mock adapters when live keys missing; **ignored / forbidden path in production** (`mocksAllowed`) | No | No | ○ | — | — | You | Production must be `false` / unset |
 | `DEMO_MODE` | Enables demo auth path when Supabase unset (with mocks). Demo auth off if `NODE_ENV=production` or Supabase configured | No | No | ○ | — | — | You | Production must be `false` / unset |
 
@@ -62,7 +64,7 @@ Seeded Research Desk firm id: `a0000000-0000-4000-8000-000000000001` (`supabase/
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `MARKET_DATA_PRIMARY` | `alpaca` \| `massive` \| `finnhub` \| `mock` (default `alpaca`). `mock` only with mocks, non-prod | No | No | ○ | ✓ | ✓ | You | Admin status / router |
 | `MARKET_DATA_FALLBACK` | `massive` \| `finnhub` \| `none` (default `none`) | No | No | ○ | ○ | ○ | You | Fallback path on primary failure |
-| `MARKET_DATA_LICENSE_SCOPE` | `single_user_development` \| `internal_team` \| `redistributable` (default solo) | No | No | ○ | ✓ | ✓ | Owner | Must match written authorization |
+| `MARKET_DATA_LICENSE_SCOPE` | `single_user_development` \| `internal_team` \| `redistributable` (default solo). Solo does **not** authorize email attachments or licensed PDF redistribution. Do not widen without written owner authorization. | No | No | ○ | ✓ | ✓ | Owner | Must match written authorization |
 | `MARKET_DATA_LICENSE_ACKNOWLEDGED` | Ops guardrail that owner verified **current** terms — **not** proof of a license | No | No | ○ | ○ | ✓* | Owner | `true` only after checklist; shared prod |
 | `MARKET_DATA_REFRESH_OPEN_SECONDS` | Refresh cadence when regular session open (default `60`) | No | No | ○ | ○ | ○ | You | Tick refresh behavior |
 | `MARKET_DATA_REFRESH_EXTENDED_SECONDS` | Extended hours cadence (default `120`) | No | No | ○ | ○ | ○ | You | |

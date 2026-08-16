@@ -210,11 +210,13 @@ export function LiveMarketOverview({
         calendar: data.calendar,
         asOf: data.asOf,
         coverage: data.coverage,
+        marketSession: data.marketSession,
       }),
     [
       data.asOf,
       data.calendar,
       data.coverage,
+      data.marketSession,
       movers,
       pulse.drivers,
       sectors,
@@ -236,6 +238,7 @@ export function LiveMarketOverview({
         providerCount={data.providers.length}
         unhealthyCount={unhealthyCount}
         licenseWarning={data.licenseWarning}
+        universeCoverage={data.universeCoverageLabel}
         providers={data.providers}
         items={attention}
         onSelectSymbol={selectSymbol}

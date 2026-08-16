@@ -42,6 +42,18 @@ describe("move detection", () => {
     ).toBe(false);
   });
 
+  it("does not treat weekend residual volume as unusual tape", () => {
+    const closed = detectSignificantMove({
+      ticker: "IWM",
+      changePercent: 0.2,
+      relativeVolume: 0.1,
+      flags: ["rvol"],
+      session: "closed",
+    });
+    expect(closed.significant).toBe(false);
+    expect(closed.reasons).toEqual([]);
+  });
+
   it("widens premarket Why to overnight copy since the prior close", () => {
     const now = new Date("2026-08-14T12:00:00.000Z");
     expect(newsWindowForSession("premarket", now).label).toMatch(/prior close/i);

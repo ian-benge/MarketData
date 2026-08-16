@@ -75,6 +75,12 @@ describe("headline search parsing", () => {
     expect(exportNews.themes).toContain("semiconductors");
   });
 
+  it("does not treat English stopwords as why-moving tickers", () => {
+    expect(parseNewsQuery("why is this moving").whyTicker).toBeNull();
+    expect(parseNewsQuery("ZZZZINVALIDTICKER why is this moving").whyTicker).toBeNull();
+    expect(parseNewsQuery("why is that moving").whyTicker).toBeNull();
+  });
+
   it("filters events by ticker, theme, and terms", () => {
     const events = [
       event({

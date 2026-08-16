@@ -22,4 +22,16 @@ describe("event classification", () => {
     expect(classifyHeadline("Broadcom to acquire a networking vendor").eventType).toBe("ma");
     expect(classifyHeadline("Stock jumps in early trading").sentiment).toBe("unscored");
   });
+
+  it("does not call a SpaceX feature economic just because the body mentions ISM", () => {
+    expect(
+      classifyHeadline(
+        "SpaceX valuation soars after Motley Fool recap",
+        "Related: ISM manufacturing printed hotter than expected.",
+      ).eventType,
+    ).not.toBe("economic");
+    expect(
+      classifyHeadline("ISM manufacturing index rises more than forecast").eventType,
+    ).toBe("economic");
+  });
 });

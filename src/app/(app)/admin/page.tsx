@@ -7,8 +7,8 @@ import { getSessionUser } from "@/lib/auth/session";
 import AdminClient from "./AdminClient";
 
 export const metadata = {
-  title: "Data Operations",
-  description: "Role-gated Data Operations administration for IB Market Data.",
+  title: "Instrument queue",
+  description: "Live instrument identity queue. Other admin repositories stay demo-only.",
 };
 
 function AdminLoading() {

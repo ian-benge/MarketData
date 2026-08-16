@@ -37,7 +37,10 @@ import { runQualityGate, type QualityGateResult } from "@/lib/reports/quality-ga
 import { PIPELINE_STAGES, type PipelineStage } from "@/lib/reports/stages";
 import { renderReportPdf } from "@/lib/reports/pdf/render-pdf";
 import { freezeReportMarketSnapshot } from "@/lib/market-data/report-snapshot";
-import { defaultSurfacesForScope } from "@/lib/market-data/licensing";
+import {
+  defaultSurfacesForScope,
+  requestedSurfacesForReportRun,
+} from "@/lib/market-data/licensing";
 import { getEnv } from "@/lib/env";
 import type { LicenseScope } from "@/lib/market-data/schemas";
 import { loadDefaultSharedWatchlistTickers } from "@/lib/watchlists/firm-coverage";
@@ -735,15 +738,10 @@ export class ReportPipeline {
               declaredLatencyLabel: freeze.provenance.latencyCoverageLabel,
               expectedLatencyLabel: freeze.provenance.latencyCoverageLabel,
               permittedSurfaces: freeze.provenance.permittedSurfaces,
-              requestedSurfaces: [
-                "pdf_inclusion",
-                "ai_analysis_input",
-                "in_app_reports",
-                ...(!this.skipEmail &&
-                freeze.provenance.permittedSurfaces.includes("email_attachment")
-                  ? (["email_attachment"] as const)
-                  : []),
-              ],
+              requestedSurfaces: requestedSurfacesForReportRun({
+                skipEmail: this.skipEmail,
+                permittedSurfaces: freeze.provenance.permittedSurfaces,
+              }),
             },
           },
     );

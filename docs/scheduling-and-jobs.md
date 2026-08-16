@@ -20,12 +20,15 @@ On NYSE **early-close** days (1:00 p.m. ET calendar in [`nyse-early-close.ts`](.
 
 ## UTC cron tick
 
-Vercel Cron hits:
+Vercel Cron hits (GET, which the routes accept and treat as POST):
 
-- `POST /api/cron/tick` every 5 minutes  
-- `POST /api/cron/worker` every 5 minutes  
+- `/api/cron/tick` every 5 minutes  
+- `/api/cron/worker` every 5 minutes  
+- `/api/cron/intel` every 15 minutes  
 
 See [`vercel.json`](../vercel.json). Auth: `Authorization: Bearer $CRON_SECRET` or `x-cron-secret` header ([`verifyCronSecret`](../src/lib/api/http.ts)).
+
+Brokerage holdings sync is **not** a Vercel cron. The canonical clock is Supabase `pg_cron` (`brokerage-holdings-sync`, 10s) calling `/api/cron/brokerage`. Do not add that path to `vercel.json`.
 
 The tick computes **due** work in Chicago time; the 5-minute UTC cadence is only the polling interval.
 

@@ -73,19 +73,29 @@ const ADMIN_SECTION_KEYS = ADMIN_SECTION_GROUPS.flatMap((group) =>
   group.sections.map((section) => section.key),
 ) as readonly AdminSectionKey[];
 
-export function normalizeAdminSection(raw: string | null): AdminSectionKey {
-  return ADMIN_SECTION_KEYS.includes(raw as AdminSectionKey)
-    ? (raw as AdminSectionKey)
-    : "team";
+export const LIVE_ADMIN_SECTIONS: readonly AdminSectionKey[] = ["instruments"];
+
+export function normalizeAdminSection(
+  raw: string | null,
+  allowed: readonly AdminSectionKey[] = ADMIN_SECTION_KEYS,
+): AdminSectionKey {
+  if (allowed.includes(raw as AdminSectionKey)) return raw as AdminSectionKey;
+  return allowed[0] ?? "team";
 }
 
 export function AdminSectionNav({
   active,
   onMobileChange,
+  allowed = ADMIN_SECTION_KEYS,
 }: {
   active: AdminSectionKey;
   onMobileChange: (section: AdminSectionKey) => void;
+  allowed?: readonly AdminSectionKey[];
 }) {
+  const groups = ADMIN_SECTION_GROUPS.map((group) => ({
+    ...group,
+    sections: group.sections.filter((section) => allowed.includes(section.key)),
+  })).filter((group) => group.sections.length > 0);
   return (
     <aside className="min-w-0 lg:sticky lg:top-4 lg:self-start">
       <div className="lg:hidden">
@@ -103,7 +113,7 @@ export function AdminSectionNav({
           }
           className="h-11 w-full rounded-[4px] border border-[var(--ib-border-control)] bg-[var(--ib-surface-1)] px-3 text-sm text-[var(--ib-text-primary)]"
         >
-          {ADMIN_SECTION_GROUPS.map((group) => (
+          {groups.map((group) => (
             <optgroup key={group.label} label={group.label}>
               {group.sections.map((section) => (
                 <option key={section.key} value={section.key}>
@@ -119,7 +129,7 @@ export function AdminSectionNav({
         aria-label="Admin sections"
         className="hidden max-h-[calc(100svh-7rem)] overflow-y-auto rounded-[6px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-1)] p-2 lg:block"
       >
-        {ADMIN_SECTION_GROUPS.map((group, groupIndex) => (
+        {groups.map((group, groupIndex) => (
           <div
             key={group.label}
             className={cn(

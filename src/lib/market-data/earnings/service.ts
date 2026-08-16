@@ -275,6 +275,7 @@ export function assembleEarningsSnapshot(input: {
   };
   quotes: Map<string, YahooEquityQuote>;
   quoteAttempted?: number;
+  quoteTargetSymbols?: string[];
   impliedBySymbol: Map<string, EarningsImpliedMove | null>;
   optionsAttempted: Set<string>;
   usingFixtures?: boolean;
@@ -320,7 +321,17 @@ export function assembleEarningsSnapshot(input: {
 
   const fhDiag = input.finnhub.diagnostics ?? emptyDiagnostics();
   const avDiag = input.alphaVantage.diagnostics ?? emptyDiagnostics();
-  const quoteSucceeded = events.filter((event) => event.quoteStatus === "succeeded").length;
+  const attemptedSymbols = input.quoteTargetSymbols
+    ? new Set(input.quoteTargetSymbols)
+    : null;
+  const quoteAttempted = attemptedSymbols?.size ?? input.quoteAttempted ?? inWindow.length;
+  const quoteSucceeded = events.filter((event) => {
+    if (event.quoteStatus !== "succeeded") return false;
+    if (attemptedSymbols && !attemptedSymbols.has(event.ticker)) {
+      return false;
+    }
+    return true;
+  }).length;
   const live = input.finnhub.ok || input.alphaVantage.ok || events.length > 0;
   const bothUnconfigured = !input.finnhub.configured && !input.alphaVantage.configured;
   const source = input.usingFixtures
@@ -380,7 +391,7 @@ export function assembleEarningsSnapshot(input: {
       },
       merge: stats,
       enrichment: {
-        quoteAttempted: input.quoteAttempted ?? inWindow.length,
+        quoteAttempted,
         quoteSucceeded,
         optionsBudget: IMPLIED_MOVE_BUDGET,
         optionsAttempted: input.optionsAttempted.size,
@@ -538,6 +549,7 @@ async function loadLive(
     },
     quotes,
     quoteAttempted: quoteTargets.length,
+    quoteTargetSymbols: quoteTargets.map((event) => event.canonicalSymbol),
     impliedBySymbol,
     optionsAttempted,
   });

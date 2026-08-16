@@ -2,10 +2,8 @@ import { Badge } from "@/components/ui/Badge";
 import type { DeskIntelEnvelope } from "@/lib/desk-intel/types";
 
 /** Operational / expected codes — not trader-facing grounding failures. */
-const QUIET_WARNING_CODES = new Set([
-  "model_unavailable",
-  "unknown_not_narrated",
-]);
+const QUIET_WARNING_CODES = new Set(["unknown_not_narrated"]);
+const MODEL_FAILED_CODES = new Set(["model_unavailable"]);
 
 export function GenerationMeta<T>({
   envelope,
@@ -17,8 +15,13 @@ export function GenerationMeta<T>({
   >;
   refining?: boolean;
 }) {
+  const modelFailed = envelope.warnings.some((warning) =>
+    MODEL_FAILED_CODES.has(warning.code),
+  );
   const notes = envelope.warnings.filter(
-    (warning) => !QUIET_WARNING_CODES.has(warning.code),
+    (warning) =>
+      !QUIET_WARNING_CODES.has(warning.code) &&
+      !MODEL_FAILED_CODES.has(warning.code),
   );
 
   return (
@@ -27,6 +30,7 @@ export function GenerationMeta<T>({
         <Badge tone={envelope.method === "model" ? "brand" : "neutral"}>
           {envelope.method === "model" ? "Model synthesis" : "Rules compilation"}
         </Badge>
+        {modelFailed ? <Badge tone="warn">Model failed</Badge> : null}
         {envelope.cached ? <Badge tone="info">Cached</Badge> : null}
         {envelope.model ? (
           <span className="font-mono text-[10px] text-[var(--ib-text-muted)]">

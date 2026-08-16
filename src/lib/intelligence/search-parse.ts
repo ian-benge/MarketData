@@ -1,5 +1,5 @@
 import { EVENT_TYPES, type EventType, type ParsedNewsQuery } from "./types";
-import { resolveAlias, resolveQueryTickers } from "./entity-resolve";
+import { isProseCapToken, resolveAlias, resolveQueryTickers } from "./entity-resolve";
 import { expandThemeQuery } from "./themes";
 import { newsWindowForSession, parseTimeWindow } from "./windows";
 
@@ -54,7 +54,10 @@ function resolveWhyTicker(raw: string): string | null {
   const lastAlias = resolveAlias(last);
   if (lastAlias) return lastAlias;
   if (fromNames.length) return fromNames[0]!;
-  return /^[A-Za-z][A-Za-z0-9.-]{0,9}$/.test(last) ? last.toUpperCase() : null;
+  if (!/^[A-Za-z][A-Za-z0-9.-]{0,9}$/.test(last)) return null;
+  const ticker = last.toUpperCase();
+  if (isProseCapToken(ticker)) return null;
+  return ticker;
 }
 
 export function parseNewsQuery(

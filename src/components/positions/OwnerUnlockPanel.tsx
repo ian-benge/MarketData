@@ -48,9 +48,9 @@ export function OwnerUnlockPanel({
             Account value is locked
           </h2>
           <p className="mt-0.5 text-[12px] leading-5 text-[var(--ib-text-secondary)]">
-            Day P&L and open P&L stay on the tape. Enter {ownerName}&apos;s
-            IB Market Data sign-in password to see account value, cash, and
-            closed lots. Revoke from Settings.
+            Open names stay visible without size or marks. Enter the desk
+            unlock secret to see {ownerName}&apos;s account value, cash, and
+            closed lots. This is not a sign-in password. Revoke from Settings.
           </p>
           {error ? (
             <p role="alert" className="mt-1 text-[12px] text-[var(--danger)]">
@@ -64,7 +64,7 @@ export function OwnerUnlockPanel({
         className="flex w-full max-w-sm shrink-0 flex-col items-stretch gap-2 sm:w-auto sm:flex-row sm:items-center"
       >
         <label htmlFor={passwordId} className="sr-only">
-          Password for {ownerName}
+          Desk unlock secret for {ownerName}
         </label>
         <input
           id={passwordId}
@@ -73,7 +73,7 @@ export function OwnerUnlockPanel({
           className="field-control"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
-          placeholder="Teammate password"
+          placeholder="Desk unlock secret"
           disabled={busy}
           required
         />

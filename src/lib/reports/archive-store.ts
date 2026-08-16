@@ -1,6 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getEnv } from "@/lib/env";
-import type { ReportDocumentModel } from "@/lib/reports/content-builder";
+import type {
+  ReportDocumentModel,
+  ReportSourceRef,
+} from "@/lib/reports/content-builder";
 import type { ReportEdition } from "@/lib/reports/editions";
 import { canCreateAdminClient, createAdminClient } from "@/lib/supabase/admin";
 
@@ -126,12 +129,24 @@ export async function persistArchivedReport(
     causal_status: "unclear" as const,
     materiality: claim.material ? "material" : "immaterial",
   }));
+  let insertedClaims: Array<{ id: string; claim_text: string }> = [];
   if (claimRows.length > 0) {
-    const { error: claimError } = await admin
+    const { data: claimData, error: claimError } = await admin
       .from("report_claims")
-      .insert(claimRows);
+      .insert(claimRows)
+      .select("id, claim_text");
     throwIfError(claimError, "Failed to insert report claims");
+    insertedClaims = (claimData ?? []) as Array<{
+      id: string;
+      claim_text: string;
+    }>;
   }
+
+  await persistReportCitations(admin, {
+    firmId: input.firmId,
+    document: input.document,
+    insertedClaims,
+  });
 
   if (!skippedUpload && pdfBytes) {
     const { error: fileError } = await admin.from("report_files").upsert(
@@ -148,4 +163,82 @@ export async function persistArchivedReport(
   }
 
   return { reportId, storagePath, skippedUpload };
+}
+
+async function resolveSourceDocumentId(
+  admin: SupabaseClient,
+  firmId: string,
+  source: ReportSourceRef,
+): Promise<string | null> {
+  const url = source.url?.trim() || null;
+  if (url) {
+    const { data: existing, error: lookupError } = await admin
+      .from("source_documents")
+      .select("id")
+      .eq("firm_id", firmId)
+      .eq("url", url)
+      .maybeSingle();
+    throwIfError(lookupError, "Failed to look up source document");
+    if (existing?.id) return String(existing.id);
+  }
+
+  const { data: inserted, error: insertError } = await admin
+    .from("source_documents")
+    .insert({
+      firm_id: firmId,
+      source_class: "news",
+      title: source.title || source.id,
+      url,
+      metadata: { documentSourceId: source.id, publisher: source.publisher ?? null },
+    })
+    .select("id")
+    .single();
+  throwIfError(insertError, "Failed to insert source document");
+  return inserted?.id ? String(inserted.id) : null;
+}
+
+async function persistReportCitations(
+  admin: SupabaseClient,
+  input: {
+    firmId: string;
+    document: ReportDocumentModel;
+    insertedClaims: Array<{ id: string; claim_text: string }>;
+  },
+): Promise<void> {
+  if (input.insertedClaims.length === 0) return;
+  const sourceById = new Map(
+    input.document.sources.map((source) => [source.id, source]),
+  );
+  const sourceDocIds = new Map<string, string>();
+  const rows: Array<{
+    claim_id: string;
+    source_document_id: string;
+    excerpt: string | null;
+  }> = [];
+
+  for (let index = 0; index < input.document.claims.length; index += 1) {
+    const claim = input.document.claims[index];
+    const persisted = input.insertedClaims[index];
+    if (!claim || !persisted) continue;
+    for (const sourceId of claim.sourceIds) {
+      const source = sourceById.get(sourceId);
+      if (!source) continue;
+      let sourceDocumentId = sourceDocIds.get(source.id);
+      if (!sourceDocumentId) {
+        sourceDocumentId =
+          (await resolveSourceDocumentId(admin, input.firmId, source)) ?? undefined;
+        if (!sourceDocumentId) continue;
+        sourceDocIds.set(source.id, sourceDocumentId);
+      }
+      rows.push({
+        claim_id: persisted.id,
+        source_document_id: sourceDocumentId,
+        excerpt: claim.text.slice(0, 280),
+      });
+    }
+  }
+
+  if (rows.length === 0) return;
+  const { error } = await admin.from("citations").insert(rows);
+  throwIfError(error, "Failed to insert citations");
 }

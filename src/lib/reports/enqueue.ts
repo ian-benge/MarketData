@@ -3,6 +3,7 @@ import {
   createReportJobStore,
   loadFirmRecipients,
   resolveFirmId,
+  shouldSkipReportEmail,
 } from "@/lib/reports/run-on-demand";
 import { SupabaseReportJobStore } from "@/lib/reports/supabase-job-store";
 import { canCreateAdminClient, createAdminClient } from "@/lib/supabase/admin";
@@ -119,8 +120,9 @@ export async function advanceActiveReportRuns(now = new Date()) {
   }
 
   const recipients = await loadFirmRecipients(resolveFirmId());
-  const skipEmail =
-    recipients.length === 0 || !getEnv().RESEND_API_KEY;
+  const skipEmail = shouldSkipReportEmail({
+    recipientCount: recipients.length,
+  });
   const { pipeline } = createConfiguredReportPipeline({ store, skipEmail });
   let continued = 0;
   let completed = 0;
@@ -128,7 +130,9 @@ export async function advanceActiveReportRuns(now = new Date()) {
   let heldForPublish = 0;
   const notes: string[] = [];
   if (skipEmail) {
-    notes.push("no active team recipients — PDF/archive only, email skipped");
+    notes.push(
+      "email skipped — no recipients, no Resend key, or license does not permit email_attachment",
+    );
   }
 
   for (const run of active) {

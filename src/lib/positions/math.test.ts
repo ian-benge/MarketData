@@ -368,7 +368,7 @@ describe("position math", () => {
     expect(series.at(-1)?.cumulativePnl).toBeCloseTo(first + second);
   });
 
-  it("adds marked open lots onto the as-of point", () => {
+  it("adds session day P&L for open lots onto the as-of point, not since-entry", () => {
     const open = position({ ticker: "AAPL", side: "long", quantity: 10, entryPrice: 100 });
     const quotes = new Map([
       [
@@ -385,13 +385,73 @@ describe("position math", () => {
         },
       ],
     ]);
+    const table = enrichPosition(
+      open,
+      quotes.get("AAPL"),
+      undefined,
+      "2026-08-13T15:00:00.000Z",
+    );
     const series = buildPortfolioSeries([open], new Map(), {
       quotes,
       asOf: "2026-08-13T15:00:00.000Z",
     });
     expect(series.at(-1)?.date).toBe("2026-08-13");
-    expect(series.at(-1)?.dayPnl).toBe(100);
-    expect(series.at(-1)?.cumulativePnl).toBe(100);
+    expect(series.at(-1)?.dayPnl).toBe(20);
+    expect(series.at(-1)?.dayPnl).toBe(table.dayPnl);
+    expect(series.at(-1)?.cumulativePnl).toBe(20);
+  });
+
+  it("does not let a 1W window include lifetime unrealized", () => {
+    const open = position({
+      ticker: "AAPL",
+      side: "long",
+      quantity: 10,
+      entryPrice: 100,
+      entryDate: "2026-01-02",
+    });
+    const quotes = new Map([
+      [
+        "AAPL",
+        {
+          ticker: "AAPL",
+          last: 110,
+          priorClose: 109,
+          open: 109,
+          changeAbsolute: 1,
+          changePercent: 0.92,
+          currency: "USD",
+          stale: false,
+        },
+      ],
+    ]);
+    const series = buildPortfolioSeries([open], new Map(), {
+      quotes,
+      asOf: "2026-08-13T15:00:00.000Z",
+    });
+    const week = series.filter((point) => point.date >= "2026-08-07");
+    const weekSum = week.reduce((sum, point) => sum + (point.dayPnl ?? 0), 0);
+    expect(weekSum).toBe(10);
+    expect(weekSum).toBeLessThan(100);
+  });
+
+  it("keeps change1d and dayPnl on the same prior-close source", () => {
+    const open = position({ ticker: "SURG", side: "long", quantity: 1, entryPrice: 0.3 });
+    const missing = enrichPosition(
+      open,
+      { ticker: "SURG", last: 0.32, priorClose: null, open: null, changeAbsolute: null, changePercent: null, currency: "USD", stale: false },
+      [{ date: "2026-08-12", close: 0.31 }],
+      "2026-08-13T15:00:00.000Z",
+    );
+    expect(missing.dayPnl).toBeNull();
+    expect(missing.change1d.pnl).toBeNull();
+    const present = enrichPosition(
+      open,
+      quote(0.32, 0.31),
+      undefined,
+      "2026-08-13T15:00:00.000Z",
+    );
+    expect(present.dayPnl).toBeCloseTo(0.01);
+    expect(present.change1d.pnl).toBe(present.dayPnl);
   });
 
   it("marks opens and closes on the fill dates", () => {

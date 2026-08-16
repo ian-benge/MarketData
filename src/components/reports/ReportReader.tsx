@@ -254,7 +254,7 @@ export function ReportReader({ report }: { report: FixtureReportDetail }) {
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-7 text-[var(--report-ink-secondary)] sm:text-lg sm:leading-8">
               {report.document
-                ? `${report.document.firmName} · cutoff ${report.document.dataCutoff}${
+                ? `${report.document.firmName} · cutoff ${formatReportTimestamp(report.document.dataCutoff)}${
                     report.document.isDemo
                       ? " · DEMO fixtures — not for trading"
                       : ""

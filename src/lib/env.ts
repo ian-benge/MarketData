@@ -26,6 +26,10 @@ export const envSchema = z.object({
     .default("development"),
   NEXT_PUBLIC_APP_URL: z.string().url().default("http://localhost:3000"),
   CRON_SECRET: optionalString,
+  /** HMAC for teammate-unlock cookies. Do not reuse CRON_SECRET or the service role. */
+  OWNER_UNLOCK_SIGNING_SECRET: optionalString,
+  /** Desk unlock secret. Never the teammate login password. */
+  OWNER_UNLOCK_SECRET: optionalString,
 
   ALLOW_MOCK_PROVIDERS: boolFromEnv,
   DEMO_MODE: boolFromEnv,

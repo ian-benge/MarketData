@@ -46,4 +46,21 @@ describe("latencyCoverageLabel", () => {
       latencyCoverageLabel({ feedCoverage: "unknown", latencyClass: "mock" }),
     ).toBe("Mock data");
   });
+
+  it("never says Real-time when the cash session is closed", () => {
+    expect(
+      latencyCoverageLabel({
+        feedCoverage: "iex",
+        latencyClass: "realtime",
+        marketSession: "closed",
+      }),
+    ).toBe("End of day — IEX");
+    expect(
+      latencyCoverageLabel({
+        feedCoverage: "iex",
+        latencyClass: "realtime",
+        marketSession: "closed",
+      }),
+    ).not.toMatch(/Real-time/i);
+  });
 });

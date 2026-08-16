@@ -78,6 +78,7 @@ export type EvidencePosition = {
   dayPercent: number | null;
   weight: number | null;
   unrealizedPnl: number | null;
+  marketValue?: number | null;
 };
 
 export type EvidenceCalendarItem = {

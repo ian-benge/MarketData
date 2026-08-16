@@ -79,13 +79,27 @@ export function realizedVolPercent(
 
 export const RVOL_FLAG_THRESHOLD = 1.8;
 
+export function sessionAllowsUnusualTape(
+  session?: string | null,
+): boolean {
+  return (
+    session === "regular" ||
+    session === "premarket" ||
+    session === "afterhours"
+  );
+}
+
 export function flagsFor(row: {
   change1dPercent: number | null;
   relativeVolume: number | null;
   vsGroup1dPercent: number | null;
   preMarketChangePercent: number | null;
   afterHoursChangePercent: number | null;
+  marketSession?: string | null;
 }): CoverageFlag[] {
+  if (row.marketSession != null && !sessionAllowsUnusualTape(row.marketSession)) {
+    return [];
+  }
   const flags: CoverageFlag[] = [];
   const change = row.change1dPercent;
   const rvol = row.relativeVolume;

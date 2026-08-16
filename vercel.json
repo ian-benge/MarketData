@@ -2,11 +2,15 @@
   "crons": [
     {
       "path": "/api/cron/tick",
-      "schedule": "0 14 * * *"
+      "schedule": "*/5 * * * *"
     },
     {
       "path": "/api/cron/worker",
-      "schedule": "5 14 * * *"
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/intel",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

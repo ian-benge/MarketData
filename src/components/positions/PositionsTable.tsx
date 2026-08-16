@@ -34,6 +34,7 @@ import { cn } from "@/lib/utils/cn";
 import { formatQuantity } from "@/lib/utils/format";
 import { groupLotsForBlotter } from "@/lib/positions/lot-groups";
 import { displayPositionTicker } from "@/lib/positions/option-symbol";
+import { isResidualBookLot } from "@/lib/positions/residual";
 import type { DailyClose, EnrichedPosition } from "@/lib/positions/types";
 
 type SortKey =
@@ -432,6 +433,11 @@ export function PositionsTable({
                       />
                       <span className="whitespace-nowrap">
                         <TickerLabel ticker={row.ticker} />
+                        {!closed && isResidualBookLot(row) ? (
+                          <Badge tone="neutral" className="ml-1">
+                            Residual
+                          </Badge>
+                        ) : null}
                         <span className="block whitespace-nowrap text-[10px] text-[var(--ib-text-muted)]">
                           <span className="md:hidden">
                             {row.side === "short" ? "Short · " : "Long · "}

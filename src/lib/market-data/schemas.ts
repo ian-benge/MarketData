@@ -332,35 +332,72 @@ export type CorporateActionsRequest = z.input<
   typeof CorporateActionsRequestSchema
 >;
 
+export function isClosedMarketSession(
+  session?: string | null,
+): boolean {
+  return session === "closed";
+}
+
+/**
+ * Provider delayStatus can stay "realtime" after the cash session ends.
+ * Closed tape is last print / EOD — never advertise it as live.
+ */
+export function effectiveLatencyClass(
+  latencyClass: LatencyClass,
+  marketSession?: string | null,
+): LatencyClass {
+  if (
+    isClosedMarketSession(marketSession) &&
+    (latencyClass === "realtime" || latencyClass === "delayed_15m")
+  ) {
+    return "eod";
+  }
+  return latencyClass;
+}
+
+function feedSuffix(feedCoverage: FeedCoverage): string | null {
+  switch (feedCoverage) {
+    case "iex":
+      return "IEX";
+    case "sip":
+      return "SIP";
+    case "fmv":
+      return "FMV/aggregate";
+    case "full_market":
+      return "full market";
+    default:
+      return null;
+  }
+}
+
 /**
  * Human-readable latency + coverage label for UI / reports.
  * Never labels IEX as SIP/full_market/NBBO.
+ * Never says Real-time when the cash session is closed.
  */
 export function latencyCoverageLabel(input: {
   feedCoverage: FeedCoverage;
   latencyClass: LatencyClass;
+  marketSession?: string | null;
 }): string {
-  const { feedCoverage, latencyClass } = input;
+  const feedCoverage = input.feedCoverage;
+  const latencyClass = effectiveLatencyClass(
+    input.latencyClass,
+    input.marketSession,
+  );
 
   if (latencyClass === "mock") return "Mock data";
   if (latencyClass === "stale") return "Stale";
   if (latencyClass === "unavailable") return "Unavailable";
-  if (latencyClass === "eod") return "End of day";
   if (latencyClass === "delayed_15m") return "15-minute delayed";
+  if (latencyClass === "eod") {
+    const suffix = feedSuffix(feedCoverage);
+    return suffix ? `End of day — ${suffix}` : "End of day";
+  }
 
   if (latencyClass === "realtime") {
-    switch (feedCoverage) {
-      case "iex":
-        return "Real-time — IEX";
-      case "sip":
-        return "Real-time — SIP";
-      case "fmv":
-        return "Real-time — FMV/aggregate";
-      case "full_market":
-        return "Real-time — full market";
-      default:
-        return "Real-time";
-    }
+    const suffix = feedSuffix(feedCoverage);
+    return suffix ? `Real-time — ${suffix}` : "Real-time";
   }
 
   if (feedCoverage === "delayed_15m") return "15-minute delayed";

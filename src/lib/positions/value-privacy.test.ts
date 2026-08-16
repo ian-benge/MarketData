@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { emptySummary } from "./math";
+import { emptySummary, enrichPosition } from "./math";
 import {
   bookPnlForWindow,
+  contributorsForWindow,
   isBookPnlWindow,
   sumSeriesPnl,
 } from "./value-privacy";
@@ -98,5 +99,51 @@ describe("book P&L windows", () => {
     const fallback = snapshot({ change1wPnl: 15, accountValue: 150 });
     expect(bookPnlForWindow(fallback, "1w").beforeFees).toBe(15);
     expect(bookPnlForWindow(fallback, "1w").percent).toBe(10);
+  });
+});
+
+describe("contributorsForWindow", () => {
+  it("uses day P&L for 1D and collapses same-day OCC fills", () => {
+    const base = {
+      firmId: "firm-1",
+      ticker: "MSFT260202C00430000",
+      assetType: "option" as const,
+      side: "short" as const,
+      quantity: 1,
+      multiplier: 100,
+      entryPrice: 1,
+      entryDate: "2026-02-02",
+      currency: "USD",
+      strategy: null,
+      notes: null,
+      status: "closed" as const,
+      closeDate: "2026-08-13",
+      closedAt: "2026-08-13T20:00:00.000Z",
+      createdBy: "user-1",
+      bookId: "book-1",
+      source: "snaptrade" as const,
+      createdAt: "2026-08-13T14:00:00.000Z",
+      updatedAt: "2026-08-13T20:00:00.000Z",
+    };
+    const winner = enrichPosition(
+      { ...base, id: "a", closePrice: 0.4, fees: 1 },
+      undefined,
+      undefined,
+      "2026-08-13T21:00:00.000Z",
+    );
+    const loser = enrichPosition(
+      { ...base, id: "b", closePrice: 2.2, fees: 1 },
+      undefined,
+      undefined,
+      "2026-08-13T21:00:00.000Z",
+    );
+    const grouped = contributorsForWindow(
+      [winner, loser],
+      "1d",
+      "2026-08-13T21:00:00.000Z",
+    );
+    const all = [...grouped.winners, ...grouped.losers];
+    expect(all).toHaveLength(1);
+    expect(all[0]?.ticker).toBe("MSFT260202C00430000");
   });
 });

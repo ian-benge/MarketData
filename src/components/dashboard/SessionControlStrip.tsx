@@ -25,6 +25,7 @@ export function dataTrustKind(latencyClass: string | null | undefined): StatusKi
   if (latencyClass === "realtime") return "realtime";
   if (latencyClass?.includes("delayed")) return "delayed";
   if (latencyClass === "unavailable") return "unavailable";
+  if (latencyClass === "eod") return "neutral";
   return "neutral";
 }
 
@@ -34,6 +35,7 @@ export function trustCompactLabel(latencyClass: string | null | undefined): stri
   if (latencyClass === "realtime") return "Live";
   if (latencyClass?.includes("delayed")) return "Delayed";
   if (latencyClass === "unavailable") return "Off";
+  if (latencyClass === "eod") return "EOD";
   return "Data";
 }
 
@@ -51,6 +53,7 @@ export function SessionControlStrip({
   unhealthyCount,
   licenseWarning,
   providers,
+  universeCoverage,
 }: {
   session?: string | null;
   asOf: string;
@@ -60,6 +63,7 @@ export function SessionControlStrip({
   unhealthyCount: number;
   licenseWarning?: string | null;
   providers?: ProviderHealthRow[];
+  universeCoverage?: string | null;
 }) {
   const [healthOpen, setHealthOpen] = useState(false);
   const healthRef = useRef<HTMLDivElement>(null);
@@ -117,7 +121,9 @@ export function SessionControlStrip({
               />
             </div>
             <p className="mt-0.5 truncate font-mono text-[11px] text-[var(--ib-text-secondary)]">
+              {session === "closed" ? "Last print " : ""}
               {formatMarketDateTime(asOf, { seconds: true })}
+              {universeCoverage ? ` · ${universeCoverage}` : ""}
             </p>
           </div>
         </div>

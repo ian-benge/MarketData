@@ -12,6 +12,10 @@ import {
 } from "@/lib/market-data/refresh-service";
 import { advanceActiveReportRuns } from "@/lib/reports/enqueue";
 
+export async function GET(request: Request) {
+  return POST(request);
+}
+
 export async function POST(request: Request) {
   try {
     if (!verifyCronSecret(request)) {

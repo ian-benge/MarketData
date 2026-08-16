@@ -43,6 +43,12 @@ export function rangeLabel(lowerBps: number): string {
   return `${lowerBps}-${lowerBps + 25}`;
 }
 
+export function formatFedFundsRange(label: string | null | undefined): string {
+  if (!label) return "—";
+  if (/\bbps\b/i.test(label)) return label;
+  return `${label} bps`;
+}
+
 export function classifyBin(
   lowerBps: number,
   currentLowerBps: number,

@@ -1,5 +1,7 @@
+import { tickerMentionedInText } from "@/lib/intelligence/entity-resolve";
 import { EVENT_TYPE_LABELS, type EventType } from "@/lib/intelligence/types";
 import { themeById } from "@/lib/intelligence/themes";
+import { isResidualBookLot } from "@/lib/positions/residual";
 import { formatSignedPercent } from "@/lib/utils/format";
 import { looksLikeInjection } from "./sanitize";
 import { trustedDeskTickers } from "./tickers";
@@ -77,6 +79,15 @@ function clusterKey(event: EvidenceEvent): { key: string; title: string } {
   return { key: `type:${event.eventType}`, title: typeLabel(event.eventType) };
 }
 
+function sessionLead(pack: EvidencePack): string | null {
+  const session = (pack.session ?? "").toLowerCase();
+  if (session !== "closed" && session !== "overnight") return null;
+  const asOf = pack.asOf.slice(0, 10);
+  return Number.isNaN(Date.parse(pack.asOf))
+    ? "US equities are closed. Tape is the last regular-session print, not a live weekend tape."
+    : `US equities are closed. Tape is last regular-session print (${asOf}).`;
+}
+
 export function compileSessionBrief(pack: EvidencePack): SessionBrief {
   const topEvents = pack.events.slice(0, 6);
   const unexplained = pack.moves.filter((move) => move.attribution === "unknown");
@@ -128,7 +139,14 @@ export function compileSessionBrief(pack: EvidencePack): SessionBrief {
         inBook: [],
       };
       current.sourceIds.push(...event.sourceIds);
-      current.tickers.push(...namedTickers(pack, event.tickers));
+      current.tickers.push(
+        ...namedTickers(pack, event.tickers).filter((ticker) =>
+          tickerMentionedInText(
+            ticker,
+            `${event.title} ${event.summary ?? ""}`,
+          ),
+        ),
+      );
       current.types.push(event.eventType);
       current.inBook.push(
         ...event.tickers.filter((ticker) => pack.inBookTickers.includes(ticker)),
@@ -154,6 +172,10 @@ export function compileSessionBrief(pack: EvidencePack): SessionBrief {
 
   const bookFlags = pack.moves
     .filter((move) => move.inBook)
+    .filter((move) => {
+      const position = pack.positions.find((row) => row.ticker === move.ticker);
+      return !isResidualBookLot(position);
+    })
     .slice(0, 8)
     .map((move) => {
       const position = pack.positions.find((row) => row.ticker === move.ticker);
@@ -182,13 +204,17 @@ export function compileSessionBrief(pack: EvidencePack): SessionBrief {
     inferred.length ? `${inferred.length} inferred` : null,
     unexplained.length ? `${unexplained.length} unexplained` : null,
   ].filter(Boolean);
-  const headline = lead
-    ? `${lead.title}${countBits.length ? ` · ${countBits.join(" · ")}` : significant ? ` · ${significant} significant tape names` : ""}`
+  const closedLead = sessionLead(pack);
+  const headline = closedLead
+    ? `${closedLead}${countBits.length ? ` ${countBits.join(" · ")}.` : ""}`
+    : lead
+      ? `${lead.title}${countBits.length ? ` · ${countBits.join(" · ")}` : significant ? ` · ${significant} significant tape names` : ""}`
     : significant
       ? `${significant} significant names on the tape; no clustered headline in the current window.`
       : "No material clustered headlines or significant tape names in the current evidence window.";
 
   const sessionBits = [
+    closedLead,
     unexplained.length > 0
       ? `${unexplained.length} significant name${unexplained.length === 1 ? "" : "s"} lack a verified catalyst.`
       : significant
@@ -215,9 +241,12 @@ export function compileSessionBrief(pack: EvidencePack): SessionBrief {
     unexplainedTape: unexplained.slice(0, 8).map((move) => ({
       ticker: move.ticker,
       changePercent: move.changePercent,
-      note: `${move.ticker} ${pct(move.changePercent)}${
-        move.inBook ? " · in book" : move.onCoverage ? " · coverage" : ""
-      }. ${UNKNOWN_MOVE_COPY}`,
+      note: [
+        move.inBook ? "in book" : move.onCoverage ? "coverage" : null,
+        UNKNOWN_MOVE_COPY,
+      ]
+        .filter(Boolean)
+        .join(". "),
     })),
     bookFlags,
     themes: [...themeMap.entries()].slice(0, 6).map(([id, row]) => {
@@ -264,7 +293,21 @@ export function compileMoveNarrative(
     ...(move?.sourceIds ?? []),
     ...relatedEvents.flatMap((event) => event.sourceIds),
   ]).slice(0, 6);
-  if (!move || move.attribution === "unknown") {
+  if (move?.attribution === "unknown") {
+    return {
+      ticker: symbol,
+      attribution: "unknown",
+      nature: "unknown",
+      headline: "Unknown catalyst",
+      narrative: UNKNOWN_MOVE_COPY,
+      whyItMatters:
+        "An unexplained significant move still deserves attention, especially if the name is on coverage or in the book. Do not fill the gap with a guessed story.",
+      caveats: [UNKNOWN_MOVE_COPY],
+      sourceIds,
+      relatedTickers: move.relatedTickers,
+    };
+  }
+  if (!move) {
     if (relatedEvents.length) {
       const primary = relatedEvents.filter((event) => isPrimary(pack, event.sourceIds));
       const lead = (primary[0] ?? relatedEvents[0])!;
@@ -278,16 +321,14 @@ export function compileMoveNarrative(
           .slice(0, 3)
           .map((event) => `${typeLabel(event.eventType)}: ${event.title}`)
           .join(" "),
-        whyItMatters: move
-          ? `${symbol} has ticker-matched headlines in this pack. Price/volume may still be missing or below unusual-move thresholds.`
-          : `${symbol} headlines are in the evidence pack. This is not a claim that the print is unusual.`,
+        whyItMatters: `${symbol} headlines are in the evidence pack. This is not a claim that the print is unusual.`,
         caveats: [
           primary.length
             ? "Primary-source match. Still confirm the filing item and the print timestamp."
             : "Inference from ticker-matched reporting — not a confirmed cause.",
         ],
         sourceIds,
-        relatedTickers: move?.relatedTickers ?? [],
+        relatedTickers: [],
       };
     }
     return {
@@ -300,7 +341,7 @@ export function compileMoveNarrative(
         "An unexplained significant move still deserves attention, especially if the name is on coverage or in the book. Do not fill the gap with a guessed story.",
       caveats: [UNKNOWN_MOVE_COPY],
       sourceIds,
-      relatedTickers: move?.relatedTickers ?? [],
+      relatedTickers: [],
     };
   }
 
@@ -368,6 +409,7 @@ export function compileBookRisk(pack: EvidencePack, now = Date.now()): BookRisk 
 
   for (const move of pack.moves.filter((row) => row.inBook)) {
     const position = pack.positions.find((row) => row.ticker === move.ticker);
+    if (isResidualBookLot(position)) continue;
     const concentrated = position?.weight != null && position.weight >= 25;
     const key = `${move.ticker}:${move.attribution === "unknown" ? "unexplained_move" : "catalyst"}`;
     if (seen.has(key)) continue;
@@ -424,7 +466,7 @@ export function compileBookRisk(pack: EvidencePack, now = Date.now()): BookRisk 
   }
 
   const heavy = pack.positions
-    .filter((row) => row.weight != null && row.weight >= 25)
+    .filter((row) => row.weight != null && row.weight >= 25 && !isResidualBookLot(row))
     .slice(0, 3);
   for (const row of heavy) {
     if (items.some((item) => item.ticker === row.ticker && item.kind === "concentration")) {

@@ -12,26 +12,24 @@ const EMPTY_PERIOD: PeriodMetrics = {
   percent: null,
 };
 
-function sumFinite(values: Array<number | null | undefined>): number | null {
-  let total = 0;
-  let seen = false;
-  for (const value of values) {
-    if (value == null || !Number.isFinite(value)) continue;
-    total += value;
-    seen = true;
-  }
-  return seen ? total : null;
-}
-
 function redactOpenLot(row: EnrichedPosition): EnrichedPosition {
   return {
     ...row,
+    quantity: 0,
+    entryPrice: 0,
+    last: null,
+    priorClose: null,
     notes: null,
     costBasis: 0,
     marketValue: null,
     signedMarketValue: null,
     weight: null,
     realizedPnl: null,
+    unrealizedPnl: null,
+    totalPnl: null,
+    returnPercent: null,
+    dayPnl: null,
+    dayPercent: null,
     change1d: EMPTY_PERIOD,
     change1w: EMPTY_PERIOD,
     change1m: EMPTY_PERIOD,
@@ -44,8 +42,8 @@ function redactOpenLot(row: EnrichedPosition): EnrichedPosition {
 }
 
 /**
- * Strip account value, closed lots, notes, and book-composition fields from a
- * teammate view. Open-lot day P&L and unrealized P&L stay visible.
+ * Strip account value, closed lots, size, marks, and P&L from a locked
+ * teammate view. Tickers remain so the desk can see that a book exists.
  */
 export function redactLockedOwnerSnapshot(
   snapshot: PositionsSnapshot,
@@ -54,10 +52,10 @@ export function redactLockedOwnerSnapshot(
   const openLots = originalOpen.map(redactOpenLot);
   const longCount = openLots.filter((row) => row.side === "long").length;
   const shortCount = openLots.filter((row) => row.side === "short").length;
-  const unrealizedPnl = sumFinite(originalOpen.map((row) => row.unrealizedPnl));
-  const dayPnl = sumFinite(originalOpen.map((row) => row.dayPnl));
-  const costBasis = sumFinite(originalOpen.map((row) => row.costBasis));
-  const invested = sumFinite(originalOpen.map((row) => row.marketValue));
+  const unrealizedPnl = null;
+  const dayPnl = null;
+  const costBasis = null;
+  const invested = null;
 
   return {
     ...snapshot,

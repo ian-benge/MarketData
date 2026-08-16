@@ -1,5 +1,12 @@
 import { chicagoDateKey } from "@/lib/market-data/bars-window";
-import type { PortfolioPoint, PortfolioSummary, PositionsSnapshot } from "./types";
+import { groupLotsForBlotter } from "./lot-groups";
+import type {
+  EnrichedPosition,
+  NamedContributor,
+  PortfolioPoint,
+  PortfolioSummary,
+  PositionsSnapshot,
+} from "./types";
 
 export const HIDE_VALUES_STORAGE_KEY = "ib-positions-hide-values";
 export const PNL_WINDOW_STORAGE_KEY = "ib-positions-pnl-window";
@@ -249,4 +256,79 @@ export function bookPnlWindowHint(window: BookPnlWindow): string {
     case "max":
       return "Since entry, all open and closed lots";
   }
+}
+
+function dateOnly(value: string | null | undefined): string | null {
+  if (!value) return null;
+  return value.slice(0, 10);
+}
+
+function daysBetween(from: string, to: string): number {
+  const start = Date.parse(`${from}T00:00:00.000Z`);
+  const end = Date.parse(`${to}T00:00:00.000Z`);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return Number.NaN;
+  return Math.round((end - start) / 86_400_000);
+}
+
+export function contributorPnlForWindow(
+  row: EnrichedPosition,
+  window: BookPnlWindow,
+  asOf: string,
+): number | null {
+  const chicagoAsOf = chicagoDateKey(asOf);
+  const close = dateOnly(row.closeDate ?? row.closedAt);
+  if (window === "1d") {
+    if (row.status === "open") return row.dayPnl;
+    return close === chicagoAsOf ? row.realizedPnl : null;
+  }
+  if (window === "max") return row.totalPnl;
+  if (row.status === "open") {
+    if (window === "1w") return row.change1w.pnl;
+    if (window === "1m" || window === "3m") return row.change1m.pnl;
+    return row.dayPnl;
+  }
+  if (!close) return null;
+  const age = daysBetween(close, chicagoAsOf);
+  if (!Number.isFinite(age) || age < 0) return null;
+  if (window === "1w") return age <= 7 ? row.realizedPnl : null;
+  if (window === "1m") return age <= 31 ? row.realizedPnl : null;
+  if (window === "3m") return age <= 93 ? row.realizedPnl : null;
+  if (window === "ytd") {
+    return close.slice(0, 4) === chicagoAsOf.slice(0, 4) ? row.realizedPnl : null;
+  }
+  return row.realizedPnl;
+}
+
+export function contributorsForWindow(
+  positions: EnrichedPosition[],
+  window: BookPnlWindow,
+  asOf: string,
+): { winners: NamedContributor[]; losers: NamedContributor[] } {
+  const scored = groupLotsForBlotter(positions)
+    .map(({ row }) => ({
+      row,
+      pnl: contributorPnlForWindow(row, window, asOf),
+    }))
+    .filter(
+      (item): item is { row: EnrichedPosition; pnl: number } =>
+        item.pnl != null && Number.isFinite(item.pnl) && item.pnl !== 0,
+    );
+  const toContributor = (item: { row: EnrichedPosition; pnl: number }): NamedContributor => ({
+    id: item.row.id,
+    ticker: item.row.ticker,
+    side: item.row.side,
+    pnl: item.pnl,
+    percent: item.row.returnPercent,
+  });
+  const winners = scored
+    .filter((item) => item.pnl > 0)
+    .sort((a, b) => b.pnl - a.pnl)
+    .slice(0, 3)
+    .map(toContributor);
+  const losers = scored
+    .filter((item) => item.pnl < 0)
+    .sort((a, b) => a.pnl - b.pnl)
+    .slice(0, 3)
+    .map(toContributor);
+  return { winners, losers };
 }

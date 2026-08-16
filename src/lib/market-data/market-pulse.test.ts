@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { NormalizedQuote } from "@/lib/providers/types";
 import { calculateMarketPulse, MARKET_PULSE_CONFIG, PULSE_INPUT_SYMBOLS } from "./market-pulse";
+import { PULSE_HISTORY_SYMBOLS } from "./pulse-history";
 
 const NOW = "2026-08-11T15:00:00.000Z";
 
@@ -109,8 +110,21 @@ describe("calculateMarketPulse", () => {
     expect(neutral.regime).toBe("Mixed / Rotational");
   });
 
-  it("uses the same frozen input symbols as pulse history", async () => {
-    const { PULSE_HISTORY_SYMBOLS } = await import("./pulse-history");
+  it("starts the regime explanation with a capital letter", () => {
+    const result = calculate([
+      quote("SPY", 1.5),
+      quote("QQQ", 2),
+      quote("VIXY", -5),
+      quote("TLT", 1.5),
+      quote("UUP", -1),
+      quote("HYG", 1.25),
+      quote("USO", -3),
+      quote("SMH", 2),
+    ]);
+    expect(result.explanation.charAt(0)).toMatch(/[A-Z]/);
+  });
+
+  it("uses the same frozen input symbols as pulse history", () => {
     expect([...PULSE_INPUT_SYMBOLS]).toEqual([...PULSE_HISTORY_SYMBOLS]);
   });
 

@@ -186,6 +186,19 @@ describe("coverage analytics", () => {
       }),
     ).toEqual(["rvol", "move", "peer", "extended", "leader"]);
   });
+
+  it("does not flag weekend residual volume", () => {
+    expect(
+      flagsFor({
+        change1dPercent: 25,
+        relativeVolume: 0.1,
+        vsGroup1dPercent: null,
+        preMarketChangePercent: null,
+        afterHoursChangePercent: null,
+        marketSession: "closed",
+      }),
+    ).toEqual([]);
+  });
 });
 
 describe("coverage overlay", () => {

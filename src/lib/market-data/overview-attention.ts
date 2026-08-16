@@ -31,6 +31,7 @@ const MAX_ITEMS = 5;
 
 function unusualFromWatchlist(
   rows: DashboardWatchlistRow[] | null | undefined,
+  marketSession?: string | null,
 ): DashboardWatchlistRow | null {
   const ranked = [...(rows ?? [])]
     .map((row) => ({
@@ -41,6 +42,7 @@ function unusualFromWatchlist(
         vsGroup1dPercent: null,
         preMarketChangePercent: row.preMarketChangePercent ?? null,
         afterHoursChangePercent: row.afterHoursChangePercent ?? null,
+        marketSession,
       }),
     }))
     .filter(
@@ -66,6 +68,7 @@ export function buildAttentionItems(input: {
   calendar: NormalizedCalendarEvent[];
   asOf: string;
   coverage?: DashboardCoverageDigest | null;
+  marketSession?: string | null;
 }): AttentionItem[] {
   const usedTickers = new Set<string>();
   const items: AttentionItem[] = [];
@@ -81,7 +84,9 @@ export function buildAttentionItems(input: {
     });
   }
 
-  const mover = input.movers[0];
+  const tapeLive = input.marketSession !== "closed";
+
+  const mover = tapeLive ? input.movers[0] : undefined;
   if (mover) {
     usedTickers.add(mover.ticker);
     items.push({
@@ -103,10 +108,10 @@ export function buildAttentionItems(input: {
     });
   }
 
-  const coverageHit =
-    input.coverage?.exceptions.find((row) => !usedTickers.has(row.ticker)) ??
+  const coverageHit = tapeLive
+    ? input.coverage?.exceptions.find((row) => !usedTickers.has(row.ticker)) ??
     (() => {
-      const row = unusualFromWatchlist(input.watchlist);
+      const row = unusualFromWatchlist(input.watchlist, input.marketSession);
       return row && !usedTickers.has(row.ticker)
         ? {
             ticker: row.ticker,
@@ -116,12 +121,14 @@ export function buildAttentionItems(input: {
               vsGroup1dPercent: null,
               preMarketChangePercent: row.preMarketChangePercent ?? null,
               afterHoursChangePercent: row.afterHoursChangePercent ?? null,
+              marketSession: input.marketSession,
             }),
             change1dPercent: row.change1dPercent,
             relativeVolume: row.relativeVolume,
           }
         : null;
-    })();
+    })()
+    : null;
   if (coverageHit) {
     usedTickers.add(coverageHit.ticker);
     const rvol =
@@ -198,9 +205,11 @@ export function buildAttentionItems(input: {
     usedTickers.add(spdr.cell.key);
   }
 
-  const rvol = [...(input.watchlist ?? [])]
-    .filter((row) => row.relativeVolume != null && !usedTickers.has(row.ticker))
-    .sort((a, b) => (b.relativeVolume ?? 0) - (a.relativeVolume ?? 0))[0];
+  const rvol = tapeLive
+    ? [...(input.watchlist ?? [])]
+        .filter((row) => row.relativeVolume != null && !usedTickers.has(row.ticker))
+        .sort((a, b) => (b.relativeVolume ?? 0) - (a.relativeVolume ?? 0))[0]
+    : undefined;
   if (rvol?.relativeVolume != null) {
     items.push({
       id: `rvol-${rvol.ticker}`,

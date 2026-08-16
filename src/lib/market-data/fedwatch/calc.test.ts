@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   calculateMeetings,
   classifyBin,
+  formatFedFundsRange,
   movesToBins,
   postMeetingRate,
   targetFromBounds,
@@ -33,6 +34,7 @@ describe("target range", () => {
   it("snaps EFFR into the published 25bp corridor", () => {
     expect(targetFromEffr(3.63)).toEqual(targetFromBounds(3.5, 3.75));
     expect(targetFromEffr(3.63).label).toBe("350-375");
+    expect(formatFedFundsRange(targetFromEffr(3.63).label)).toBe("350-375 bps");
   });
 });
 

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { StatusIndicator } from "@/components/ui/StatusIndicator";
 
 import { REPORT_EDITIONS, editionLabel, type ReportEdition } from "@/lib/reports/editions";
+import { onDemandBriefsAllowed } from "@/lib/scheduling/chicago-schedule";
 
 export function OnDemandReportButton({
   autoOpen = false,
@@ -15,6 +16,7 @@ export function OnDemandReportButton({
   autoOpen?: boolean;
   demoMode: boolean;
 }) {
+  const sessionOpen = demoMode || onDemandBriefsAllowed(new Date());
   const [open, setOpen] = useState(autoOpen);
   const [edition, setEdition] = useState<ReportEdition>("midday");
   const [pending, setPending] = useState(false);
@@ -115,6 +117,12 @@ export function OnDemandReportButton({
           setError(null);
           setOpen(true);
         }}
+        disabled={!sessionOpen}
+        title={
+          sessionOpen
+            ? undefined
+            : "On-demand briefs are disabled when the US equity session is closed"
+        }
         aria-haspopup="dialog"
       >
         <FilePlus2 aria-hidden="true" className="size-3.5" />
@@ -152,7 +160,9 @@ export function OnDemandReportButton({
                 >
                   {demoMode
                     ? "This demo request creates a session-only fixture job. It does not enter a live archive or trigger external delivery."
-                    : "Queues a firm-wide brief using configured sources, quality gates, archive, and team delivery policy."}
+                    : sessionOpen
+                      ? "Queues a firm-wide brief using configured sources, quality gates, archive, and team delivery policy."
+                      : "US equities are closed. On-demand editions stay off until the next session so a Saturday click cannot publish a leftover Friday tape."}
                 </p>
               </div>
               <button

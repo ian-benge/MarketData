@@ -61,6 +61,7 @@ export async function GET() {
       latencyCoverageLabel: latencyCoverageLabel({
         feedCoverage: feed,
         latencyClass: latency,
+        marketSession: meta.marketSession ?? session,
       }),
       freshness: {
         asOf: meta.lastSuccessfulRefreshAt,

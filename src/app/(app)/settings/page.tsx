@@ -22,7 +22,7 @@ export default async function SettingsPage() {
         description={
           isAdmin
             ? "Personal display preferences, teammate book access, and admin-only controls to add people to this desk."
-            : "Personal display preferences for this browser, and a control to lock your blotter if a teammate previously entered your password."
+            : "Personal display preferences for this browser, and a control to lock your blotter if a teammate previously entered the desk unlock secret."
         }
       />
       <ThemePreferenceControl />

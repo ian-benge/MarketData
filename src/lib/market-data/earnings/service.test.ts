@@ -281,6 +281,44 @@ describe("assembleEarningsSnapshot fail-soft enrichment", () => {
     expect(snapshot.meta.filtering.serverRowsRemoved).toBe(0);
   });
 
+  it("does not count cached quotes as more successes than attempts", () => {
+    const snapshot = assembleEarningsSnapshot({
+      now: NOW,
+      finnhub: {
+        configured: true,
+        ok: true,
+        stale: false,
+        fetchedAt: "2026-08-11T15:00:00.000Z",
+        error: null,
+        events: [
+          source({ provider: "finnhub", canonicalSymbol: "MSFT", reportDate: "2026-08-12" }),
+          source({ provider: "finnhub", canonicalSymbol: "TINY", reportDate: "2026-08-12" }),
+        ],
+      },
+      alphaVantage: {
+        configured: false,
+        ok: false,
+        stale: false,
+        fetchedAt: null,
+        error: null,
+        events: [],
+      },
+      quotes: new Map([
+        ["MSFT", quote("MSFT")],
+        ["TINY", quote("TINY")],
+      ]),
+      quoteAttempted: 1,
+      quoteTargetSymbols: ["MSFT"],
+      impliedBySymbol: new Map(),
+      optionsAttempted: new Set(),
+    });
+    expect(snapshot.meta.enrichment.quoteAttempted).toBe(1);
+    expect(snapshot.meta.enrichment.quoteSucceeded).toBe(1);
+    expect(snapshot.meta.enrichment.quoteSucceeded).toBeLessThanOrEqual(
+      snapshot.meta.enrichment.quoteAttempted,
+    );
+  });
+
   it("serves Finnhub data when Alpha Vantage fails", () => {
     const snapshot = assembleEarningsSnapshot({
       now: NOW,

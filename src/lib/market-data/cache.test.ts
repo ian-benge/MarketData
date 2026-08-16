@@ -98,4 +98,18 @@ describe("MarketDataCache", () => {
     expect(cache.getQuote("SPY")?.observation.last).toBe(560);
     expect(cache.getQuote("MSFT")).toBeNull();
   });
+
+  it("labels a closed session as end of day, not Real-time", () => {
+    const cache = new MarketDataCache({ staleAfterSeconds: 180 });
+    cache.writeQuotes([quote("SPY", 560)], {
+      feedCoverage: "iex",
+      latencyClass: "realtime",
+      marketSession: "closed",
+      at: new Date("2026-08-15T23:46:00.000Z"),
+    });
+    const snap = cache.getDashboardSnapshot(new Date("2026-08-15T23:46:30.000Z"));
+    expect(snap?.latencyCoverageLabel).toBe("End of day — IEX");
+    expect(snap?.latencyCoverageLabel).not.toMatch(/Real-time/i);
+    expect(snap?.asOf).toBe("2026-08-10T14:30:00.000Z");
+  });
 });

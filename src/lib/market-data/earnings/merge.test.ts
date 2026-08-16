@@ -87,6 +87,30 @@ describe("mergeCalendarEvents", () => {
     expect(events[0]?.confidence).toBe("low");
   });
 
+  it("merges the same mega-cap print when dates are a few days apart", () => {
+    const { events, stats } = mergeCalendarEvents(
+      [
+        event({
+          provider: "finnhub",
+          canonicalSymbol: "AAPL",
+          reportDate: "2026-08-18",
+          fiscalPeriod: "Q3 2026",
+        }),
+      ],
+      [
+        event({
+          provider: "alphaVantage",
+          canonicalSymbol: "AAPL",
+          reportDate: "2026-08-23",
+          fiscalPeriod: "Q2 2026",
+        }),
+      ],
+    );
+    expect(events).toHaveLength(1);
+    expect(stats.matchedByBoth).toBe(1);
+    expect(events[0]?.reportDate).toBe("2026-08-18");
+  });
+
   it("does not collapse distinct quarters for the same symbol", () => {
     const { events } = mergeCalendarEvents(
       [event({ provider: "finnhub", canonicalSymbol: "AAPL", reportDate: "2026-08-12", fiscalPeriod: "Q3 2026" })],

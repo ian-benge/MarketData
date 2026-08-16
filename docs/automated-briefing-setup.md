@@ -31,7 +31,7 @@ When demo fixtures are off and a service-role client is available (`NEXT_PUBLIC_
 2. The handler calls `runOnDemandReport`, which builds `ReportPipeline` via `createConfiguredReportPipeline` (same AI mock + archive persist as the cron worker).
 3. Idempotency key is unique per click: `on_demand:{firmId}:{tradingDate}:{edition}:{nanoid}` — it does not collide with cron keys (`{tradingDate}:{edition}:{scheduleVersion}:{firmId}`).
 4. `collectAfter` / `publishAfter` / `scheduledAt` are set to now so the publish gate does not hold.
-5. The archive stage uploads the PDF to Storage bucket `STORAGE_BUCKET` (default `reports`) and upserts `reports` (including `canonical_json`), `report_sections`, `report_claims`, and `report_files`.
+5. The archive stage uploads the PDF to Storage bucket `STORAGE_BUCKET` (default `reports`) and upserts `reports` (including `canonical_json`), `report_sections`, `report_claims`, `source_documents` / `citations`, and `report_files`. Email is skipped unless the license permits `email_attachment` (redistributable), Resend is configured, and the firm has recipients.
 6. The JSON response is `{ id, runId, status, demo: false, … }`. `id` is the archived `reports.id` when persist succeeds, otherwise the `report_runs.id`. Failed runs return 5xx with `error` plus `id` / `status` / `demo: false`.
 7. Research Archive and `/reports/[id]` load live rows (lookup by `reports.id`, `reports.report_run_id`, or `report_runs.id`). PDF download uses the service role and `report_files.storage_path`.
 

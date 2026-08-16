@@ -592,6 +592,7 @@ export type DashboardSnapshot = {
   breadthSupported?: boolean;
   breadthExplanation?: string | null;
   moversCoverageNotes?: string | null;
+  universeCoverageLabel?: string | null;
   coverage?: DashboardCoverageDigest;
   intelligence?: Pick<
     IntelligenceBundle,

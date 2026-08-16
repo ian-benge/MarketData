@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const flags = vi.hoisted(() => ({
   fixtures: false,
   admin: false,
+  sessionOpen: true,
 }));
 
 const runOnDemand = vi.hoisted(() => ({
@@ -41,6 +42,14 @@ vi.mock("@/lib/reports/run-on-demand", () => ({
   resolveFirmId: () => "a0000000-0000-4000-8000-000000000001",
 }));
 
+vi.mock("@/lib/scheduling/chicago-schedule", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/scheduling/chicago-schedule")>();
+  return {
+    ...actual,
+    onDemandBriefsAllowed: () => flags.sessionOpen,
+  };
+});
+
 vi.mock("@/lib/reports/live-reports", () => ({
   isLiveReportsAvailable: () => flags.admin,
   listLiveReports: liveReports.list,
@@ -56,6 +65,7 @@ describe("POST /api/reports", () => {
   beforeEach(() => {
     flags.fixtures = false;
     flags.admin = false;
+    flags.sessionOpen = true;
     runOnDemand.fn.mockReset();
     liveReports.list.mockReset();
     liveReports.get.mockReset();
@@ -96,6 +106,20 @@ describe("POST /api/reports", () => {
     await expect(response.json()).resolves.toMatchObject({
       error: expect.stringContaining("not connected"),
     });
+    expect(runOnDemand.fn).not.toHaveBeenCalled();
+  });
+
+  it("refuses on-demand briefs when the US equity session is closed", async () => {
+    flags.admin = true;
+    flags.sessionOpen = false;
+    const response = await createReport(
+      new Request("http://localhost/api/reports", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ edition: "midday" }),
+      }),
+    );
+    expect(response.status).toBe(409);
     expect(runOnDemand.fn).not.toHaveBeenCalled();
   });
 

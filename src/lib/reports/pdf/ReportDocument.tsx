@@ -17,6 +17,7 @@ import {
   riskRewardBarPercents,
 } from "@/lib/reports/trade-ideas";
 import type { TapeRow } from "@/lib/reports/analytics";
+import { formatMarketDateTime } from "@/lib/utils/format";
 
 const colors = {
   navy: "#0B1F33",
@@ -297,7 +298,7 @@ export function ReportDocument({ document }: ReportDocumentProps) {
           <Text style={styles.coverTitle}>{document.title}</Text>
           <Text style={styles.coverMeta}>
             {editionLabelText} · {document.tradingDate} · Cutoff{" "}
-            {document.dataCutoff}
+            {formatMarketDateTime(document.dataCutoff)}
             {document.isDemo ? " · DEMO FIXTURES — NOT FOR TRADING" : ""}
           </Text>
         </View>

@@ -138,7 +138,7 @@ const RULES: Rule[] = [
     type: "economic",
     score: 84,
     pattern:
-      /\bcpi\b|\bppe\b|\bpce\b|payrolls|nonfarm|jobless|gdp\b|retail sales|ism\b|pmi\b|unemployment/i,
+      /\bcpi\b|\bppe\b|\bpce\b|payrolls|nonfarm|jobless|\bgdp\b|retail sales|\bism (?:manufacturing|services|index|report)\b|\bpmi\b|unemployment/i,
   },
   {
     type: "rates",
@@ -176,16 +176,27 @@ export type ClassifiedEvent = {
   sentimentNote: string | null;
 };
 
-export function classifyHeadline(
-  title: string,
-  summary = "",
-): ClassifiedEvent {
-  const text = `${title}\n${summary}`;
+function bestRule(text: string): Rule | null {
   let best: Rule | null = null;
   for (const rule of RULES) {
     if (!rule.pattern.test(text)) continue;
     if (!best || rule.score > best.score) best = rule;
   }
+  return best;
+}
+
+export function classifyHeadline(
+  title: string,
+  summary = "",
+): ClassifiedEvent {
+  const text = `${title}\n${summary}`;
+  const titleBest = bestRule(title);
+  const textBest = bestRule(text);
+  // Macro keywords in the body must not override a company/feature title
+  // that did not itself match (SpaceX recap + "ISM" in the related blurb).
+  const best =
+    titleBest ??
+    (textBest && !MACRO_TYPES.has(textBest.type) ? textBest : null);
   const eventType = best?.type ?? "other";
   const pos = POSITIVE.test(text);
   const neg = NEGATIVE.test(text);

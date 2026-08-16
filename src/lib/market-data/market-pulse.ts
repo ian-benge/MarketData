@@ -278,6 +278,11 @@ const SUPPORT_LANGUAGE: Record<MarketPulseDriverId, string> = {
   semis: "semiconductor leadership",
 };
 
+function sentenceCase(text: string): string {
+  if (!text) return text;
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 function buildExplanation(drivers: MarketPulseDriver[], definitive: boolean) {
   if (!definitive) {
     return "Available inputs do not meet the minimum cross-asset coverage required for a definitive regime.";
@@ -289,9 +294,21 @@ function buildExplanation(drivers: MarketPulseDriver[], definitive: boolean) {
   const resisting = ranked.filter((driver) => (driver.contribution ?? 0) < -0.25).slice(0, 2);
   const supportText = supporting.map((driver) => SUPPORT_LANGUAGE[driver.id]).join(" and ");
   const resistText = resisting.map((driver) => SUPPORT_LANGUAGE[driver.id]).join(" and ");
-  if (supportText && resistText) return `${supportText} support the heuristic, while ${resistText} resist it.`;
-  if (supportText) return `${supportText} are the main verified supports; other available inputs are neutral or unavailable.`;
-  if (resistText) return `${resistText} are the main verified drags; other available inputs are neutral or unavailable.`;
+  if (supportText && resistText) {
+    return sentenceCase(
+      `${supportText} support the heuristic, while ${resistText} resist it.`,
+    );
+  }
+  if (supportText) {
+    return sentenceCase(
+      `${supportText} are the main verified supports; other available inputs are neutral or unavailable.`,
+    );
+  }
+  if (resistText) {
+    return sentenceCase(
+      `${resistText} are the main verified drags; other available inputs are neutral or unavailable.`,
+    );
+  }
   return "Available verified signals are clustered near neutral, producing a mixed regime read.";
 }
 

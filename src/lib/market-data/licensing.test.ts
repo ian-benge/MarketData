@@ -4,7 +4,9 @@ import {
   assertSharedProductionAuthorized,
   assertSurfaceAllowed,
   defaultSurfacesForScope,
+  licenseAllowsEmailAttachment,
   licenseConfigFromEnv,
+  requestedSurfacesForReportRun,
 } from "@/lib/market-data/licensing";
 import { EntitlementError } from "@/lib/market-data/schemas";
 
@@ -14,6 +16,29 @@ describe("licensing", () => {
     expect(surfaces).toContain("dashboard_display");
     expect(surfaces).not.toContain("email_attachment");
     expect(surfaces).not.toContain("pdf_inclusion");
+  });
+
+  it("report-run quality surfaces stay inside the current license", () => {
+    const solo = defaultSurfacesForScope("single_user_development");
+    expect(licenseAllowsEmailAttachment("single_user_development")).toBe(false);
+    expect(
+      requestedSurfacesForReportRun({
+        skipEmail: false,
+        permittedSurfaces: solo,
+      }),
+    ).toEqual(["dashboard_display", "server_calculations", "derived_charts"]);
+    expect(
+      requestedSurfacesForReportRun({
+        skipEmail: false,
+        permittedSurfaces: defaultSurfacesForScope("internal_team"),
+      }),
+    ).not.toContain("email_attachment");
+    expect(
+      requestedSurfacesForReportRun({
+        skipEmail: false,
+        permittedSurfaces: defaultSurfacesForScope("redistributable"),
+      }),
+    ).toContain("email_attachment");
   });
 
   it("assertSurfaceAllowed rejects disallowed surfaces", () => {

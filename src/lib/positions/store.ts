@@ -341,10 +341,6 @@ export async function listStoredBooks(
   }
 }
 
-function clientForOwnerRead() {
-  return canCreateAdminClient() ? createAdminClient() : null;
-}
-
 /** Loads one owner's lots for a teammate view. Always scoped to firm_id. */
 export async function listStoredPositionsForOwner(
   user: SessionUser,
@@ -365,8 +361,7 @@ export async function listStoredPositionsForOwner(
   }
 
   try {
-    if (!canCreateAdminClient() && user.role !== "admin") return [];
-    const supabase = clientForOwnerRead() ?? (await createClient());
+    const supabase = await createClient();
     const data = await fetchAllRows(async (from, to) => {
       const { data: page, error } = await supabase
         .from("positions")
@@ -402,8 +397,7 @@ export async function listStoredBooksForOwner(
   }
 
   try {
-    if (!canCreateAdminClient() && user.role !== "admin") return [];
-    const supabase = clientForOwnerRead() ?? (await createClient());
+    const supabase = await createClient();
     const { data, error } = await supabase
       .from("position_books")
       .select(BOOK_SELECT)

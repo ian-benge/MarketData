@@ -22,6 +22,7 @@ const ALLOWED_DESTINATIONS = [
   "/positions",
   "/proposals",
   "/admin",
+  "/settings",
 ] as const;
 
 function sanitizeNextPath(value: string | null): string {

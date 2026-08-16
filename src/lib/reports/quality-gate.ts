@@ -137,9 +137,20 @@ function stripUrls(text: string): string {
 /**
  * Extract numeric literals from free text for invented-number checks.
  */
+function providerSlugIds(text: string): Set<string> {
+  const ids = new Set<string>();
+  for (const match of text.matchAll(/(?:finnhub-news-|finnhub:)(\d+)/gi)) {
+    ids.add(match[1]!);
+  }
+  return ids;
+}
+
 export function extractNumbersFromText(text: string): string[] {
+  const slugIds = providerSlugIds(text);
   const matches = stripUrls(text).match(NUMBER_IN_TEXT) ?? [];
-  return matches.map((m) => m.replace(/,/g, "").replace(/%$/, ""));
+  return matches
+    .map((m) => m.replace(/,/g, "").replace(/%$/, ""))
+    .filter((token) => !slugIds.has(token));
 }
 
 function numberSupported(
@@ -150,6 +161,7 @@ function numberSupported(
   if (evidence.has(token)) return true;
   // Allow substring match for longer precision forms present in evidence text
   if (evidenceText.includes(token)) return true;
+  if (providerSlugIds(evidenceText).has(token)) return true;
   const asNum = Number(token);
   if (!Number.isFinite(asNum)) return false;
   for (const candidate of normalizeNumberToken(asNum)) {

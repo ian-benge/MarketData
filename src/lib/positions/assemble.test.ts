@@ -64,7 +64,8 @@ describe("assemblePositionsSnapshot", () => {
     expect(snapshot.positions[0]?.last).toBe(110);
     expect(snapshot.positions[0]?.sparkline.length).toBeGreaterThan(0);
     expect(snapshot.series.at(-1)?.date).toBe("2026-08-13");
-    expect(snapshot.series.at(-1)?.cumulativePnl).toBe(100);
+    expect(snapshot.series.at(-1)?.dayPnl).toBe(20);
+    expect(snapshot.series.at(-1)?.cumulativePnl).toBe(20);
   });
 
   it("keeps empty snapshots fixture-free", () => {

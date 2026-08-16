@@ -340,6 +340,10 @@ export class AlpacaMarketDataProvider implements MarketDataProvider {
       currency: "USD",
       sourceQuality: "secondary",
       coverageNotes: s.coverageNotes,
+      officialClose:
+        "dailyClose" in s && typeof s.dailyClose === "number"
+          ? s.dailyClose
+          : null,
     };
   }
 

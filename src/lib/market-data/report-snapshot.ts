@@ -9,6 +9,7 @@ import {
   type SessionBaselines,
 } from "@/lib/market-data/session-math";
 import {
+  effectiveLatencyClass,
   latencyCoverageLabel,
   type ExtendedMarketSession,
   type FeedCoverage,
@@ -105,11 +106,29 @@ function inferFeedFromQuotes(quotes: NormalizedQuote[]): FeedCoverage {
   return "delayed_15m";
 }
 
-function inferLatency(quotes: NormalizedQuote[]): LatencyClass {
+function inferLatency(
+  quotes: NormalizedQuote[],
+  session: ExtendedMarketSession,
+): LatencyClass {
   if (quotes.some((q) => q.sourceQuality === "mock")) return "mock";
+  if (session === "closed") return "eod";
   if (quotes.every((q) => q.delayStatus === "realtime")) return "realtime";
   if (quotes.some((q) => q.delayStatus === "delayed")) return "delayed_15m";
   return "unavailable";
+}
+
+function officialCloseForQuote(
+  quote: NormalizedQuote,
+  session: ExtendedMarketSession,
+): number | null {
+  const explicit =
+    quote.officialClose != null && Number.isFinite(quote.officialClose)
+      ? quote.officialClose
+      : null;
+  if (session === "afterhours") {
+    return explicit;
+  }
+  return explicit ?? quote.priorClose ?? null;
 }
 
 function deepFreeze<T>(value: T): T {
@@ -151,11 +170,14 @@ export function freezeReportMarketSnapshot(
   const dataCutoff = input.asOf ?? frozenAt;
   const feedCoverage =
     input.feedCoverage ?? inferFeedFromQuotes(input.quotes);
-  const latencyClass = input.latencyClass ?? inferLatency(input.quotes);
   const session =
     input.marketSession ??
     mapLegacySession(input.quotes[0]?.marketSession) ??
     "closed";
+  const latencyClass = effectiveLatencyClass(
+    input.latencyClass ?? inferLatency(input.quotes, session),
+    session,
+  );
   const licenseScopeId = input.licenseScopeId ?? "unknown";
   const permittedSurfaces = input.permittedSurfaces ?? [
     "dashboard_display",
@@ -169,7 +191,7 @@ export function freezeReportMarketSnapshot(
       session: marketSession,
       last: q.last,
       priorRegularClose: q.priorClose,
-      officialClose: q.priorClose,
+      officialClose: officialCloseForQuote(q, marketSession),
     });
     baselines = withGap(baselines, q.open, q.priorClose);
     return {
@@ -243,7 +265,11 @@ export function freezeReportMarketSnapshot(
       dataCutoff,
       feedCoverage,
       latencyClass,
-      latencyCoverageLabel: latencyCoverageLabel({ feedCoverage, latencyClass }),
+      latencyCoverageLabel: latencyCoverageLabel({
+        feedCoverage,
+        latencyClass,
+        marketSession: session,
+      }),
       licenseScopeId,
       licenseScope: input.licenseScope,
       permittedSurfaces: [...permittedSurfaces],

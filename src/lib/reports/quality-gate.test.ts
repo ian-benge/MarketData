@@ -37,4 +37,10 @@ describe("extractNumbersFromText", () => {
   it("still extracts comma-grouped volumes", () => {
     expect(extractNumbersFromText("SPY volume 8,338,114")).toEqual(["8338114"]);
   });
+
+  it("does not treat a comma-grouped Finnhub id as a quantity when the slug is present", () => {
+    expect(
+      extractNumbersFromText("Source finnhub-news-8338114 cited 8,338,114 shares"),
+    ).toEqual([]);
+  });
 });

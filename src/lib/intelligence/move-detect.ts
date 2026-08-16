@@ -10,6 +10,20 @@ export type DetectedMove = QuoteContext & {
 };
 
 export function detectSignificantMove(quote: QuoteContext): DetectedMove {
+  if (quote.session === "closed") {
+    return {
+      ...quote,
+      flags: [],
+      significant: false,
+      direction:
+        quote.changePercent == null || quote.changePercent === 0
+          ? "flat"
+          : quote.changePercent > 0
+            ? "up"
+            : "down",
+      reasons: [],
+    };
+  }
   const flags = quote.flags.length
     ? quote.flags
     : flagsFor({

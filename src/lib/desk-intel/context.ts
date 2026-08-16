@@ -99,6 +99,7 @@ export async function loadDeskPack(
             dayPercent: row.dayPercent,
             weight: row.weight,
             unrealizedPnl: row.unrealizedPnl,
+            marketValue: row.marketValue,
           }));
       }
     } catch {

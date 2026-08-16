@@ -4,6 +4,7 @@ import {
   MAJOR_INDEX_ETFS,
   SECTOR_ETFS,
   buildUniverse,
+  trackedUniverseLabel,
 } from "@/lib/market-data/universe";
 
 describe("buildUniverse", () => {
@@ -43,7 +44,24 @@ describe("buildUniverse", () => {
     expect(result.notes.some((note) => /dropped 2 symbols/i.test(note))).toBe(
       true,
     );
-    expect(result.notes[0]).toContain("COV1");
+    expect(result.notes.some((note) => note.includes("COV1"))).toBe(true);
+    expect(result.notes[0]).toBe(
+      trackedUniverseLabel({
+        tracked: 4,
+        watchlistRequested: 2,
+        cap: 4,
+      }),
+    );
+  });
+
+  it("states tracked 80 of 171 when the watchlist overflows the default cap", () => {
+    const watchlist = Array.from({ length: 171 }, (_, index) => `WL${index + 1}`);
+    const result = buildUniverse({
+      maxSize: 80,
+      watchlistSymbols: watchlist,
+    });
+    expect(result.symbols).toHaveLength(80);
+    expect(result.notes[0]).toBe("Tracked 80 of 171 watchlist names (cap 80)");
   });
 
   it("includes open position symbols ahead of watchlist overflow", () => {

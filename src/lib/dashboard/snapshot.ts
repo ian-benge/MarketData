@@ -28,6 +28,7 @@ import {
   isLiveReportsAvailable,
   listLiveReports,
 } from "@/lib/reports/live-reports";
+import { resolveFirmId } from "@/lib/reports/run-on-demand";
 import {
   buildDashboardCoverageDigest,
   emptyDashboardCoverageDigest,
@@ -74,10 +75,12 @@ function compactIntelligence(
   };
 }
 
-async function latestLiveReport(): Promise<DashboardSnapshot["latestReport"]> {
+async function latestLiveReport(
+  firmId?: string | null,
+): Promise<DashboardSnapshot["latestReport"]> {
   try {
     if (!isLiveReportsAvailable()) return null;
-    const reports = await listLiveReports();
+    const reports = await listLiveReports({}, resolveFirmId(firmId));
     const first = reports[0];
     if (!first) return null;
     return {
@@ -311,7 +314,7 @@ export async function loadDashboardSnapshot(options: {
     fetchedAt: new Date().toISOString(),
     intelligence: null,
   }));
-  const latestReport = await latestLiveReport();
+  const latestReport = await latestLiveReport(options.user.firmId);
 
   return {
     asOf: cached.asOf,
@@ -330,6 +333,7 @@ export async function loadDashboardSnapshot(options: {
       cache.getMeta()?.moversCoverageNotes ??
       cached.notes?.find((note) => /mover/i.test(note)) ??
       null,
+    universeCoverageLabel: cached.universeCoverageLabel,
     latencyCoverageLabel: cached.latencyCoverageLabel,
     feedCoverage: cached.feedCoverage,
     latencyClass: cached.latencyClass,

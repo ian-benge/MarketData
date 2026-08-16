@@ -24,6 +24,7 @@ import {
 } from "@/lib/market-data/schemas";
 import {
   buildUniverse,
+  trackedUniverseLabel,
   type UniverseBuildResult,
 } from "@/lib/market-data/universe";
 import {
@@ -32,6 +33,7 @@ import {
   type UsageStore,
 } from "@/lib/market-data/usage";
 import { inferUsEquitySession } from "@/lib/market-data/us-session";
+import { persistLatestQuoteObservationsSafe } from "@/lib/market-data/persist-latest";
 import { loadOpenPositionTickers } from "@/lib/positions/store";
 import { loadFirmCoverageSymbols } from "@/lib/watchlists/firm-coverage";
 
@@ -501,6 +503,11 @@ async function executeRefresh(args: {
         providerName,
         marketSession: session,
         universeSymbols: universe.symbols,
+        universeCoverageLabel: universe.notes[0] ?? trackedUniverseLabel({
+          tracked: universe.symbols.length,
+          watchlistRequested: universe.sources.watchlist?.length ?? 0,
+          cap: universe.maxSize,
+        }),
         at: now,
       });
     } else {
@@ -511,6 +518,11 @@ async function executeRefresh(args: {
         providerName,
         marketSession: session,
         universeSymbols: universe.symbols,
+        universeCoverageLabel: universe.notes[0] ?? trackedUniverseLabel({
+          tracked: universe.symbols.length,
+          watchlistRequested: universe.sources.watchlist?.length ?? 0,
+          cap: universe.maxSize,
+        }),
         at: now,
       });
     }
@@ -569,6 +581,7 @@ async function executeRefresh(args: {
     });
 
     lastSuccessfulRefreshAt = now;
+    await persistLatestQuoteObservationsSafe(quotes, session);
 
     if (usedFallback) {
       onHealth({

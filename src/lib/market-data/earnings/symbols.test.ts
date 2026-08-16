@@ -23,6 +23,11 @@ describe("earnings symbol conversion", () => {
     expect(toAlphaVantageSymbol("BF-B")).toBe("BF.B");
   });
 
+  it("strips exchange prefixes before canonicalizing", () => {
+    expect(toCanonicalSymbol("US:AAPL")).toBe("AAPL");
+    expect(toCanonicalSymbol("NASDAQ:BRK-B")).toBe("BRK.B");
+  });
+
   it("does not invent a blank ticker when conversion input is empty", () => {
     expect(toCanonicalSymbol("   ")).toBeNull();
     expect(toYahooSymbol("AAPL")).toBe("AAPL");

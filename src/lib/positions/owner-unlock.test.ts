@@ -5,7 +5,9 @@ import {
   grantOwnerUnlock,
   ownerViewRequiresUnlock,
   readOwnerUnlock,
+  resolveOwnerUnlockSigningSecret,
   signOwnerUnlock,
+  verifyOwnerUnlockSecret,
 } from "./owner-unlock";
 
 const SECRET = "test-owner-unlock-secret";
@@ -59,6 +61,34 @@ describe("applyOwnerUnlockFlags", () => {
     );
     expect(flagged[0]).toMatchObject({ needsUnlock: false, openCount: 3 });
     expect(flagged[1]).toMatchObject({ needsUnlock: true, openCount: 8 });
+  });
+});
+
+describe("owner unlock secret", () => {
+  it("accepts the dedicated desk secret and rejects a login-shaped password", () => {
+    expect(verifyOwnerUnlockSecret("desk-unlock-secret", "desk-unlock-secret")).toBe(
+      true,
+    );
+    expect(verifyOwnerUnlockSecret("teammate-login-password", "desk-unlock-secret")).toBe(
+      false,
+    );
+    expect(verifyOwnerUnlockSecret("desk-unlock-secret", undefined)).toBe(false);
+  });
+
+  it("does not fall back to CRON_SECRET for cookie signing", () => {
+    expect(
+      resolveOwnerUnlockSigningSecret({
+        CRON_SECRET: "cron-only",
+        SUPABASE_SERVICE_ROLE_KEY: "service-role",
+        OWNER_UNLOCK_SIGNING_SECRET: undefined,
+      } as never),
+    ).toBeNull();
+    expect(
+      resolveOwnerUnlockSigningSecret({
+        OWNER_UNLOCK_SIGNING_SECRET: "unlock-hmac",
+        CRON_SECRET: "cron-only",
+      } as never),
+    ).toBe("unlock-hmac");
   });
 });
 

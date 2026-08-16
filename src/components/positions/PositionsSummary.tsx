@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Panel";
@@ -23,6 +23,7 @@ import { formatCurrency, formatSignedPercent, formatQuantity } from "@/lib/utils
 import {
   BOOK_PNL_WINDOW_LABELS,
   bookPnlForWindow,
+  contributorsForWindow,
 } from "@/lib/positions/value-privacy";
 import type { NamedContributor, PositionsSnapshot } from "@/lib/positions/types";
 
@@ -229,6 +230,11 @@ function PositionsMetricsStripInner({
   const hideValues = useHideValues();
   const { pnlWindow } = usePositionsPrivacy();
   const windowed = bookPnlForWindow(snapshot, pnlWindow);
+  const windowedContributors = contributorsForWindow(
+    snapshot.positions,
+    pnlWindow,
+    snapshot.asOf,
+  );
   const lifetimeWindow = pnlWindow === "max";
   const summary = snapshot.summary;
   const hasAccountValue = snapshot.accountValue != null;
@@ -395,10 +401,14 @@ function PositionsMetricsStripInner({
             label="Total fees"
             hint={
               lifetimeWindow
-                ? summary.fees && summary.fees > 0
-                  ? "Commissions and account fees from brokerage history"
-                  : "No brokerage fees on this book"
-                : "Lifetime commissions and account fees"
+                ? summary.fees &&
+                  summary.portfolioValue != null &&
+                  summary.fees > Math.abs(summary.portfolioValue)
+                  ? "Lifetime commissions — not a charge against current NAV"
+                  : summary.fees && summary.fees > 0
+                    ? "Commissions and account fees from brokerage history"
+                    : "No brokerage fees on this book"
+                : `Lifetime fees — not ${BOOK_PNL_WINDOW_LABELS[pnlWindow]} P&L`
             }
             className="sm:last:border-r-0"
           >
@@ -603,11 +613,13 @@ export function PositionsAttribution({
   snapshot: PositionsSnapshot;
 }) {
   const summary = snapshot.summary;
+  const { pnlWindow } = usePositionsPrivacy();
+  const windowedContributors = contributorsForWindow(
+    snapshot.positions,
+    pnlWindow,
+    snapshot.asOf,
+  );
   const [open, setOpen] = useState(true);
-
-  useEffect(() => {
-    setOpen(window.matchMedia("(min-width: 1024px)").matches);
-  }, []);
 
   return (
     <Panel
@@ -723,8 +735,14 @@ export function PositionsAttribution({
             Contributors
           </p>
           <div className="mt-3 space-y-4">
-            <ContributorList label="Winners" rows={summary.winners} />
-            <ContributorList label="Losers" rows={summary.losers} />
+            <ContributorList
+              label={`Winners (${BOOK_PNL_WINDOW_LABELS[pnlWindow]})`}
+              rows={windowedContributors.winners}
+            />
+            <ContributorList
+              label={`Losers (${BOOK_PNL_WINDOW_LABELS[pnlWindow]})`}
+              rows={windowedContributors.losers}
+            />
           </div>
           {summary.byStrategy.length ? (
             <ul className="mt-3 space-y-1 border-t border-[var(--ib-border-subtle)] pt-2">

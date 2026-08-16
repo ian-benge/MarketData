@@ -10,7 +10,8 @@ import { requirePermission } from "@/lib/auth/authorize";
 import { listFixtureReports } from "@/lib/fixtures/reports";
 import { ReportEditionSchema } from "@/lib/reports/editions";
 import { isLiveReportsAvailable, listLiveReports } from "@/lib/reports/live-reports";
-import { runOnDemandReport } from "@/lib/reports/run-on-demand";
+import { resolveFirmId, runOnDemandReport } from "@/lib/reports/run-on-demand";
+import { onDemandBriefsAllowed } from "@/lib/scheduling/chicago-schedule";
 import { canCreateAdminClient } from "@/lib/supabase/admin";
 
 const PostSchema = z.object({
@@ -20,7 +21,7 @@ const PostSchema = z.object({
 
 export async function GET(request: Request) {
   try {
-    await requirePermission("viewReports");
+    const user = await requirePermission("viewReports");
     const url = new URL(request.url);
     const filters = {
       q: url.searchParams.get("q") ?? undefined,
@@ -32,7 +33,9 @@ export async function GET(request: Request) {
       return jsonOk({ reports: listFixtureReports(filters) });
     }
     if (isLiveReportsAvailable()) {
-      return jsonOk({ reports: await listLiveReports(filters) });
+      return jsonOk({
+        reports: await listLiveReports(filters, resolveFirmId(user.firmId)),
+      });
     }
     return jsonOk({ reports: [] });
   } catch (error) {
@@ -63,6 +66,13 @@ export async function POST(request: Request) {
       return jsonError(
         "Report generation is not connected in this environment.",
         503,
+      );
+    }
+
+    if (!onDemandBriefsAllowed(new Date())) {
+      return jsonError(
+        "On-demand briefs are disabled when the US equity session is closed (weekend or holiday). Use the next session’s scheduled editions.",
+        409,
       );
     }
 

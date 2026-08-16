@@ -66,6 +66,8 @@ export const NormalizedQuoteSchema = ProviderMetadataSchema.extend({
   high: z.number().nullable().optional(),
   low: z.number().nullable().optional(),
   priorClose: z.number().nullable().optional(),
+  /** Today's official regular-session close when known (after-hours baseline). */
+  officialClose: z.number().nullable().optional(),
   volume: z.number().nullable().optional(),
   changeAbsolute: z.number().nullable().optional(),
   changePercent: z.number().nullable().optional(),

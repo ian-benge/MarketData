@@ -253,7 +253,7 @@ export function enrichPosition(
 
   const change1d = periodFromPrices(
     mark,
-    priorClose ?? startPriceForLookback(position, closes, 1, entry),
+    priorClose,
     position.quantity,
     position.multiplier,
     position.side,
@@ -697,20 +697,6 @@ function lotRealizedNet(position: PositionRecord): number | null {
   return gross - positionFees(position);
 }
 
-function lotUnrealized(
-  position: PositionRecord,
-  last: number | null | undefined,
-): number | null {
-  if (position.status !== "open") return null;
-  return signedPricePnl(
-    last,
-    position.entryPrice,
-    position.quantity,
-    position.multiplier,
-    position.side,
-  );
-}
-
 export function buildPortfolioSeries(
   positions: PositionRecord[],
   _closesByTicker: Map<string, DailyClose[]> = new Map(),
@@ -794,7 +780,13 @@ export function buildPortfolioSeries(
       for (const position of positions) {
         if (position.status !== "open") continue;
         const quote = quotes.get(position.ticker.toUpperCase());
-        const pnl = lotUnrealized(position, quote?.last);
+        const pnl = signedPricePnl(
+          quote?.last,
+          quote?.priorClose,
+          position.quantity,
+          position.multiplier,
+          position.side,
+        );
         if (pnl == null) continue;
         dayPnl = (dayPnl ?? 0) + pnl;
         if (!leader || Math.abs(pnl) > Math.abs(leader.pnl)) {

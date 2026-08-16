@@ -91,9 +91,13 @@ export function PriceValue({
 }) {
   const hide = useHideValues();
   if (hide) return <HiddenValue className={className} />;
+  const missing = value == null || !Number.isFinite(value);
   return (
-    <span className={cn("font-mono tabular-nums", className)}>
-      {formatPrice(value, ticker)}
+    <span
+      className={cn("font-mono tabular-nums", className)}
+      title={missing ? "No mark" : undefined}
+    >
+      {missing ? "No mark" : formatPrice(value, ticker)}
     </span>
   );
 }

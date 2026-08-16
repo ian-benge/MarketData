@@ -34,7 +34,11 @@ import {
   type EarningsSourceHealth,
 } from "@/lib/market-data/earnings/types";
 import { addCalendarDays } from "@/lib/market-data/earnings/window";
-import { CHICAGO_TZ, chicagoDateString } from "@/lib/scheduling/chicago-schedule";
+import {
+  CHICAGO_TZ,
+  chicagoDateString,
+  earningsDefaultWeekStart,
+} from "@/lib/scheduling/chicago-schedule";
 import { cn } from "@/lib/utils/cn";
 import {
   formatCompactCurrency,
@@ -263,7 +267,9 @@ export function EarningsCalendar({
 }) {
   const [data, setData] = useState<EarningsCalendarSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
-  const [weekStart, setWeekStart] = useState(() => mondayWeekStart(new Date()));
+  const [weekStart, setWeekStart] = useState(() =>
+    earningsDefaultWeekStart(new Date()),
+  );
   const [selectedDay, setSelectedDay] = useState(() => chicagoDateString(new Date()));
   const [sessionFilter, setSessionFilter] = useState<SessionFilter>("all");
   const [query, setQuery] = useState("");

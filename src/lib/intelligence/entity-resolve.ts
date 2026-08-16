@@ -41,6 +41,16 @@ const STOP_TICKERS = new Set([
   "USA",
   "UK",
   "EU",
+  "THIS",
+  "THAT",
+  "WHAT",
+  "WHY",
+  "HOW",
+  "WHEN",
+  "WHERE",
+  "WHO",
+  "WHICH",
+  "IT",
 ]);
 
 const EXTRA_ALIASES: Record<string, string> = {

@@ -15,6 +15,36 @@ export type LicenseConfig = {
   licenseScopeId: string;
 };
 
+/** Email attachments require redistributable. Do not widen scope without owner auth. */
+export function licenseAllowsEmailAttachment(scope: LicenseScope): boolean {
+  return defaultSurfacesForScope(scope).includes("email_attachment");
+}
+
+/**
+ * Quality-gate surfaces for a report run: only those this job will use
+ * *and* the current license permits. Archive still writes for the operator
+ * desk; this must not request `email_attachment` or `pdf_inclusion` under
+ * `single_user_development`.
+ */
+export function requestedSurfacesForReportRun(input: {
+  skipEmail: boolean;
+  permittedSurfaces: readonly ProductSurface[];
+}): ProductSurface[] {
+  const candidates: ProductSurface[] = [
+    "dashboard_display",
+    "server_calculations",
+    "derived_charts",
+    "archived_normalized",
+    "in_app_reports",
+    "pdf_inclusion",
+    "ai_analysis_input",
+  ];
+  if (!input.skipEmail) candidates.push("email_attachment");
+  return candidates.filter((surface) =>
+    input.permittedSurfaces.includes(surface),
+  );
+}
+
 /**
  * Default product surfaces permitted for a license scope.
  * single_user_development is intentionally narrow — shared multi-user

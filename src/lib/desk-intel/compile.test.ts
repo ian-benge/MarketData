@@ -13,6 +13,17 @@ import {
 describe("desk-intel rules compilation", () => {
   const pack = sampleEvidencePack();
 
+  it("leads a closed Saturday brief with session state, not Friday headlines", () => {
+    const brief = compileSessionBrief({
+      ...pack,
+      session: "closed",
+      asOf: "2026-08-14T20:00:00.000Z",
+    });
+    expect(brief.headline).toMatch(/US equities are closed/i);
+    expect(brief.headline).toContain("2026-08-14");
+    expect(brief.sessionRead).toMatch(/US equities are closed/i);
+  });
+
   it("keeps unexplained tape unknown and flags the IREN book name", () => {
     const brief = compileSessionBrief(pack);
     expect(brief.unexplainedTape.map((row) => row.ticker)).toContain("XYZ");
@@ -60,6 +71,37 @@ describe("desk-intel rules compilation", () => {
     expect(move.narrative).not.toBe(UNKNOWN_MOVE_COPY);
   });
 
+  it("keeps unknown tape unknown even when ticker-matched headlines exist", () => {
+    const move = compileMoveNarrative(
+      {
+        ...pack,
+        moves: pack.moves.map((row) =>
+          row.ticker === "XYZ"
+            ? { ...row, attribution: "unknown", significant: false }
+            : row,
+        ),
+        events: [
+          ...pack.events,
+          {
+            id: "evt-xyz-wire",
+            title: "XYZ mentioned in a sector wrap",
+            eventType: "analyst",
+            publishedAt: "2026-08-15T16:00:00.000Z",
+            materialityScore: 40,
+            novelty: "new",
+            tickers: ["XYZ"],
+            themes: [],
+            sourceIds: ["src-xyz"],
+            coverageHit: false,
+          },
+        ],
+      },
+      "XYZ",
+    );
+    expect(move.attribution).toBe("unknown");
+    expect(move.narrative).toBe(UNKNOWN_MOVE_COPY);
+  });
+
   it("does not invent a catalyst for XYZ", () => {
     const move = compileMoveNarrative(pack, "XYZ");
     expect(move.attribution).toBe("unknown");
@@ -71,6 +113,45 @@ describe("desk-intel rules compilation", () => {
     expect(move.attribution).toBe("confirmed_company");
     expect(move.nature).toBe("fact");
     expect(move.sourceIds).toContain("src-iren-8k");
+  });
+
+  it("omits residual leftover lots from book risk", () => {
+    const risk = compileBookRisk({
+      ...pack,
+      inBookTickers: [...pack.inBookTickers, "SURG"],
+      allowedTickers: [...pack.allowedTickers, "SURG"],
+      moves: [
+        ...pack.moves,
+        {
+          ticker: "SURG",
+          significant: true,
+          changePercent: 5.83,
+          relativeVolume: 1.1,
+          attribution: "unknown",
+          confidence: "unknown",
+          evidenceNature: "inference",
+          headline: "Unknown catalyst",
+          detail: UNKNOWN_MOVE_COPY,
+          sourceIds: [],
+          relatedTickers: [],
+          inBook: true,
+          onCoverage: false,
+        },
+      ],
+      positions: [
+        ...pack.positions,
+        {
+          ticker: "SURG",
+          side: "long",
+          dayPnl: 0.01,
+          dayPercent: 5.83,
+          weight: 100,
+          unrealizedPnl: 0.02,
+          marketValue: 0.3,
+        },
+      ],
+    });
+    expect(risk.items.some((row) => row.ticker === "SURG")).toBe(false);
   });
 
   it("scores unexplained book names as high severity", () => {

@@ -92,6 +92,37 @@ export function chicagoDateString(date: Date): string {
   return formatInTimeZone(date, CHICAGO_TZ, "yyyy-MM-dd");
 }
 
+function addChicagoDays(yyyyMmDd: string, days: number): string {
+  const noon = fromZonedTime(`${yyyyMmDd}T12:00:00`, CHICAGO_TZ);
+  noon.setUTCDate(noon.getUTCDate() + days);
+  return formatInTimeZone(noon, CHICAGO_TZ, "yyyy-MM-dd");
+}
+
+/** Next US equity session date in America/Chicago (today if already a session). */
+export function nextUsEquitySessionDate(
+  now: Date,
+  overrides?: CalendarOverrides,
+): string {
+  const today = chicagoDateString(now);
+  for (let offset = 0; offset <= 10; offset += 1) {
+    const key = addChicagoDays(today, offset);
+    const noon = fromZonedTime(`${key}T12:00:00`, CHICAGO_TZ);
+    if (isUsEquityTradingDay(noon, overrides)) return key;
+  }
+  return today;
+}
+
+/** Monday of the week that contains the next US equity session. */
+export function earningsDefaultWeekStart(
+  now: Date,
+  overrides?: CalendarOverrides,
+): string {
+  const session = nextUsEquitySessionDate(now, overrides);
+  const noon = fromZonedTime(`${session}T12:00:00`, CHICAGO_TZ);
+  const weekday = Number(formatInTimeZone(noon, CHICAGO_TZ, "i"));
+  return addChicagoDays(session, 1 - weekday);
+}
+
 function chicagoIsoWeekday(date: Date): number {
   return Number(formatInTimeZone(date, CHICAGO_TZ, "i"));
 }
@@ -107,6 +138,14 @@ export function isUsEquityTradingDay(
   if (NYSE_HOLIDAYS_2024_2027.has(key)) return false;
   if (overrides?.extraHolidays?.includes(key)) return false;
   return true;
+}
+
+/** On-demand briefs follow the Chicago session calendar, not weekend leftovers. */
+export function onDemandBriefsAllowed(
+  now: Date,
+  overrides?: CalendarOverrides,
+): boolean {
+  return isUsEquityTradingDay(now, overrides);
 }
 
 /** Regular session plus a pre/post buffer (America/New_York). Used for live brokerage polls. */

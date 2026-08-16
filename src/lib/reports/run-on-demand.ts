@@ -3,6 +3,8 @@ import { AiOrchestration } from "@/lib/ai/orchestration";
 import { fixturesEnabled } from "@/lib/api/http";
 import { loadFirmRecipients } from "@/lib/email/recipients";
 import { getEnv, type Env } from "@/lib/env";
+import { licenseAllowsEmailAttachment } from "@/lib/market-data/licensing";
+import type { LicenseScope } from "@/lib/market-data/schemas";
 import { createProviders } from "@/lib/providers/registry";
 import { persistArchivedReport } from "@/lib/reports/archive-store";
 import { DEFAULT_FIRM_UUID, type ReportEdition } from "@/lib/reports/editions";
@@ -15,8 +17,21 @@ import { canCreateAdminClient, createAdminClient } from "@/lib/supabase/admin";
 export type { FirmRecipient } from "@/lib/email/recipients";
 export { loadFirmRecipients } from "@/lib/email/recipients";
 
-export function resolveFirmId(): string {
-  return getEnv().FIRM_ID ?? DEFAULT_FIRM_UUID;
+export function resolveFirmId(sessionFirmId?: string | null): string {
+  return sessionFirmId ?? getEnv().FIRM_ID ?? DEFAULT_FIRM_UUID;
+}
+
+/** Email only when recipients, Resend, and the license surface all exist. */
+export function shouldSkipReportEmail(input: {
+  recipientCount: number;
+  env?: Env;
+}): boolean {
+  const env = input.env ?? getEnv();
+  if (input.recipientCount === 0) return true;
+  if (!env.RESEND_API_KEY) return true;
+  return !licenseAllowsEmailAttachment(
+    env.MARKET_DATA_LICENSE_SCOPE as LicenseScope,
+  );
 }
 
 export function createReportJobStore(): ReportJobStore {
@@ -113,8 +128,9 @@ export async function runOnDemandReport(input: {
   const tradingDate = chicagoDateString(now);
   const scheduledAt = now.toISOString();
   const recipients = await loadFirmRecipients(firmId);
-  const skipEmail =
-    recipients.length === 0 || !getEnv().RESEND_API_KEY;
+  const skipEmail = shouldSkipReportEmail({
+    recipientCount: recipients.length,
+  });
   const { pipeline, usedMockAi } = createConfiguredReportPipeline({
     store,
     skipEmail,

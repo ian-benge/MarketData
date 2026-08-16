@@ -146,6 +146,7 @@ async function loadLiveQuotes(tickers: string[]): Promise<{
       latencyCoverageLabel: latencyCoverageLabel({
         feedCoverage: batch.feedCoverage,
         latencyClass: batch.latencyClass,
+        marketSession: session,
       }),
       marketSession: session,
     };

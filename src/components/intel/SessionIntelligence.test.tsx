@@ -189,7 +189,7 @@ describe("GenerationMeta", () => {
     cleanup();
   });
 
-  it("hides operational model_unavailable as a grounding note", () => {
+  it("surfaces model_unavailable as a hard Model failed state", () => {
     render(
       <GenerationMeta
         envelope={{
@@ -207,6 +207,7 @@ describe("GenerationMeta", () => {
       />,
     );
     expect(screen.getByText("Rules compilation")).toBeTruthy();
+    expect(screen.getByText("Model failed")).toBeTruthy();
     expect(screen.queryByText(/grounding note/)).toBeNull();
   });
 

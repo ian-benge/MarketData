@@ -138,4 +138,36 @@ describe("buildAttentionItems", () => {
     ).toBe(true);
     expect(items.filter((item) => item.ticker === "AMD").length).toBe(1);
   });
+
+  it("does not promote Friday movers or weekend RVOL when the session is closed", () => {
+    const items = buildAttentionItems({
+      drivers: [driver()],
+      movers: [mover("UMAC", 25.12)],
+      sectors: [{ key: "XLK", label: "Tech", changePercent: 1.2, available: true }],
+      spyChange: 0.4,
+      watchlist: [
+        {
+          ticker: "IWM",
+          name: "Russell 2000",
+          last: 220,
+          change1dPercent: 0.2,
+          changeFromOpenPercent: 0,
+          change1wPercent: 1,
+          relativeVolume: 0.1,
+          marketCap: 1,
+          volume: 1,
+          missing: [],
+        },
+      ],
+      calendar: [],
+      asOf: "2026-08-15T23:46:00.000Z",
+      coverage,
+      marketSession: "closed",
+    });
+    expect(items.some((item) => item.kind === "mover")).toBe(false);
+    expect(items.some((item) => item.kind === "rvol")).toBe(false);
+    expect(items.some((item) => item.kind === "coverage")).toBe(false);
+    expect(items.some((item) => item.ticker === "UMAC")).toBe(false);
+    expect(items.some((item) => item.ticker === "IWM")).toBe(false);
+  });
 });

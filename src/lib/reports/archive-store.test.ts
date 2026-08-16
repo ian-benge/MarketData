@@ -10,6 +10,8 @@ function createMockClient() {
     reports: [] as Row[],
     sections: [] as Row[],
     claims: [] as Row[],
+    sources: [] as Row[],
+    citations: [] as Row[],
     files: [] as Row[],
     uploads: [] as Array<{
       path: string;
@@ -20,7 +22,14 @@ function createMockClient() {
   let nextId = 1;
 
   const upload = vi.fn(
-    async (path: string, body: unknown, options?: unknown) => {
+    async (
+      path: string,
+      body: unknown,
+      options?: unknown,
+    ): Promise<{
+      data: { path: string } | null;
+      error: { message: string } | null;
+    }> => {
       state.uploads.push({ path, body, options });
       return { data: { path }, error: null };
     },
@@ -75,8 +84,31 @@ function createMockClient() {
         }
         if (op === "insert") {
           const rows = Array.isArray(payload) ? payload : [payload];
+          const inserted = rows.map((incoming) => {
+            const row = { id: `clm-${nextId++}`, ...(incoming as Row) };
+            state.claims.push(row);
+            return row;
+          });
+          return { data: inserted, error: null };
+        }
+      }
+
+      if (table === "source_documents") {
+        if (op === "select") {
+          return { data: state.sources.find(match) ?? null, error: null };
+        }
+        if (op === "insert") {
+          const row = { id: `src-${nextId++}`, ...(payload as Row) };
+          state.sources.push(row);
+          return { data: { id: row.id }, error: null };
+        }
+      }
+
+      if (table === "citations") {
+        if (op === "insert") {
+          const rows = Array.isArray(payload) ? payload : [payload];
           for (const incoming of rows) {
-            state.claims.push({ id: `clm-${nextId++}`, ...(incoming as Row) });
+            state.citations.push({ id: `cit-${nextId++}`, ...(incoming as Row) });
           }
           return { data: null, error: null };
         }
@@ -209,6 +241,27 @@ describe("persistArchivedReport", () => {
         byte_size: 4,
       }),
     ]);
+    expect(state.citations.length).toBeGreaterThan(0);
+    expect(state.citations[0]).toMatchObject({
+      claim_id: state.claims[0]?.id,
+      source_document_id: expect.any(String),
+    });
+    expect(state.sources.length).toBeGreaterThan(0);
+  });
+
+  it("fails closed when storage reports the bucket is missing", async () => {
+    const { client, upload } = createMockClient();
+    upload.mockResolvedValueOnce({
+      data: null,
+      error: { message: "Bucket not found" },
+    });
+
+    await expect(
+      persistArchivedReport(
+        { ...baseInput, pdfBytes: new Uint8Array([37, 80, 68, 70]) },
+        client,
+      ),
+    ).rejects.toThrow(/Storage upload failed: Bucket not found/);
   });
 
   it("updates an existing reports row for the same run instead of inserting a duplicate", async () => {

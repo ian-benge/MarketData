@@ -7,6 +7,7 @@
 import type { Env } from "@/lib/env";
 import { getEnv } from "@/lib/env";
 import {
+  effectiveLatencyClass,
   latencyCoverageLabel,
   type ExtendedMarketSession,
   type FeedCoverage,
@@ -48,6 +49,7 @@ export type CacheMeta = {
   lastAttemptAt: string | null;
   lastError: string | null;
   universeSymbols: string[];
+  universeCoverageLabel: string | null;
   movers: NormalizedMoverObservation[];
   moversCoverageNotes: string | null;
   breadth: {
@@ -71,6 +73,7 @@ export type DashboardCacheSnapshot = {
   movers: NormalizedMover[];
   breadth: CacheMeta["breadth"];
   universeSize: number;
+  universeCoverageLabel: string | null;
   lastSuccessfulRefreshAt: string | null;
   notes: string[];
 };
@@ -118,6 +121,11 @@ export function quoteObservationToLegacy(
     currency: obs.currency ?? "USD",
     sourceQuality: obs.sourceQuality ?? "secondary",
     coverageNotes: obs.coverageNotes,
+    officialClose:
+      "dailyClose" in obs &&
+      typeof (obs as { dailyClose?: number | null }).dailyClose === "number"
+        ? (obs as { dailyClose: number }).dailyClose
+        : null,
   };
 }
 
@@ -163,6 +171,7 @@ export class MarketDataCache {
     lastAttemptAt: null,
     lastError: null,
     universeSymbols: [],
+    universeCoverageLabel: null,
     movers: [],
     moversCoverageNotes: null,
     breadth: {
@@ -195,6 +204,7 @@ export class MarketDataCache {
       lastAttemptAt: null,
       lastError: null,
       universeSymbols: [],
+      universeCoverageLabel: null,
       movers: [],
       moversCoverageNotes: null,
       breadth: {
@@ -279,6 +289,7 @@ export class MarketDataCache {
       providerName?: string;
       marketSession?: ExtendedMarketSession;
       universeSymbols?: string[];
+      universeCoverageLabel?: string | null;
       at?: Date;
     },
   ): void {
@@ -306,9 +317,13 @@ export class MarketDataCache {
     if (opts?.universeSymbols) {
       this.meta.universeSymbols = [...opts.universeSymbols];
     }
+    if (opts?.universeCoverageLabel !== undefined) {
+      this.meta.universeCoverageLabel = opts.universeCoverageLabel;
+    }
     this.meta.latencyCoverageLabel = latencyCoverageLabel({
       feedCoverage: this.meta.feedCoverage,
       latencyClass: this.meta.latencyClass,
+      marketSession: this.meta.marketSession,
     });
     this.meta.lastSuccessfulRefreshAt = at;
     this.meta.lastAttemptAt = at;
@@ -447,7 +462,14 @@ export class MarketDataCache {
         now.getTime() - Date.parse(this.meta.lastSuccessfulRefreshAt) >
           this.staleAfterSeconds * 1000);
 
+    const lastPrintAt = entries
+      .map((entry) => Date.parse(entry.observation.providerTimestamp))
+      .filter((ms) => Number.isFinite(ms))
+      .sort((a, b) => b - a)[0];
+    const tapeAsOf =
+      lastPrintAt != null ? new Date(lastPrintAt).toISOString() : null;
     const asOf =
+      tapeAsOf ??
       this.meta.lastSuccessfulRefreshAt ??
       entries[0]?.cachedAt ??
       now.toISOString();
@@ -468,7 +490,7 @@ export class MarketDataCache {
 
     const latencyClass: LatencyClass = anyStale
       ? "stale"
-      : this.meta.latencyClass;
+      : effectiveLatencyClass(this.meta.latencyClass, this.meta.marketSession);
 
     return {
       asOf,
@@ -477,6 +499,7 @@ export class MarketDataCache {
       latencyCoverageLabel: latencyCoverageLabel({
         feedCoverage: this.meta.feedCoverage,
         latencyClass,
+        marketSession: this.meta.marketSession,
       }),
       feedCoverage: this.meta.feedCoverage,
       latencyClass,
@@ -486,6 +509,7 @@ export class MarketDataCache {
       movers: this.meta.movers.map(moverObservationToLegacy),
       breadth: { ...this.meta.breadth },
       universeSize: this.meta.universeSymbols.length,
+      universeCoverageLabel: this.meta.universeCoverageLabel,
       lastSuccessfulRefreshAt: this.meta.lastSuccessfulRefreshAt,
       notes,
     };

@@ -47,4 +47,36 @@ describe("report freeze", () => {
       (freeze.provenance as { feedCoverage: string }).feedCoverage = "sip";
     }).toThrow();
   });
+
+  it("does not label closed-session IEX prints as Real-time", () => {
+    const freeze = freezeReportMarketSnapshot({
+      quotes: [{ ...quote, marketSession: "closed" }],
+      marketSession: "closed",
+      feedCoverage: "iex",
+      latencyClass: "realtime",
+    });
+    expect(freeze.provenance.latencyClass).toBe("eod");
+    expect(freeze.provenance.latencyCoverageLabel).not.toMatch(/Real-time/i);
+    expect(freeze.provenance.latencyCoverageLabel).toBe("End of day — IEX");
+  });
+
+  it("uses today's official close for after-hours %, not prior close", () => {
+    const freeze = freezeReportMarketSnapshot({
+      quotes: [
+        {
+          ...quote,
+          last: 101,
+          priorClose: 100,
+          officialClose: 102,
+          marketSession: "afterhours",
+        },
+      ],
+      marketSession: "afterhours",
+    });
+    const baselines = freeze.observations[0]!.baselines;
+    expect(baselines.afterHoursPercent).toBeCloseTo((101 - 102) / 102 * 100);
+    expect(baselines.vsPriorRegularClosePercent).not.toBe(
+      baselines.afterHoursPercent,
+    );
+  });
 });

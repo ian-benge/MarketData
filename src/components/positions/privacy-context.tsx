@@ -4,9 +4,8 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
-  useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import {
@@ -28,30 +27,65 @@ const PositionsPrivacyContext = createContext<PositionsPrivacyValue | null>(
   null,
 );
 
+const privacyListeners = new Set<() => void>();
+
+function emitPrivacyChange() {
+  for (const listener of privacyListeners) listener();
+}
+
+function subscribePrivacy(listener: () => void) {
+  privacyListeners.add(listener);
+  if (typeof window !== "undefined") {
+    window.addEventListener("storage", listener);
+  }
+  return () => {
+    privacyListeners.delete(listener);
+    if (typeof window !== "undefined") {
+      window.removeEventListener("storage", listener);
+    }
+  };
+}
+
+function hideSnapshot() {
+  return readStoredHideValues();
+}
+
+function hideServerSnapshot() {
+  return false;
+}
+
+function windowSnapshot() {
+  return readStoredPnlWindow();
+}
+
+function windowServerSnapshot(): BookPnlWindow {
+  return "max";
+}
+
 export function PositionsPrivacyProvider({
   children,
 }: {
   children: ReactNode;
 }) {
-  const [hideValues, setHideValues] = useState(false);
-  const [pnlWindow, setPnlWindowState] = useState<BookPnlWindow>("max");
-
-  useEffect(() => {
-    setHideValues(readStoredHideValues());
-    setPnlWindowState(readStoredPnlWindow());
-  }, []);
+  const hideValues = useSyncExternalStore(
+    subscribePrivacy,
+    hideSnapshot,
+    hideServerSnapshot,
+  );
+  const pnlWindow = useSyncExternalStore(
+    subscribePrivacy,
+    windowSnapshot,
+    windowServerSnapshot,
+  );
 
   const toggleHideValues = useCallback(() => {
-    setHideValues((current) => {
-      const next = !current;
-      storeHideValues(next);
-      return next;
-    });
-  }, []);
+    storeHideValues(!hideValues);
+    emitPrivacyChange();
+  }, [hideValues]);
 
   const setPnlWindow = useCallback((next: BookPnlWindow) => {
-    setPnlWindowState(next);
     storePnlWindow(next);
+    emitPrivacyChange();
   }, []);
 
   const value = useMemo(

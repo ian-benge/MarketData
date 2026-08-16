@@ -5,10 +5,12 @@ import {
   CHICAGO_TZ,
   NEW_YORK_TZ,
   canPublish,
+  earningsDefaultWeekStart,
   getDueEditions,
   isUsEquityMonitorWindow,
   isUsEquityTradingDay,
   nextEditionLabel,
+  onDemandBriefsAllowed,
   sessionTimingFor,
 } from "@/lib/scheduling/chicago-schedule";
 import { SCHEDULE_VERSION } from "@/lib/reports/editions";
@@ -25,6 +27,17 @@ function chicagoLocal(
 }
 
 describe("chicago-schedule", () => {
+  it("defaults the earnings week to the next session week on Saturday", () => {
+    expect(earningsDefaultWeekStart(chicagoLocal("2026-08-15", 12, 0))).toBe(
+      "2026-08-17",
+    );
+  });
+
+  it("blocks on-demand briefs on Saturday", () => {
+    expect(onDemandBriefsAllowed(chicagoLocal("2026-08-15", 12, 0))).toBe(false);
+    expect(onDemandBriefsAllowed(chicagoLocal("2026-08-17", 12, 0))).toBe(true);
+  });
+
   it("rejects weekends and NYSE holidays", () => {
     expect(isUsEquityTradingDay(chicagoLocal("2026-08-08", 12, 0))).toBe(
       false,
@@ -53,6 +66,20 @@ describe("chicago-schedule", () => {
       buildIdempotencyKey("2026-08-10", "premarket", "firm-1"),
     );
     expect(due[0]?.idempotencyKey).toContain(SCHEDULE_VERSION);
+  });
+
+  it("opens midday collect/publish at 11:30 CT in both DST offsets", () => {
+    const summer = getDueEditions(chicagoLocal("2026-08-10", 11, 32), 15);
+    expect(summer.map((d) => d.edition)).toEqual(["midday"]);
+    const winter = getDueEditions(chicagoLocal("2026-01-20", 11, 32), 15);
+    expect(winter.map((d) => d.edition)).toEqual(["midday"]);
+  });
+
+  it("still sees premarket at the end of a 15-minute grace after 07:30 CT", () => {
+    const edge = getDueEditions(chicagoLocal("2026-08-10", 7, 44), 15);
+    expect(edge.map((d) => d.edition)).toEqual(["premarket"]);
+    const missed = getDueEditions(chicagoLocal("2026-08-10", 7, 46), 15);
+    expect(missed).toHaveLength(0);
   });
 
   it("does not enqueue a 15:30 close edition", () => {

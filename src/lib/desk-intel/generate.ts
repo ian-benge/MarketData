@@ -607,6 +607,7 @@ export async function generateQueryInterpret(
   options: GenerateOptions = {},
 ): Promise<QueryInterpret | null> {
   const env = options.env ?? getEnv();
+  if (looksLikeInjection(query)) return null;
   if (!shouldCallModel(env, options)) return null;
   const modeled = await runModel({
     env,

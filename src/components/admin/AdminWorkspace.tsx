@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   AdminSectionNav,
+  LIVE_ADMIN_SECTIONS,
   normalizeAdminSection,
   type AdminSectionKey,
 } from "@/components/admin/AdminSectionNav";
@@ -1461,7 +1462,10 @@ function DemoAdminWorkspace() {
 function ProductionAdminWorkspace() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const section = normalizeAdminSection(searchParams.get("tab"));
+  const section = normalizeAdminSection(
+    searchParams.get("tab"),
+    LIVE_ADMIN_SECTIONS,
+  );
 
   function setSection(next: AdminSectionKey) {
     const params = new URLSearchParams(searchParams.toString());
@@ -1473,23 +1477,18 @@ function ProductionAdminWorkspace() {
     <div className="min-w-0 space-y-4">
       <PageHeader
         eyebrow="Administration"
-        title="Data Operations"
-        description="Role-gated control plane for team access, report configuration, providers, jobs, delivery, and audit history."
-        actions={<Badge tone="warn">Repository limited</Badge>}
+        title="Instrument queue"
+        description="Live unresolved ticker identity. Team, schedule, jobs, deliveries, and audit stay in demo mode until those repositories are wired."
+        actions={<Badge tone="info">Live queue</Badge>}
       />
       <div className="grid min-w-0 gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
-        <AdminSectionNav active={section} onMobileChange={setSection} />
+        <AdminSectionNav
+          active={section}
+          onMobileChange={setSection}
+          allowed={LIVE_ADMIN_SECTIONS}
+        />
         <div className="min-w-0 space-y-4">
-          <SectionIntro section={section} />
-          {section === "instruments" ? (
-            <InstrumentQueuePanel />
-          ) : (
-            <StatePanel
-              kind="unavailable"
-              title="Live administration repository unavailable"
-              description="Team, schedule, source, job, delivery, and audit records on this screen are demo fixtures, so they are hidden outside demo mode. The instrument queue is live."
-            />
-          )}
+          <InstrumentQueuePanel />
         </div>
       </div>
     </div>

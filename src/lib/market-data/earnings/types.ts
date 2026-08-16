@@ -26,7 +26,7 @@ export const QUOTE_ENRICHMENT_BUDGET = 400;
 export const EARNINGS_LOOKBACK_DAYS = 1;
 export const EARNINGS_LOOKAHEAD_DAYS = 183;
 /** When fiscal period is missing, merge only if report dates are this close. */
-export const EARNINGS_DATE_PROXIMITY_DAYS = 2;
+export const EARNINGS_DATE_PROXIMITY_DAYS = 7;
 
 export type EarningsSession = "bmo" | "amc" | "during" | "unknown";
 

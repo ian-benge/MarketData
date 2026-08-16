@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Env } from "@/lib/env";
-import { hasLiveAiKeys, shouldUseMockAi } from "@/lib/reports/run-on-demand";
+import {
+  hasLiveAiKeys,
+  shouldSkipReportEmail,
+  shouldUseMockAi,
+} from "@/lib/reports/run-on-demand";
 
 const fixtureMode = vi.hoisted(() => ({ enabled: false }));
 
@@ -19,6 +23,41 @@ function env(overrides: Partial<Env> = {}): Env {
     ...overrides,
   } as Env;
 }
+
+describe("shouldSkipReportEmail", () => {
+  it("skips email under single_user_development even with recipients and Resend", () => {
+    expect(
+      shouldSkipReportEmail({
+        recipientCount: 2,
+        env: env({
+          RESEND_API_KEY: "re_test",
+          MARKET_DATA_LICENSE_SCOPE: "single_user_development",
+        }),
+      }),
+    ).toBe(true);
+  });
+
+  it("allows email only when redistributable, Resend, and recipients exist", () => {
+    expect(
+      shouldSkipReportEmail({
+        recipientCount: 2,
+        env: env({
+          RESEND_API_KEY: "re_test",
+          MARKET_DATA_LICENSE_SCOPE: "redistributable",
+        }),
+      }),
+    ).toBe(false);
+    expect(
+      shouldSkipReportEmail({
+        recipientCount: 0,
+        env: env({
+          RESEND_API_KEY: "re_test",
+          MARKET_DATA_LICENSE_SCOPE: "redistributable",
+        }),
+      }),
+    ).toBe(true);
+  });
+});
 
 describe("shouldUseMockAi", () => {
   it("is true when fixtures are enabled even if AI keys exist", () => {

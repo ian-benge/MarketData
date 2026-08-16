@@ -11,10 +11,11 @@
  */
 
 const SHARE_CLASS = /^([A-Z][A-Z0-9]{0,5})[.\-\/]([A-Z]{1,2})$/;
+const EXCHANGE_PREFIX = /^(US|NASDAQ|NYSE|AMEX|ARCA|BATS|OTC|PINK):/;
 
 export function toCanonicalSymbol(raw: string | null | undefined): string | null {
   if (raw == null) return null;
-  const trimmed = raw.trim().toUpperCase();
+  const trimmed = raw.trim().toUpperCase().replace(EXCHANGE_PREFIX, "");
   if (!trimmed) return null;
   const share = SHARE_CLASS.exec(trimmed);
   if (share) return `${share[1]}.${share[2]}`;

@@ -1,6 +1,5 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
-import { createClient } from "@supabase/supabase-js";
 import { getEnv } from "@/lib/env";
 import { AuthError, type SessionUser } from "@/lib/auth/session";
 import {
@@ -55,9 +54,28 @@ export function applyOwnerUnlockFlags(
   });
 }
 
+export function resolveOwnerUnlockSigningSecret(
+  env: { OWNER_UNLOCK_SIGNING_SECRET?: string | null } = getEnv(),
+): string | null {
+  return env.OWNER_UNLOCK_SIGNING_SECRET?.trim() || null;
+}
+
 function signingSecret(): string | null {
-  const env = getEnv();
-  return env.CRON_SECRET || env.SUPABASE_SERVICE_ROLE_KEY || null;
+  return resolveOwnerUnlockSigningSecret();
+}
+
+function sha256(value: string): Buffer {
+  return createHash("sha256").update(value).digest();
+}
+
+export function verifyOwnerUnlockSecret(
+  secret: string,
+  expected = getEnv().OWNER_UNLOCK_SECRET,
+): boolean {
+  const trimmed = secret.trim();
+  const configured = expected?.trim() ?? "";
+  if (!trimmed || trimmed.length > 200 || !configured) return false;
+  return timingSafeEqual(sha256(trimmed), sha256(configured));
 }
 
 function cookieOptions(maxAge: number) {
@@ -238,24 +256,4 @@ export async function bumpOwnerUnlockEpoch(
     await clearOwnerUnlockCookie();
   }
   return typeof data === "number" ? data : null;
-}
-
-export async function verifyOwnerPassword(
-  email: string,
-  password: string,
-): Promise<boolean> {
-  const env = getEnv();
-  const url = env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key) return false;
-  const trimmed = password.trim();
-  if (!trimmed || trimmed.length > 200) return false;
-  const client = createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  const { error } = await client.auth.signInWithPassword({
-    email: email.trim().toLowerCase(),
-    password: trimmed,
-  });
-  return !error;
 }

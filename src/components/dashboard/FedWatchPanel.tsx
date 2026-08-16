@@ -13,6 +13,7 @@ import type {
   FedWatchMeeting,
   FedWatchSnapshot,
 } from "@/lib/market-data/fedwatch/types";
+import { formatFedFundsRange } from "@/lib/market-data/fedwatch/calc";
 import { formatMarketDateTime } from "@/lib/utils/format";
 import { cn } from "@/lib/utils/cn";
 
@@ -36,7 +37,7 @@ function formatPpDelta(now: number | null | undefined, prior: number | null | un
 function formatIsoDate(iso: string, year: "2" | "4" = "4") {
   const [y, month, day] = iso.split("-").map(Number);
   if (!y || !month || !day) return iso;
-  return new Intl.DateTimeFormat("en-GB", {
+  return new Intl.DateTimeFormat("en-US", {
     day: "numeric",
     month: "short",
     year: year === "2" ? "2-digit" : "numeric",
@@ -205,7 +206,7 @@ function HistoryTable({ meeting }: { meeting: FedWatchMeeting }) {
           {rows.map((row) => (
             <tr key={row.label} className="border-t border-[var(--ib-border-subtle)]">
               <th className="px-2 py-1.5 font-mono text-[11px] font-medium text-[var(--ib-text-primary)]">
-                {row.label}
+                {formatFedFundsRange(row.label)}
                 {row.current ? (
                   <span className="ml-1 text-[9px] uppercase tracking-[0.06em] text-[var(--ib-text-muted)]">
                     (Current)
@@ -340,9 +341,6 @@ export function FedWatchPanel() {
         <div className="space-y-3">
           <p className="text-[13px] font-semibold text-[var(--ib-text-primary)]">
             {meeting.label}
-            <span className="ml-2 font-mono text-[11px] font-normal text-[var(--ib-text-muted)]">
-              {formatIsoDate(meeting.date)}
-            </span>
           </p>
           <dl className="grid grid-cols-3 gap-2 font-mono text-[11px]">
             {(
@@ -370,7 +368,7 @@ export function FedWatchPanel() {
           </dl>
           <ProbabilityChart
             meeting={meeting}
-            targetLabel={data.currentTarget?.label ?? null}
+            targetLabel={formatFedFundsRange(data.currentTarget?.label)}
           />
         </div>
       ) : null}
@@ -427,7 +425,7 @@ export function FedWatchPanel() {
 
           <ProbabilityChart
             meeting={meeting}
-            targetLabel={data.currentTarget?.label ?? null}
+            targetLabel={formatFedFundsRange(data.currentTarget?.label)}
           />
 
           <HistoryTable meeting={meeting} />

@@ -49,7 +49,7 @@ export function OwnerUnlockResetPanel({
           scope === "desk"
             ? payload.demo
               ? "Demo session only — this browser’s teammate unlocks were cleared."
-              : "Every teammate unlock on this desk is revoked. Passwords must be entered again."
+              : "Every teammate unlock on this desk is revoked. The desk unlock secret must be entered again."
             : payload.demo
               ? "Demo session only — this browser’s teammate unlocks were cleared."
               : "Your book is locked again. Teammates must re-enter your password to see account value and closed lots.",
@@ -70,7 +70,7 @@ export function OwnerUnlockResetPanel({
   return (
     <Panel
       title="Teammate book access"
-      description="Entering a teammate’s sign-in password unlocks their account value and closed lots for eight hours on that browser. Use this to drop those grants immediately."
+      description="Entering the desk unlock secret unlocks a teammate’s account value and closed lots for eight hours on that browser. Never share a sign-in password. Use this to drop those grants immediately."
       actions={isAdmin ? <Badge tone="brand">Admin can reset all</Badge> : undefined}
       bodyClassName="space-y-3 p-3"
     >
