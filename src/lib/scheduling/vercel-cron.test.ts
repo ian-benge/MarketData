@@ -23,12 +23,12 @@ function chicagoLocal(date: string, hour: number, minute: number): Date {
 }
 
 describe("vercel cron contract", () => {
-  it("polls tick and worker every 5 minutes and intel every 15", () => {
+  it("keeps tick and worker on Hobby-safe daily UTC schedules", () => {
     const crons = loadVercelCrons();
     const byPath = Object.fromEntries(crons.map((row) => [row.path, row.schedule]));
-    expect(byPath["/api/cron/tick"]).toBe("*/5 * * * *");
-    expect(byPath["/api/cron/worker"]).toBe("*/5 * * * *");
-    expect(byPath["/api/cron/intel"]).toBe("*/15 * * * *");
+    expect(byPath["/api/cron/tick"]).toBe("0 14 * * *");
+    expect(byPath["/api/cron/worker"]).toBe("5 14 * * *");
+    expect(byPath["/api/cron/intel"]).toBeUndefined();
     expect(byPath["/api/cron/brokerage"]).toBeUndefined();
   });
 
