@@ -1,4 +1,5 @@
 import type { MoveExplanation } from "@/lib/intelligence/types";
+import type { WatchlistQuoteSource } from "@/lib/market-data/watchlist-types";
 import type {
   MembershipConfidence,
   MembershipRole,
@@ -164,6 +165,8 @@ export type CoverageQuote = {
   themeCount: number;
   flags: CoverageFlag[];
   missing: string[];
+  quoteSource?: WatchlistQuoteSource;
+  quoteError?: string | null;
 };
 
 export type CoverageSummary = {

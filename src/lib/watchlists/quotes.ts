@@ -2,14 +2,21 @@ import { getEnv } from "@/lib/env";
 import { fixturesEnabled } from "@/lib/api/http";
 import { toCanonicalSymbol } from "@/lib/market-data/earnings/symbols";
 import {
-  fetchYahooEquityQuotes,
-  fetchYahooSparkDailyCloses,
+  fetchYahooEquityQuotesDetailed,
+  fetchYahooSparkDailyClosesDetailed,
 } from "@/lib/market-data/earnings/yahoo";
 import { getMarketDataCache } from "@/lib/market-data/cache";
-import { assembleWatchlistRows } from "@/lib/market-data/watchlist-assemble";
+import {
+  assembleWatchlistRows,
+  buildWatchlistDiagnostics,
+  lookupWatchlistMap,
+  watchlistQuotedCount,
+} from "@/lib/market-data/watchlist-assemble";
 import type {
   WatchlistEnrichment,
   WatchlistQuoteInput,
+  WatchlistQuoteSource,
+  WatchlistSymbolDiagnostic,
 } from "@/lib/market-data/watchlist-types";
 import type { NormalizedQuote } from "@/lib/providers/types";
 import {
@@ -33,7 +40,7 @@ export function resetCoverageQuoteCache() {
   sparkCache.clear();
 }
 
-type YahooQuoteHit = {
+export type YahooQuoteHit = {
   name: string | null;
   price?: number | null;
   marketCap: number | null;
@@ -165,6 +172,33 @@ function quoteInputs(quotes: NormalizedQuote[]): Map<string, WatchlistQuoteInput
   return map;
 }
 
+function printFromHit(symbol: string, hit: YahooQuoteHit | undefined): WatchlistQuoteInput | null {
+  const last = hit?.price ?? hit?.previousClose ?? null;
+  if (last == null) return null;
+  return {
+    ticker: symbol,
+    last,
+    open: hit?.open ?? null,
+    changePercent: hit?.changePercent ?? null,
+    volume: hit?.volume ?? null,
+  };
+}
+
+function printFromEnrichment(
+  symbol: string,
+  extra: WatchlistEnrichment,
+): WatchlistQuoteInput | null {
+  const last = extra.last ?? extra.lastClose ?? extra.previousClose ?? null;
+  if (last == null) return null;
+  return {
+    ticker: symbol,
+    last,
+    open: extra.open ?? null,
+    changePercent: extra.changePercent ?? null,
+    volume: extra.volume ?? null,
+  };
+}
+
 function mergeQuoteInput(
   existing: WatchlistQuoteInput | undefined,
   incoming: WatchlistQuoteInput,
@@ -180,9 +214,9 @@ function mergeQuoteInput(
 }
 
 async function defaultYahooQuotes(symbols: string[]) {
-  const quotes = await fetchYahooEquityQuotes(symbols);
+  const result = await fetchYahooEquityQuotesDetailed(symbols);
   const out = new Map<string, YahooQuoteHit>();
-  for (const [symbol, quote] of quotes) {
+  for (const [symbol, quote] of result.quotes) {
     out.set(symbol, {
       name: quote.name,
       price: quote.price,
@@ -198,7 +232,7 @@ async function defaultYahooQuotes(symbols: string[]) {
       postMarketChangePercent: quote.postMarketChangePercent ?? null,
     });
   }
-  return out;
+  return { hits: out, diagnostics: result.diagnostics };
 }
 
 async function loadYahooEnrichment(
@@ -207,12 +241,18 @@ async function loadYahooEnrichment(
 ): Promise<{
   map: Map<string, WatchlistEnrichment>;
   prints: Map<string, WatchlistQuoteInput>;
+  sources: Map<string, WatchlistQuoteSource>;
+  errors: Map<string, string>;
+  yahooStatus: Map<string, "ok" | "unknown_symbol" | "provider_error">;
   stale: boolean;
   error: string | null;
 }> {
   const now = deps.now?.getTime() ?? Date.now();
   const map = new Map<string, WatchlistEnrichment>();
   const prints = new Map<string, WatchlistQuoteInput>();
+  const sources = new Map<string, WatchlistQuoteSource>();
+  const errors = new Map<string, string>();
+  const yahooStatus = new Map<string, "ok" | "unknown_symbol" | "provider_error">();
   const missingQuotes: string[] = [];
   const missingSpark: string[] = [];
   let stale = false;
@@ -243,16 +283,36 @@ async function loadYahooEnrichment(
         stale = true;
       }
     }
+    const cachedPrint = printFromEnrichment(symbol, extra);
+    if (cachedPrint && extra.last != null) {
+      prints.set(symbol, cachedPrint);
+      if (!sources.has(symbol)) sources.set(symbol, "yahoo");
+    } else if (cachedPrint && extra.lastClose != null) {
+      prints.set(symbol, cachedPrint);
+      if (!sources.has(symbol)) sources.set(symbol, "spark");
+    }
     map.set(symbol, extra);
   }
 
   let error: string | null = null;
   try {
     if (missingQuotes.length) {
-      const quotes = await (deps.yahooQuotes ?? defaultYahooQuotes)(missingQuotes);
+      let quotes: Map<string, YahooQuoteHit>;
+      if (deps.yahooQuotes) {
+        quotes = await deps.yahooQuotes(missingQuotes);
+      } else {
+        const fetched = await defaultYahooQuotes(missingQuotes);
+        quotes = fetched.hits;
+        for (const row of fetched.diagnostics) {
+          yahooStatus.set(row.ticker, row.status);
+          if (row.error) errors.set(row.ticker, row.error);
+        }
+      }
       for (const symbol of missingQuotes) {
         const hit =
-          quotes.get(symbol) ?? quotes.get(toCanonicalSymbol(symbol) ?? symbol);
+          quotes.get(symbol) ??
+          lookupWatchlistMap(quotes, symbol) ??
+          quotes.get(toCanonicalSymbol(symbol) ?? symbol);
         const extra: WatchlistEnrichment = {
           name: hit?.name ?? null,
           marketCap: hit?.marketCap ?? null,
@@ -262,21 +322,22 @@ async function loadYahooEnrichment(
           dayHigh: hit?.dayHigh ?? null,
           dayLow: hit?.dayLow ?? null,
           previousClose: hit?.previousClose ?? null,
+          last: hit?.price ?? null,
+          open: hit?.open ?? null,
+          volume: hit?.volume ?? null,
+          changePercent: hit?.changePercent ?? null,
         };
         enrichmentCache.set(symbol, {
           expiresAt: now + QUOTE_TTL_MS,
           value: extra,
         });
-        const last = hit?.price ?? hit?.previousClose ?? null;
-        if (last != null) {
-          prints.set(symbol, {
-            ticker: symbol,
-            last,
-            open: hit?.open ?? null,
-            changePercent: hit?.changePercent ?? null,
-            volume: hit?.volume ?? null,
-          });
+        const print = printFromHit(symbol, hit);
+        if (print) {
+          prints.set(symbol, print);
+          sources.set(symbol, "yahoo");
         }
+        if (hit) yahooStatus.set(symbol, "ok");
+        else if (!yahooStatus.has(symbol)) yahooStatus.set(symbol, "unknown_symbol");
         map.set(symbol, { ...map.get(symbol), ...extra });
       }
     }
@@ -286,26 +347,43 @@ async function loadYahooEnrichment(
       caught instanceof Error
         ? caught.message.slice(0, 240)
         : "Coverage quote enrichment failed.";
+    for (const symbol of missingQuotes) {
+      if (!yahooStatus.has(symbol)) yahooStatus.set(symbol, "provider_error");
+      if (!errors.has(symbol)) errors.set(symbol, error);
+    }
   }
   try {
     if (missingSpark.length) {
-      let sparks = await (deps.yahooSpark
-        ? deps.yahooSpark(missingSpark)
-        : fetchYahooSparkDailyCloses(missingSpark, "ytd"));
-      if (!deps.yahooSpark) {
+      let sparks: Map<string, Array<{ date: string; close: number }>>;
+      if (deps.yahooSpark) {
+        sparks = await deps.yahooSpark(missingSpark);
+      } else {
+        const primary = await fetchYahooSparkDailyClosesDetailed(missingSpark, "ytd");
+        sparks = primary.closes;
         const empty = missingSpark.filter((symbol) => {
           const closes =
-            sparks.get(symbol) ?? sparks.get(toCanonicalSymbol(symbol) ?? symbol);
+            sparks.get(symbol) ??
+            lookupWatchlistMap(sparks, symbol) ??
+            sparks.get(toCanonicalSymbol(symbol) ?? symbol);
           return !closes?.length;
         });
         if (empty.length) {
-          const retry = await fetchYahooSparkDailyCloses(empty, "3mo");
-          sparks = new Map([...sparks, ...retry]);
+          const retry = await fetchYahooSparkDailyClosesDetailed(empty, "3mo");
+          sparks = new Map([...sparks, ...retry.closes]);
+          for (const row of retry.diagnostics) {
+            if (row.status === "provider_error" && row.error) errors.set(row.ticker, row.error);
+          }
+        }
+        for (const row of primary.diagnostics) {
+          if (row.status === "provider_error" && row.error && !errors.has(row.ticker)) {
+            errors.set(row.ticker, row.error);
+          }
         }
       }
       for (const symbol of missingSpark) {
         const closes =
           sparks.get(symbol) ??
+          lookupWatchlistMap(sparks, symbol) ??
           sparks.get(toCanonicalSymbol(symbol) ?? symbol) ??
           [];
         const sparkLast = closeSessionsAgo(closes, 0);
@@ -328,6 +406,7 @@ async function loadYahooEnrichment(
             changePercent: null,
             volume: null,
           });
+          sources.set(symbol, "spark");
         }
         sparkCache.set(symbol, {
           expiresAt: now + (sparkLast != null ? SPARK_TTL_MS : 45_000),
@@ -351,12 +430,13 @@ async function loadYahooEnrichment(
     prints.set(symbol, {
       ticker: symbol,
       last,
-      open: null,
-      changePercent: null,
-      volume: null,
+      open: extra.open ?? null,
+      changePercent: extra.changePercent ?? null,
+      volume: extra.volume ?? null,
     });
+    if (!sources.has(symbol)) sources.set(symbol, extra.lastClose != null ? "spark" : "yahoo");
   }
-  return { map, prints, stale, error };
+  return { map, prints, sources, errors, yahooStatus, stale, error };
 }
 
 function toCoverageQuotes(
@@ -405,6 +485,8 @@ function toCoverageQuotes(
       themeCount: 0,
       flags: [],
       missing: row.missing,
+      quoteSource: row.quoteSource,
+      quoteError: row.quoteError ?? null,
     };
   });
 }
@@ -420,18 +502,25 @@ export async function loadCoverageQuotes(
   usingFixtures: boolean;
   latencyCoverageLabel: string | null;
   marketSession: string | null;
+  diagnostics: WatchlistSymbolDiagnostic[];
+  quotedCount: number;
+  requestedCount: number;
 }> {
   const unique = [...new Set(symbols.map((symbol) => symbol.trim().toUpperCase()).filter(Boolean))];
   if (fixturesEnabled() && !deps.tape && !deps.yahooQuotes) {
     const maps = fixtureMaps(unique);
+    const rows = toCoverageQuotes(unique, maps.quotes, maps.enrichment);
     return {
-      rows: toCoverageQuotes(unique, maps.quotes, maps.enrichment),
+      rows,
       stale: false,
       error: null,
       asOf: new Date().toISOString(),
       usingFixtures: true,
       latencyCoverageLabel: "Mock data",
       marketSession: "regular",
+      diagnostics: buildWatchlistDiagnostics(rows),
+      quotedCount: watchlistQuotedCount(rows),
+      requestedCount: unique.length,
     };
   }
 
@@ -446,17 +535,39 @@ export async function loadCoverageQuotes(
     }));
   const yahoo = await loadYahooEnrichment(unique, deps);
   const tapeInputs = quoteInputs(tape as NormalizedQuote[]);
+  const sources = new Map<string, WatchlistQuoteSource>();
+  for (const ticker of tapeInputs.keys()) sources.set(ticker, "tape");
   for (const [ticker, print] of yahoo.prints) {
-    tapeInputs.set(ticker, mergeQuoteInput(tapeInputs.get(ticker), print));
+    const existing = tapeInputs.get(ticker) ?? lookupWatchlistMap(tapeInputs, ticker);
+    tapeInputs.set(ticker, mergeQuoteInput(existing, print));
+    if (!existing || existing.last == null) {
+      sources.set(ticker, yahoo.sources.get(ticker) ?? "yahoo");
+    }
   }
+  for (const [ticker, source] of yahoo.sources) {
+    if (!sources.has(ticker)) sources.set(ticker, source);
+  }
+  const rows = toCoverageQuotes(unique, tapeInputs, yahoo.map).map((row) => ({
+    ...row,
+    quoteSource: sources.get(row.ticker) ?? (row.last == null ? "none" : "tape"),
+    quoteError: yahoo.errors.get(row.ticker) ?? null,
+  }));
+  const diagnostics = buildWatchlistDiagnostics(rows, {
+    sources,
+    errors: yahoo.errors,
+    yahooStatus: yahoo.yahooStatus,
+  });
   return {
-    rows: toCoverageQuotes(unique, tapeInputs, yahoo.map),
+    rows,
     stale: yahoo.stale,
     error: yahoo.error,
     asOf: cache.getMeta().lastSuccessfulRefreshAt ?? new Date().toISOString(),
     usingFixtures: false,
     latencyCoverageLabel: cache.getMeta().latencyCoverageLabel ?? null,
     marketSession: cache.getDashboardSnapshot()?.marketSession ?? null,
+    diagnostics,
+    quotedCount: watchlistQuotedCount(rows),
+    requestedCount: unique.length,
   };
 }
 

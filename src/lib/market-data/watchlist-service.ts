@@ -1,15 +1,11 @@
 import { isDemoAuthEnabled } from "@/lib/auth/demo";
-import { toCanonicalSymbol } from "@/lib/market-data/earnings/symbols";
-import {
-  fetchYahooEquityQuotes,
-  fetchYahooSparkDailyCloses,
-} from "@/lib/market-data/earnings/yahoo";
 import type { Env } from "@/lib/env";
 import { fixtureWatchlists } from "@/lib/fixtures/watchlists";
 import type { NormalizedQuote } from "@/lib/providers/types";
 import {
   assembleWatchlistRows,
-  weekAgoClose,
+  buildWatchlistDiagnostics,
+  watchlistQuotedCount,
 } from "@/lib/market-data/watchlist-assemble";
 import type {
   DashboardWatchlistList,
@@ -17,17 +13,12 @@ import type {
   WatchlistEnrichment,
   WatchlistQuoteInput,
 } from "@/lib/market-data/watchlist-types";
+import {
+  loadCoverageQuotes,
+  resetCoverageQuoteCache,
+  type YahooQuoteHit,
+} from "@/lib/watchlists/quotes";
 
-const YAHOO_QUOTE_TTL_MS = 15 * 60 * 1000;
-const YAHOO_WEEK_TTL_MS = 60 * 60 * 1000;
-
-type CacheEntry<T> = {
-  expiresAt: number;
-  value: T;
-};
-
-const quoteCache = new Map<string, CacheEntry<WatchlistEnrichment>>();
-const weekCache = new Map<string, CacheEntry<number | null>>();
 const inflight = new Map<string, Promise<DashboardWatchlistSnapshot>>();
 
 export type WatchlistListSource = {
@@ -42,14 +33,16 @@ export type WatchlistDeps = {
   now?: Date;
   useFixtures?: boolean;
   lists?: WatchlistListSource[];
-  yahooQuotes?: (symbols: string[]) => Promise<Map<string, { name: string | null; marketCap: number | null; avgVolume: number | null }>>;
+  yahooQuotes?: (symbols: string[]) => Promise<Map<string, YahooQuoteHit>>;
+  yahooSpark?: (
+    symbols: string[],
+  ) => Promise<Map<string, Array<{ date: string; close: number }>>>;
   yahooWeekCloses?: (symbols: string[]) => Promise<Map<string, number | null>>;
 };
 
 export function resetWatchlistCache() {
-  quoteCache.clear();
-  weekCache.clear();
   inflight.clear();
+  resetCoverageQuoteCache();
 }
 
 function sourceLists(deps: WatchlistDeps = {}): WatchlistListSource[] {
@@ -97,23 +90,11 @@ function emptySnapshot(
     stale: false,
     usingFixtures: false,
     error,
+    quotedCount: 0,
+    requestedCount: list?.symbols.length ?? 0,
+    diagnostics: [],
     ...extra,
   };
-}
-
-function quoteInputs(quotes: NormalizedQuote[]): Map<string, WatchlistQuoteInput> {
-  const map = new Map<string, WatchlistQuoteInput>();
-  for (const quote of quotes) {
-    const ticker = toCanonicalSymbol(quote.ticker) ?? quote.ticker.toUpperCase();
-    map.set(ticker, {
-      ticker,
-      last: quote.last,
-      open: quote.open ?? null,
-      changePercent: quote.changePercent ?? null,
-      volume: quote.volume ?? null,
-    });
-  }
-  return map;
 }
 
 const FIXTURE_QUOTES: WatchlistQuoteInput[] = [
@@ -179,113 +160,40 @@ export function fixtureWatchlistSnapshot(listId?: string | null, deps: Watchlist
   }
   const quotes = new Map(FIXTURE_QUOTES.map((row) => [row.ticker, row]));
   const enrichment = new Map(FIXTURE_ENRICHMENT);
+  const rows = assembleWatchlistRows(list.symbols, quotes, enrichment);
   return {
     listId: list.id,
     listName: list.name,
     symbols: list.symbols,
-    rows: assembleWatchlistRows(list.symbols, quotes, enrichment),
+    rows,
     lists: lists(deps),
     asOf: new Date().toISOString(),
     stale: false,
     usingFixtures: true,
     error: null,
+    quotedCount: watchlistQuotedCount(rows),
+    requestedCount: list.symbols.length,
+    diagnostics: buildWatchlistDiagnostics(rows),
   };
 }
 
-async function loadYahooEnrichment(
-  symbols: string[],
-  deps: WatchlistDeps,
-): Promise<{ map: Map<string, WatchlistEnrichment>; stale: boolean; error: string | null }> {
-  const now = deps.now?.getTime() ?? Date.now();
-  const map = new Map<string, WatchlistEnrichment>();
-  const missingQuotes: string[] = [];
-  const missingWeeks: string[] = [];
-  let stale = false;
-
-  for (const symbol of symbols) {
-    const quoteHit = quoteCache.get(symbol);
-    const weekHit = weekCache.get(symbol);
-    const extra: WatchlistEnrichment = {};
-    if (quoteHit && quoteHit.expiresAt > now) {
-      Object.assign(extra, quoteHit.value);
-    } else {
-      missingQuotes.push(symbol);
-      if (quoteHit) {
-        Object.assign(extra, quoteHit.value);
-        stale = true;
-      }
+function sparkFromWeekCloses(
+  weekCloses: Map<string, number | null>,
+): Map<string, Array<{ date: string; close: number }>> {
+  const out = new Map<string, Array<{ date: string; close: number }>>();
+  for (const [symbol, close] of weekCloses) {
+    if (close == null || !Number.isFinite(close)) {
+      out.set(symbol, []);
+      continue;
     }
-    if (weekHit && weekHit.expiresAt > now) {
-      extra.weekAgoClose = weekHit.value;
-    } else {
-      missingWeeks.push(symbol);
-      if (weekHit) {
-        extra.weekAgoClose = weekHit.value;
-        stale = true;
-      }
-    }
-    map.set(symbol, extra);
-  }
-
-  try {
-    if (missingQuotes.length) {
-      const quotes = await (deps.yahooQuotes ?? defaultYahooQuotes)(missingQuotes);
-      for (const symbol of missingQuotes) {
-        const hit =
-          quotes.get(symbol) ??
-          quotes.get(toCanonicalSymbol(symbol) ?? symbol);
-        const extra: WatchlistEnrichment = {
-          name: hit?.name ?? null,
-          marketCap: hit?.marketCap ?? null,
-          avgVolume: hit?.avgVolume ?? null,
-        };
-        quoteCache.set(symbol, { expiresAt: now + YAHOO_QUOTE_TTL_MS, value: extra });
-        map.set(symbol, { ...map.get(symbol), ...extra });
-      }
-    }
-    if (missingWeeks.length) {
-      const weeks = await (deps.yahooWeekCloses ?? defaultYahooWeeks)(missingWeeks);
-      for (const symbol of missingWeeks) {
-        const close =
-          weeks.get(symbol) ??
-          weeks.get(toCanonicalSymbol(symbol) ?? symbol) ??
-          null;
-        weekCache.set(symbol, { expiresAt: now + YAHOO_WEEK_TTL_MS, value: close });
-        map.set(symbol, { ...map.get(symbol), weekAgoClose: close });
-      }
-    }
-    return { map, stale, error: null };
-  } catch (error) {
-    return {
-      map,
-      stale: stale || [...map.values()].some((row) => row.marketCap != null || row.weekAgoClose != null),
-      error: error instanceof Error ? error.message.slice(0, 240) : "Yahoo watchlist enrichment failed.",
-    };
-  }
-}
-
-async function defaultYahooQuotes(symbols: string[]) {
-  const quotes = await fetchYahooEquityQuotes(symbols);
-  const out = new Map<string, { name: string | null; marketCap: number | null; avgVolume: number | null }>();
-  for (const [symbol, quote] of quotes) {
-    out.set(symbol, {
-      name: quote.name,
-      marketCap: quote.marketCap,
-      avgVolume: quote.avgVolume,
-    });
-  }
-  return out;
-}
-
-async function defaultYahooWeeks(symbols: string[]) {
-  const sparks = await fetchYahooSparkDailyCloses(symbols, "1mo");
-  const out = new Map<string, number | null>();
-  for (const symbol of symbols) {
-    const closes =
-      sparks.get(symbol) ??
-      sparks.get(toCanonicalSymbol(symbol) ?? symbol) ??
-      [];
-    out.set(symbol, weekAgoClose(closes));
+    out.set(symbol, [
+      { date: "2026-01-02", close },
+      { date: "2026-01-05", close },
+      { date: "2026-01-06", close },
+      { date: "2026-01-07", close },
+      { date: "2026-01-08", close },
+      { date: "2026-01-09", close },
+    ]);
   }
   return out;
 }
@@ -316,17 +224,52 @@ export async function getWatchlistSnapshot(
   if (pending) return pending;
 
   const load = (async (): Promise<DashboardWatchlistSnapshot> => {
-    const yahoo = await loadYahooEnrichment(list.symbols, deps);
+    const quoted = await loadCoverageQuotes(list.symbols, {
+      now: deps.now,
+      tape: quotes,
+      yahooQuotes: deps.yahooQuotes,
+      yahooSpark:
+        deps.yahooSpark ??
+        (deps.yahooWeekCloses
+          ? async (symbols) => sparkFromWeekCloses(await deps.yahooWeekCloses!(symbols))
+          : undefined),
+    });
+    const rows = quoted.rows.map((row) => ({
+      ticker: row.ticker,
+      name: row.name,
+      last: row.last,
+      change1dPercent: row.change1dPercent,
+      changeFromOpenPercent: row.changeFromOpenPercent,
+      change1wPercent: row.change1wPercent,
+      change1mPercent: row.change1mPercent,
+      changeYtdPercent: row.changeYtdPercent,
+      preMarketChangePercent: row.preMarketChangePercent,
+      afterHoursChangePercent: row.afterHoursChangePercent,
+      relativeVolume: row.relativeVolume,
+      marketCap: row.marketCap,
+      volume: row.volume,
+      avgVolume: row.avgVolume,
+      dayHigh: row.dayHigh,
+      dayLow: row.dayLow,
+      priorClose: row.priorClose,
+      volatility: row.volatility,
+      missing: row.missing,
+      quoteSource: row.quoteSource,
+      quoteError: row.quoteError ?? null,
+    }));
     return {
       listId: list.id,
       listName: list.name,
       symbols: list.symbols,
-      rows: assembleWatchlistRows(list.symbols, quoteInputs(quotes), yahoo.map),
+      rows,
       lists: lists({ ...deps, lists: deps.lists ?? [] }),
-      asOf: new Date().toISOString(),
-      stale: yahoo.stale,
+      asOf: quoted.asOf,
+      stale: quoted.stale,
       usingFixtures: false,
-      error: yahoo.error,
+      error: quoted.error,
+      quotedCount: quoted.quotedCount,
+      requestedCount: quoted.requestedCount,
+      diagnostics: quoted.diagnostics,
     };
   })().finally(() => {
     inflight.delete(key);

@@ -43,6 +43,19 @@ describe("yahoo earnings parsers", () => {
     ]);
   });
 
+  it("keeps share-class tickers from a mixed batch", () => {
+    const quotes = parseYahooQuoteBatch({
+      quoteResponse: {
+        result: [
+          { symbol: "BRK-B", regularMarketPrice: 502.24, regularMarketChangePercent: -0.36 },
+          { symbol: "AAPL", regularMarketPrice: 227.3 },
+        ],
+      },
+    });
+    expect(quotes.map((row) => row.symbol)).toEqual(["BRK-B", "AAPL"]);
+    expect(quotes[0]?.price).toBe(502.24);
+  });
+
   it("reads ATM-ready calls and puts from an option chain", () => {
     const chain = parseYahooOptionChain({
       optionChain: {

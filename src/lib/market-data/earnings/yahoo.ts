@@ -8,6 +8,17 @@ import type {
   YahooOptionChain,
   YahooOptionContract,
 } from "@/lib/market-data/earnings/types";
+import {
+  YAHOO_CHUNK_CONCURRENCY,
+  YAHOO_QUOTE_CHUNK_SIZE,
+  YAHOO_SPARK_CHUNK_SIZE,
+  chunkList,
+  diagnoseYahooSymbols,
+  isRetryableYahooStatus,
+  mapYahooChunks,
+  type YahooChunkFailure,
+  type YahooSymbolDiagnostic,
+} from "@/lib/market-data/earnings/yahoo-batch";
 
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
@@ -75,9 +86,27 @@ function readSetCookies(response: Response): string[] {
   return single ? [single] : [];
 }
 
+export type YahooFetchDeps = {
+  request?: (url: string, cookies: string) => Promise<Response>;
+  sleep?: (ms: number) => Promise<void>;
+};
+
+export type YahooQuoteFetchResult = {
+  quotes: Map<string, YahooEquityQuote>;
+  diagnostics: YahooSymbolDiagnostic[];
+  failures: YahooChunkFailure[];
+};
+
+export type YahooSparkFetchResult = {
+  closes: Map<string, DailyClose[]>;
+  diagnostics: YahooSymbolDiagnostic[];
+  failures: YahooChunkFailure[];
+};
+
 async function yahooRequest(
   url: string,
   cookies: string,
+  maxBytes = 2_000_000,
 ): Promise<Response> {
   return fetchWithSizeLimit(url, {
     headers: {
@@ -86,8 +115,45 @@ async function yahooRequest(
       ...(cookies ? { cookie: cookies } : {}),
     },
     signal: AbortSignal.timeout(12_000),
-    maxBytes: 1_200_000,
+    maxBytes,
   });
+}
+
+function chunkErrorMessage(status: number | null, fallback: string) {
+  if (status === 429) return "Quote provider rate-limited this batch.";
+  if (status != null && status >= 500) return `Quote provider error HTTP ${status}.`;
+  if (status != null && status >= 400) return `Quote provider rejected this batch (HTTP ${status}).`;
+  return fallback;
+}
+
+function indexYahooQuotes(quotes: YahooEquityQuote[]) {
+  const byYahoo = new Map<string, YahooEquityQuote>();
+  for (const quote of quotes) {
+    byYahoo.set(quote.symbol.toUpperCase(), quote);
+    const canonical = toCanonicalSymbol(quote.symbol);
+    if (canonical) byYahoo.set(canonical, quote);
+  }
+  return byYahoo;
+}
+
+function resolveRequestedQuotes(
+  requested: string[],
+  yahooByRequest: Map<string, string>,
+  byYahoo: Map<string, YahooEquityQuote>,
+) {
+  const quotes = new Map<string, YahooEquityQuote>();
+  for (const symbol of requested) {
+    const yahoo = yahooByRequest.get(symbol)!;
+    const quote =
+      byYahoo.get(toCanonicalSymbol(symbol) ?? symbol.toUpperCase()) ??
+      byYahoo.get(yahoo);
+    if (quote) {
+      quotes.set(toCanonicalSymbol(symbol) ?? symbol.toUpperCase(), quote);
+      quotes.set(yahoo, quote);
+      quotes.set(symbol.trim().toUpperCase(), quote);
+    }
+  }
+  return quotes;
 }
 
 async function createSession(): Promise<YahooSession> {
@@ -206,53 +272,84 @@ export function parseYahooOptionChain(raw: unknown): YahooOptionChain | null {
   };
 }
 
-export async function fetchYahooEquityQuotes(
+export async function fetchYahooEquityQuotesDetailed(
   symbols: string[],
-): Promise<Map<string, YahooEquityQuote>> {
+  deps: YahooFetchDeps = {},
+): Promise<YahooQuoteFetchResult> {
   const requested = [...new Set(symbols.map((item) => item.trim()).filter(Boolean))];
   const yahooByRequest = new Map<string, string>();
   for (const symbol of requested) {
     yahooByRequest.set(symbol, toYahooSymbol(symbol));
   }
   const uniqueYahoo = [...new Set(yahooByRequest.values())];
-  const byYahoo = new Map<string, YahooEquityQuote>();
-  const chunks: string[][] = [];
-  for (let index = 0; index < uniqueYahoo.length; index += 20) {
-    chunks.push(uniqueYahoo.slice(index, index + 20));
+  if (!uniqueYahoo.length) {
+    return { quotes: new Map(), diagnostics: [], failures: [] };
   }
-  await withSession(async (active) => {
-    let cursor = 0;
-    async function worker() {
-      while (cursor < chunks.length) {
-        const index = cursor;
-        cursor += 1;
-        const chunk = chunks[index]!;
+  const request = deps.request ?? yahooRequest;
+  const byYahoo = new Map<string, YahooEquityQuote>();
+  const { values, failures } = await withSession(async (active) =>
+    mapYahooChunks({
+      chunks: chunkList(uniqueYahoo, YAHOO_QUOTE_CHUNK_SIZE),
+      concurrency: YAHOO_CHUNK_CONCURRENCY,
+      sleep: deps.sleep,
+      load: async (chunk) => {
         const url = new URL("https://query1.finance.yahoo.com/v7/finance/quote");
         url.searchParams.set("symbols", chunk.join(","));
         url.searchParams.set("crumb", active.crumb);
-        const response = await yahooRequest(url.toString(), active.cookies);
-        if (!response.ok) continue;
-        for (const quote of parseYahooQuoteBatch(await response.json())) {
-          byYahoo.set(quote.symbol.toUpperCase(), quote);
-          const canonical = toCanonicalSymbol(quote.symbol);
-          if (canonical) byYahoo.set(canonical, quote);
+        try {
+          const response = await request(url.toString(), active.cookies);
+          if (isRetryableYahooStatus(response.status)) {
+            return {
+              ok: false,
+              status: response.status,
+              message: chunkErrorMessage(response.status, "Quote batch failed."),
+              retryable: true,
+            };
+          }
+          if (!response.ok) {
+            return {
+              ok: false,
+              status: response.status,
+              message: chunkErrorMessage(response.status, "Quote batch failed."),
+              retryable: false,
+            };
+          }
+          return { ok: true, value: parseYahooQuoteBatch(await response.json()) };
+        } catch (caught) {
+          const message =
+            caught instanceof Error ? caught.message : "Yahoo quote chunk failed.";
+          return {
+            ok: false,
+            status: null,
+            message: message.slice(0, 240),
+            retryable: true,
+            split: /exceeds size limit/i.test(message) && chunk.length > 1,
+          };
         }
-      }
-    }
-    await Promise.all(Array.from({ length: Math.min(4, chunks.length) || 0 }, () => worker()));
-  });
-  const quotes = new Map<string, YahooEquityQuote>();
-  for (const symbol of requested) {
-    const yahoo = yahooByRequest.get(symbol)!;
-    const quote =
-      byYahoo.get(toCanonicalSymbol(symbol) ?? symbol.toUpperCase()) ??
-      byYahoo.get(yahoo);
-    if (quote) {
-      quotes.set(toCanonicalSymbol(symbol) ?? symbol.toUpperCase(), quote);
-      quotes.set(yahoo, quote);
-    }
+      },
+    }),
+  );
+  for (const rows of values) {
+    for (const [key, quote] of indexYahooQuotes(rows)) byYahoo.set(key, quote);
   }
-  return quotes;
+  const quotes = resolveRequestedQuotes(requested, yahooByRequest, byYahoo);
+  return {
+    quotes,
+    failures,
+    diagnostics: diagnoseYahooSymbols({
+      requested,
+      received: quotes.keys(),
+      failures,
+      yahooSymbolFor: toYahooSymbol,
+    }),
+  };
+}
+
+export async function fetchYahooEquityQuotes(
+  symbols: string[],
+  deps: YahooFetchDeps = {},
+): Promise<Map<string, YahooEquityQuote>> {
+  return (await fetchYahooEquityQuotesDetailed(symbols, deps)).quotes;
 }
 
 export async function fetchYahooOptionChain(
@@ -331,43 +428,87 @@ export function parseYahooSparkDailyCloses(raw: unknown): Map<string, DailyClose
   return out;
 }
 
-export async function fetchYahooSparkDailyCloses(
+export async function fetchYahooSparkDailyClosesDetailed(
   symbols: string[],
   range = "1mo",
-): Promise<Map<string, DailyClose[]>> {
+  deps: YahooFetchDeps = {},
+): Promise<YahooSparkFetchResult> {
+  const requested = [...new Set(symbols.map((item) => item.trim()).filter(Boolean))];
+  const unique = [...new Set(requested.map((item) => toYahooSymbol(item)).filter(Boolean))];
+  if (!unique.length) {
+    return { closes: new Map(), diagnostics: [], failures: [] };
+  }
+  const request = deps.request ?? yahooRequest;
   const out = new Map<string, DailyClose[]>();
-  const unique = [...new Set(symbols.map((item) => toYahooSymbol(item)).filter(Boolean))];
-  if (!unique.length) return out;
-  return withSession(async (active) => {
-    const chunks: string[][] = [];
-    for (let index = 0; index < unique.length; index += 10) {
-      chunks.push(unique.slice(index, index + 10));
-    }
-    let cursor = 0;
-    async function worker() {
-      while (cursor < chunks.length) {
-        const index = cursor;
-        cursor += 1;
-        const chunk = chunks[index]!;
+  const { values, failures } = await withSession(async (active) =>
+    mapYahooChunks({
+      chunks: chunkList(unique, YAHOO_SPARK_CHUNK_SIZE),
+      concurrency: YAHOO_CHUNK_CONCURRENCY,
+      sleep: deps.sleep,
+      load: async (chunk) => {
         const url = new URL("https://query1.finance.yahoo.com/v8/finance/spark");
         url.searchParams.set("symbols", chunk.join(","));
         url.searchParams.set("interval", "1d");
         url.searchParams.set("range", range);
         url.searchParams.set("crumb", active.crumb);
-        const response = await yahooRequest(url.toString(), active.cookies);
-        if (!response.ok) continue;
-        for (const [symbol, closes] of parseYahooSparkDailyCloses(await response.json())) {
-          out.set(symbol, closes);
-          const canonical = toCanonicalSymbol(symbol);
-          if (canonical) out.set(canonical, closes);
+        try {
+          const response = await request(url.toString(), active.cookies);
+          if (isRetryableYahooStatus(response.status)) {
+            return {
+              ok: false,
+              status: response.status,
+              message: chunkErrorMessage(response.status, "History batch failed."),
+              retryable: true,
+            };
+          }
+          if (!response.ok) {
+            return {
+              ok: false,
+              status: response.status,
+              message: chunkErrorMessage(response.status, "History batch failed."),
+              retryable: false,
+            };
+          }
+          return { ok: true, value: parseYahooSparkDailyCloses(await response.json()) };
+        } catch (caught) {
+          const message =
+            caught instanceof Error ? caught.message : "Yahoo spark chunk failed.";
+          return {
+            ok: false,
+            status: null,
+            message: message.slice(0, 240),
+            retryable: true,
+            split: /exceeds size limit/i.test(message) && chunk.length > 1,
+          };
         }
-      }
+      },
+    }),
+  );
+  for (const batch of values) {
+    for (const [symbol, closes] of batch) {
+      out.set(symbol, closes);
+      const canonical = toCanonicalSymbol(symbol);
+      if (canonical) out.set(canonical, closes);
     }
-    await Promise.all(
-      Array.from({ length: Math.min(4, chunks.length) || 0 }, () => worker()),
-    );
-    return out;
-  });
+  }
+  return {
+    closes: out,
+    failures,
+    diagnostics: diagnoseYahooSymbols({
+      requested,
+      received: out.keys(),
+      failures,
+      yahooSymbolFor: toYahooSymbol,
+    }),
+  };
+}
+
+export async function fetchYahooSparkDailyCloses(
+  symbols: string[],
+  range = "1mo",
+  deps: YahooFetchDeps = {},
+): Promise<Map<string, DailyClose[]>> {
+  return (await fetchYahooSparkDailyClosesDetailed(symbols, range, deps)).closes;
 }
 
 export async function fetchYahooDailyCloses(

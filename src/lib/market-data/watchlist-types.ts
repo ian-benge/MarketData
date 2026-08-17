@@ -1,3 +1,13 @@
+export type WatchlistQuoteSource = "tape" | "yahoo" | "spark" | "none";
+
+export type WatchlistSymbolDiagnostic = {
+  ticker: string;
+  source: WatchlistQuoteSource;
+  missing: string[];
+  reason: "ok" | "partial" | "unknown_symbol" | "provider_error" | "unavailable";
+  error: string | null;
+};
+
 export type DashboardWatchlistRow = {
   ticker: string;
   name: string | null;
@@ -18,6 +28,8 @@ export type DashboardWatchlistRow = {
   priorClose?: number | null;
   volatility?: number | null;
   missing: string[];
+  quoteSource?: WatchlistQuoteSource;
+  quoteError?: string | null;
 };
 
 export type DashboardWatchlistList = {
@@ -38,6 +50,9 @@ export type DashboardWatchlistSnapshot = {
   stale: boolean;
   usingFixtures: boolean;
   error: string | null;
+  quotedCount?: number;
+  requestedCount?: number;
+  diagnostics?: WatchlistSymbolDiagnostic[];
 };
 
 export type WatchlistQuoteInput = {
@@ -62,4 +77,8 @@ export type WatchlistEnrichment = {
   previousClose?: number | null;
   volatility?: number | null;
   lastClose?: number | null;
+  last?: number | null;
+  open?: number | null;
+  volume?: number | null;
+  changePercent?: number | null;
 };

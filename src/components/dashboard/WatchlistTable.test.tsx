@@ -57,6 +57,7 @@ describe("WatchlistTable", () => {
     expect(screen.getByRole("combobox", { name: "Watchlist or sector" })).toBeTruthy();
     expect(screen.getByRole("option", { name: "Market Tape" })).toBeTruthy();
     expect(screen.getByRole("option", { name: "My desk · personal" })).toBeTruthy();
+    expect(screen.getByText(/Quoted 1 of 1/)).toBeTruthy();
   });
 
   it("lists shared sectors and themes in the picker", () => {
@@ -156,5 +157,77 @@ describe("WatchlistTable", () => {
     const why = screen.getByRole("link", { name: /Unknown/i });
     expect(why.getAttribute("href")).toContain("/news?q=");
     expect(why.getAttribute("href")).toContain("SPY");
+  });
+
+  it("keeps missing prints as dashes and surfaces coverage diagnostics", () => {
+    render(
+      <WatchlistTable
+        data={{
+          ...snapshot,
+          usingFixtures: false,
+          quotedCount: 1,
+          requestedCount: 3,
+          symbols: ["PLTR", "NBIS", "ZZZZZ"],
+          rows: [
+            snapshot.rows[0]!,
+            {
+              ticker: "NBIS",
+              name: "Nebius",
+              last: null,
+              change1dPercent: null,
+              changeFromOpenPercent: null,
+              change1wPercent: null,
+              relativeVolume: null,
+              marketCap: 68_200_000_000,
+              volume: null,
+              missing: ["last", "change1d", "changeFromOpen", "change1w", "rvol", "volume"],
+              quoteSource: "none",
+              quoteError: null,
+            },
+            {
+              ticker: "ZZZZZ",
+              name: null,
+              last: null,
+              change1dPercent: null,
+              changeFromOpenPercent: null,
+              change1wPercent: null,
+              relativeVolume: null,
+              marketCap: null,
+              volume: null,
+              missing: ["last", "change1d", "changeFromOpen", "change1w", "rvol", "marketCap", "volume"],
+              quoteSource: "none",
+              quoteError: "Quote provider returned no row for this symbol.",
+            },
+          ],
+          diagnostics: [
+            {
+              ticker: "SPY",
+              source: "tape",
+              missing: [],
+              reason: "ok",
+              error: null,
+            },
+            {
+              ticker: "NBIS",
+              source: "none",
+              missing: ["last"],
+              reason: "unavailable",
+              error: null,
+            },
+            {
+              ticker: "ZZZZZ",
+              source: "none",
+              missing: ["last"],
+              reason: "unknown_symbol",
+              error: "Quote provider returned no row for this symbol.",
+            },
+          ],
+        }}
+      />,
+    );
+    expect(screen.getByText(/Quoted 1 of 3/)).toBeTruthy();
+    expect(screen.getByText(/1 unknown symbol/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Select NBIS" })).toBeTruthy();
+    expect(screen.getAllByText("—").length).toBeGreaterThan(3);
   });
 });

@@ -66,6 +66,46 @@ describe("assembleWatchlistRows", () => {
     expect(rows[1]?.last).toBeNull();
     expect(rows[1]?.missing).toContain("last");
   });
+
+  it("resolves Yahoo hyphen share-class keys to canonical dotted tickers", () => {
+    const rows = assembleWatchlistRows(
+      ["BRK.B"],
+      new Map([
+        ["BRK-B", { ticker: "BRK-B", last: 420, open: 418, changePercent: 0.4, volume: 1_000 }],
+      ]),
+      new Map([["BRK-B", { name: "Berkshire Hathaway", marketCap: 1, avgVolume: 500 }]]),
+    );
+    expect(rows[0]?.ticker).toBe("BRK.B");
+    expect(rows[0]?.last).toBe(420);
+    expect(rows[0]?.marketCap).toBe(1);
+    expect(rows[0]?.relativeVolume).toBe(2);
+  });
+
+  it("uses Yahoo session last from enrichment when the tape omits the symbol", () => {
+    const [row] = assembleWatchlistRows(
+      ["NBIS"],
+      new Map(),
+      new Map([
+        [
+          "NBIS",
+          {
+            last: 277.32,
+            open: 255,
+            changePercent: 8.85,
+            volume: 489_496,
+            marketCap: 68_200_000_000,
+            avgVolume: 12_000_000,
+            weekAgoClose: 250,
+          },
+        ],
+      ]),
+    );
+    expect(row?.last).toBe(277.32);
+    expect(row?.change1dPercent).toBe(8.85);
+    expect(row?.changeFromOpenPercent).toBeCloseTo(8.75, 1);
+    expect(row?.volume).toBe(489_496);
+    expect(row?.marketCap).toBe(68_200_000_000);
+  });
 });
 
 describe("weekAgoClose", () => {

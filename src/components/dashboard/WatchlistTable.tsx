@@ -78,6 +78,34 @@ function listLabel(list: { name: string; visibility: "shared" | "personal" }) {
   return list.visibility === "personal" ? `${list.name} · personal` : list.name;
 }
 
+function missingTitle(row: DashboardWatchlistRow) {
+  const parts = [...row.missing];
+  if (row.quoteError) return `${row.quoteError} Missing: ${parts.join(", ") || "session print"}.`;
+  if (row.quoteSource === "none" || row.last == null) {
+    return `No session print from tape or Yahoo. Missing: ${parts.join(", ") || "last"}.`;
+  }
+  if (parts.length) return `Partial quote. Missing: ${parts.join(", ")}.`;
+  return undefined;
+}
+
+function quoteCoverageLabel(data: DashboardWatchlistSnapshot | null | undefined) {
+  const requested = data?.requestedCount ?? data?.rows.length ?? 0;
+  const quoted =
+    data?.quotedCount ??
+    data?.rows.filter((row) => row.last != null).length ??
+    0;
+  if (!requested) return null;
+  if (quoted === requested) return `Quoted ${quoted} of ${requested}.`;
+  const unknown =
+    data?.diagnostics?.filter((row) => row.reason === "unknown_symbol").length ?? 0;
+  const provider =
+    data?.diagnostics?.filter((row) => row.reason === "provider_error").length ?? 0;
+  const bits = [`Quoted ${quoted} of ${requested}`];
+  if (provider) bits.push(`${provider} provider error${provider === 1 ? "" : "s"}`);
+  if (unknown) bits.push(`${unknown} unknown symbol${unknown === 1 ? "" : "s"}`);
+  return `${bits.join(". ")}.`;
+}
+
 function percentCell(value: number | null) {
   return (
     <td className={cn("px-3 text-right font-mono", marketToneClass(value))}>
@@ -172,6 +200,8 @@ export function WatchlistTable({
     });
     return next;
   }, [descending, rows, sortKey]);
+
+  const coverage = quoteCoverageLabel(data);
 
   function toggleSort(next: SortKey) {
     if (sortKey === next) setDescending((value) => !value);
@@ -327,6 +357,7 @@ export function WatchlistTable({
         </table>
       </div>
       <p className="border-t border-[var(--ib-border-subtle)] px-3 py-2 text-[10px] leading-4 text-[var(--ib-text-muted)]">
+        {coverage ? `${coverage} ` : ""}
         1d is vs prior close. Open % is vs the session open. 1w is vs the close five
         sessions ago. RVOL is session volume / 10-day average. Missing fields stay —.
         {data?.usingFixtures ? " DEMO fixture watchlist." : ""}
@@ -360,6 +391,7 @@ function WatchlistRow({
         selected && "bg-[var(--ib-surface-selected)]",
         abnormalRvol && !selected && "bg-[color-mix(in_oklab,var(--state-warning)_6%,transparent)]",
       )}
+      title={missingTitle(row)}
       onClick={() => onSelectSymbol?.(row.ticker)}
     >
       <td className="h-9 px-3">
@@ -377,7 +409,15 @@ function WatchlistRow({
         </button>
       </td>
       <td className="px-3 text-right font-mono text-[var(--ib-text-primary)]">
-        {formatPrice(row.last, row.ticker)}
+        <span
+          title={
+            row.last == null
+              ? missingTitle(row)
+              : undefined
+          }
+        >
+          {formatPrice(row.last, row.ticker)}
+        </span>
       </td>
       {percentCell(row.change1dPercent)}
       {percentCell(row.changeFromOpenPercent)}
