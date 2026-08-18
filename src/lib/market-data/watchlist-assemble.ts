@@ -74,8 +74,12 @@ export function assembleWatchlistRows(
       change1wPercent,
       change1mPercent,
       changeYtdPercent,
-      preMarketChangePercent: roundPct(extra.preMarketChangePercent ?? null),
-      afterHoursChangePercent: roundPct(extra.afterHoursChangePercent ?? null),
+      preMarketChangePercent: roundPct(
+        extra.preMarketChangePercent ?? quote?.preMarketChangePercent ?? null,
+      ),
+      afterHoursChangePercent: roundPct(
+        extra.afterHoursChangePercent ?? quote?.afterHoursChangePercent ?? null,
+      ),
       relativeVolume,
       marketCap: extra.marketCap ?? null,
       volume,

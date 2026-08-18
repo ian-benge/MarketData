@@ -3,8 +3,10 @@ import { fetchWithSizeLimit } from "@/lib/providers/rss/ssrf";
 import { parseYahooDailyCloses } from "@/lib/market-data/earnings/history-parse";
 import type { DailyClose } from "@/lib/market-data/earnings/history-types";
 import { toCanonicalSymbol, toYahooSymbol } from "@/lib/market-data/earnings/symbols";
+import { percentChange } from "@/lib/domain/market-math";
 import type {
   YahooEquityQuote,
+  YahooIntradayBar,
   YahooOptionChain,
   YahooOptionContract,
 } from "@/lib/market-data/earnings/types";
@@ -194,6 +196,21 @@ async function withSession<T>(
   }
 }
 
+function yahooMarketState(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.toUpperCase() : null;
+}
+
+function yahooSessionLast(
+  marketState: string | null,
+  regular: number | null,
+  pre: number | null,
+  post: number | null,
+): number | null {
+  if (marketState === "PRE" || marketState === "PREPRE") return pre ?? regular;
+  if (marketState === "POST" || marketState === "POSTPOST") return post ?? regular;
+  return regular;
+}
+
 export function quoteFromYahooRow(raw: unknown): YahooEquityQuote | null {
   const parsed = QuoteRowSchema.safeParse(raw);
   if (!parsed.success) return null;
@@ -202,22 +219,49 @@ export function quoteFromYahooRow(raw: unknown): YahooEquityQuote | null {
     raw && typeof raw === "object" ? (raw as Record<string, unknown>) : row;
   const num = (value: unknown) =>
     typeof value === "number" && Number.isFinite(value) ? value : null;
+  const previousClose = num(extra.regularMarketPreviousClose);
+  const regularPrice = num(row.regularMarketPrice);
+  const preMarketPrice = num(extra.preMarketPrice);
+  const postMarketPrice = num(extra.postMarketPrice);
+  const marketState = yahooMarketState(extra.marketState);
+  const preMarketChangePercent =
+    num(extra.preMarketChangePercent) ??
+    percentChange(preMarketPrice, previousClose);
+  const postMarketChangePercent =
+    num(extra.postMarketChangePercent) ??
+    percentChange(postMarketPrice, previousClose);
+  const regularChange = num(extra.regularMarketChangePercent);
+  const preSession = marketState === "PRE" || marketState === "PREPRE";
   return {
     symbol: row.symbol.toUpperCase(),
     name: row.displayName ?? row.shortName ?? row.longName ?? null,
-    price: num(row.regularMarketPrice),
+    price: yahooSessionLast(
+      marketState,
+      regularPrice,
+      preMarketPrice,
+      postMarketPrice,
+    ),
     marketCap: num(row.marketCap),
     avgVolume:
       row.averageDailyVolume10Day ?? row.averageDailyVolume3Month ?? null,
     quoteType: row.quoteType ?? null,
-    changePercent: num(extra.regularMarketChangePercent),
+    changePercent: preSession ? (preMarketChangePercent ?? regularChange) : regularChange,
     open: num(extra.regularMarketOpen),
     volume: num(extra.regularMarketVolume),
-    previousClose: num(extra.regularMarketPreviousClose),
+    previousClose,
     dayHigh: num(extra.regularMarketDayHigh),
     dayLow: num(extra.regularMarketDayLow),
-    preMarketChangePercent: num(extra.preMarketChangePercent),
-    postMarketChangePercent: num(extra.postMarketChangePercent),
+    marketState,
+    preMarketPrice,
+    postMarketPrice,
+    preMarketChangePercent,
+    postMarketChangePercent,
+    preMarketVolume: num(extra.preMarketVolume),
+    floatShares: num(extra.floatShares),
+    sharesOutstanding: num(extra.sharesOutstanding),
+    shortPercentOfFloat: num(extra.shortPercentOfFloat),
+    fiftyTwoWeekHigh: num(extra.fiftyTwoWeekHigh),
+    firstTradeDateMs: num(extra.firstTradeDateMilliseconds),
   };
 }
 
@@ -535,6 +579,165 @@ export async function fetchYahooDailyCloses(
       throw new Error(`Yahoo daily bars failed: HTTP ${response.status}`);
     }
     return parseYahooDailyCloses(await response.json());
+  });
+}
+
+export function parseYahooChartBars(raw: unknown): YahooIntradayBar[] {
+  const record = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
+  const chart = record?.chart as { result?: unknown[] } | undefined;
+  const first = chart?.result?.[0];
+  if (!first || typeof first !== "object") return [];
+  const row = first as Record<string, unknown>;
+  const stamps = Array.isArray(row.timestamp) ? row.timestamp : [];
+  const indicators = row.indicators as
+    | {
+        quote?: Array<{
+          open?: unknown;
+          high?: unknown;
+          low?: unknown;
+          close?: unknown;
+          volume?: unknown;
+        }>;
+      }
+    | undefined;
+  const quote = indicators?.quote?.[0];
+  const opens = Array.isArray(quote?.open) ? quote.open : [];
+  const highs = Array.isArray(quote?.high) ? quote.high : [];
+  const lows = Array.isArray(quote?.low) ? quote.low : [];
+  const closes = Array.isArray(quote?.close) ? quote.close : [];
+  const volumes = Array.isArray(quote?.volume) ? quote.volume : [];
+  const out: YahooIntradayBar[] = [];
+  for (let index = 0; index < stamps.length; index += 1) {
+    const stamp = stamps[index];
+    const open = opens[index];
+    const high = highs[index];
+    const low = lows[index];
+    const close = closes[index];
+    const volume = volumes[index];
+    if (
+      typeof stamp !== "number" ||
+      typeof open !== "number" ||
+      typeof high !== "number" ||
+      typeof low !== "number" ||
+      typeof close !== "number" ||
+      !Number.isFinite(open) ||
+      !Number.isFinite(high) ||
+      !Number.isFinite(low) ||
+      !Number.isFinite(close)
+    ) {
+      continue;
+    }
+    out.push({
+      barStart: new Date(stamp * 1000).toISOString(),
+      open,
+      high,
+      low,
+      close,
+      volume:
+        typeof volume === "number" && Number.isFinite(volume) ? volume : null,
+    });
+  }
+  return out;
+}
+
+const YAHOO_INTRADAY_INTERVAL: Record<"1m" | "5m" | "15m" | "1h", string> = {
+  "1m": "1m",
+  "5m": "5m",
+  "15m": "15m",
+  "1h": "60m",
+};
+
+function yahooChartRange(start?: string): string {
+  if (!start) return "5d";
+  const days = (Date.now() - Date.parse(start)) / 86_400_000;
+  if (!Number.isFinite(days) || days <= 1.5) return "1d";
+  if (days <= 7) return "5d";
+  return "1mo";
+}
+
+export async function fetchYahooIntradayBars(
+  symbol: string,
+  interval: "1m" | "5m" | "15m" | "1h" | "1d",
+  start?: string,
+  deps: YahooFetchDeps = {},
+): Promise<YahooIntradayBar[]> {
+  if (interval === "1d") return [];
+  const ticker = toYahooSymbol(symbol);
+  if (!ticker) return [];
+  const request = deps.request ?? yahooRequest;
+  return withSession(async (active) => {
+    const url = new URL(
+      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}`,
+    );
+    url.searchParams.set("interval", YAHOO_INTRADAY_INTERVAL[interval]);
+    url.searchParams.set("range", yahooChartRange(start));
+    url.searchParams.set("includePrePost", "true");
+    url.searchParams.set("crumb", active.crumb);
+    const response = await request(url.toString(), active.cookies);
+    if (!response.ok) {
+      throw new Error(`Yahoo intraday bars failed: HTTP ${response.status}`);
+    }
+    return parseYahooChartBars(await response.json());
+  });
+}
+
+export function parseYahooScreenerSymbols(raw: unknown): string[] {
+  const json = raw as {
+    finance?: { result?: Array<{ quotes?: Array<{ symbol?: string }> }> };
+  };
+  const symbols: string[] = [];
+  const seen = new Set<string>();
+  for (const quote of json.finance?.result?.[0]?.quotes ?? []) {
+    const ticker = quote.symbol?.trim().toUpperCase();
+    if (!ticker || seen.has(ticker)) continue;
+    seen.add(ticker);
+    symbols.push(ticker);
+  }
+  return symbols;
+}
+
+type YahooScreenerQuery = {
+  size?: number;
+  sortField?: string;
+  sortType?: "ASC" | "DESC";
+  operands: Array<{ operator: string; operands: Array<string | number> }>;
+};
+
+export async function fetchYahooScreenerSymbols(
+  query: YahooScreenerQuery,
+): Promise<string[]> {
+  return withSession(async (active) => {
+    const url = new URL("https://query1.finance.yahoo.com/v1/finance/screener");
+    url.searchParams.set("crumb", active.crumb);
+    const body = JSON.stringify({
+      offset: 0,
+      size: query.size ?? 50,
+      sortField: query.sortField ?? "percentchange",
+      sortType: query.sortType ?? "DESC",
+      quoteType: "EQUITY",
+      query: {
+        operator: "AND",
+        operands: query.operands,
+      },
+    });
+    const response = await fetchWithSizeLimit(url.toString(), {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+        "user-agent": USER_AGENT,
+        origin: "https://finance.yahoo.com",
+        referer: "https://finance.yahoo.com/screener",
+        cookie: active.cookies,
+      },
+      body,
+      signal: AbortSignal.timeout(10_000),
+      maxBytes: 800_000,
+    });
+    if (!response.ok) {
+      throw new Error(`Yahoo screener failed: HTTP ${response.status}`);
+    }
+    return parseYahooScreenerSymbols(await response.json());
   });
 }
 

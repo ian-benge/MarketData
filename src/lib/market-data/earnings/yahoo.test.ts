@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  parseYahooChartBars,
   parseYahooOptionChain,
   parseYahooQuoteBatch,
   parseYahooSparkDailyCloses,
@@ -37,8 +38,17 @@ describe("yahoo earnings parsers", () => {
         previousClose: 497.6,
         dayHigh: null,
         dayLow: null,
+        marketState: null,
+        preMarketPrice: null,
+        postMarketPrice: null,
         preMarketChangePercent: null,
         postMarketChangePercent: null,
+        preMarketVolume: null,
+        floatShares: null,
+        sharesOutstanding: null,
+        shortPercentOfFloat: null,
+        fiftyTwoWeekHigh: null,
+        firstTradeDateMs: null,
       },
     ]);
   });
@@ -54,6 +64,93 @@ describe("yahoo earnings parsers", () => {
     });
     expect(quotes.map((row) => row.symbol)).toEqual(["BRK-B", "AAPL"]);
     expect(quotes[0]?.price).toBe(502.24);
+  });
+
+  it("uses preMarketPrice as last during PRE and keeps the premarket percent", () => {
+    const quotes = parseYahooQuoteBatch({
+      quoteResponse: {
+        result: [
+          {
+            symbol: "NVDA",
+            shortName: "NVIDIA",
+            marketState: "PRE",
+            regularMarketPrice: 100,
+            regularMarketPreviousClose: 100,
+            regularMarketChangePercent: 0,
+            preMarketPrice: 103.5,
+            preMarketChangePercent: 3.5,
+          },
+        ],
+      },
+    });
+    expect(quotes[0]?.price).toBe(103.5);
+    expect(quotes[0]?.changePercent).toBe(3.5);
+    expect(quotes[0]?.preMarketPrice).toBe(103.5);
+    expect(quotes[0]?.preMarketChangePercent).toBe(3.5);
+    expect(quotes[0]?.marketState).toBe("PRE");
+  });
+
+  it("captures preMarketVolume from a quote batch", () => {
+    const quotes = parseYahooQuoteBatch({
+      quoteResponse: {
+        result: [
+          {
+            symbol: "ABCD",
+            marketState: "PRE",
+            regularMarketPrice: 6.5,
+            regularMarketPreviousClose: 6.5,
+            preMarketPrice: 7.8,
+            preMarketVolume: 4_000_000,
+          },
+        ],
+      },
+    });
+    expect(quotes[0]?.preMarketVolume).toBe(4_000_000);
+  });
+
+  it("derives premarket percent from price vs prior close when Yahoo omits it", () => {
+    const quotes = parseYahooQuoteBatch({
+      quoteResponse: {
+        result: [
+          {
+            symbol: "AMD",
+            marketState: "PRE",
+            regularMarketPrice: 160,
+            regularMarketPreviousClose: 160,
+            preMarketPrice: 164,
+          },
+        ],
+      },
+    });
+    expect(quotes[0]?.preMarketChangePercent).toBeCloseTo(2.5);
+    expect(quotes[0]?.price).toBe(164);
+  });
+
+  it("reads includePrePost chart bars", () => {
+    const bars = parseYahooChartBars({
+      chart: {
+        result: [
+          {
+            timestamp: [1_786_900_800, 1_786_901_100],
+            indicators: {
+              quote: [
+                {
+                  open: [100, 101],
+                  high: [101, 102],
+                  low: [99.5, 100.5],
+                  close: [100.8, 101.4],
+                  volume: [1_200, 800],
+                },
+              ],
+            },
+          },
+        ],
+      },
+    });
+    expect(bars).toHaveLength(2);
+    expect(bars[0]?.open).toBe(100);
+    expect(bars[1]?.close).toBe(101.4);
+    expect(bars[0]?.barStart).toBe(new Date(1_786_900_800 * 1000).toISOString());
   });
 
   it("reads ATM-ready calls and puts from an option chain", () => {

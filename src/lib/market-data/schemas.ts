@@ -119,6 +119,9 @@ export const NormalizedQuoteObservationSchema = ObservationMetadataSchema.extend
     volume: finiteOrNull.optional(),
     changeAbsolute: finiteOrNull.optional(),
     changePercent: finiteOrNull.optional(),
+    preMarketChangePercent: finiteOrNull.optional(),
+    afterHoursChangePercent: finiteOrNull.optional(),
+    officialClose: finiteOrNull.optional(),
     marketSession: ExtendedMarketSessionSchema,
   },
 );

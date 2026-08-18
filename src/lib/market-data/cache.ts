@@ -6,6 +6,7 @@
 
 import type { Env } from "@/lib/env";
 import { getEnv } from "@/lib/env";
+import { withExtendedSessionPercents } from "@/lib/market-data/extended-hours";
 import {
   effectiveLatencyClass,
   latencyCoverageLabel,
@@ -111,6 +112,8 @@ export function quoteObservationToLegacy(
     volume: obs.volume ?? null,
     changeAbsolute: obs.changeAbsolute ?? null,
     changePercent: obs.changePercent ?? null,
+    preMarketChangePercent: obs.preMarketChangePercent ?? null,
+    afterHoursChangePercent: obs.afterHoursChangePercent ?? null,
     value: obs.last,
     units: "price",
     marketSession: mapSessionToLegacy(obs.marketSession),
@@ -298,12 +301,18 @@ export class MarketDataCache {
       const ticker = obs.ticker.trim().toUpperCase();
       // Skip empty shells — never write fabricated zeros
       if (obs.last == null && obs.bid == null && obs.ask == null) continue;
+      const session = opts?.marketSession ?? obs.marketSession;
+      const previous = this.quotes.get(ticker)?.observation ?? null;
       this.quotes.set(ticker, {
-        observation: {
-          ...obs,
-          ticker,
-          marketSession: opts?.marketSession ?? obs.marketSession,
-        },
+        observation: withExtendedSessionPercents(
+          {
+            ...obs,
+            ticker,
+            marketSession: session,
+          },
+          session,
+          previous,
+        ),
         cachedAt: at,
         stale: false,
       });

@@ -61,6 +61,8 @@ export type WatchlistQuoteInput = {
   open?: number | null;
   changePercent?: number | null;
   volume?: number | null;
+  preMarketChangePercent?: number | null;
+  afterHoursChangePercent?: number | null;
 };
 
 export type WatchlistEnrichment = {

@@ -230,4 +230,32 @@ describe("loadCoverageQuotes", () => {
     expect(second.rows[0]?.volume).toBe(489_496);
     expect(second.rows[0]?.change1dPercent).toBe(8.85);
   });
+
+  it("uses Yahoo premarket last when the tape is still the prior close", async () => {
+    const result = await loadCoverageQuotes(["NVDA"], {
+      session: "premarket",
+      tape: [tapeQuote("NVDA", 100, { changePercent: 0, priorClose: 100 })],
+      yahooQuotes: async () =>
+        new Map([
+          [
+            "NVDA",
+            {
+              name: "NVIDIA",
+              price: 103.5,
+              marketCap: 3_000_000_000_000,
+              avgVolume: 180_000_000,
+              changePercent: 3.5,
+              previousClose: 100,
+              preMarketPrice: 103.5,
+              preMarketChangePercent: 3.5,
+            },
+          ],
+        ]),
+      yahooSpark: async () => new Map(),
+    });
+    const row = result.rows.find((item) => item.ticker === "NVDA");
+    expect(row?.last).toBe(103.5);
+    expect(row?.preMarketChangePercent).toBe(3.5);
+    expect(row?.change1dPercent).toBe(3.5);
+  });
 });

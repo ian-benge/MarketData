@@ -33,6 +33,7 @@ export type WatchlistDeps = {
   now?: Date;
   useFixtures?: boolean;
   lists?: WatchlistListSource[];
+  session?: string | null;
   yahooQuotes?: (symbols: string[]) => Promise<Map<string, YahooQuoteHit>>;
   yahooSpark?: (
     symbols: string[],
@@ -227,6 +228,7 @@ export async function getWatchlistSnapshot(
     const quoted = await loadCoverageQuotes(list.symbols, {
       now: deps.now,
       tape: quotes,
+      session: deps.session,
       yahooQuotes: deps.yahooQuotes,
       yahooSpark:
         deps.yahooSpark ??

@@ -108,6 +108,8 @@ export class MassiveMarketDataProvider implements MarketDataProvider {
     reference: true,
     corporateActions: true,
     marketClock: true,
+    screener: true,
+    fundamentals: true,
   };
 
   private readonly client: MassiveClient;
@@ -246,6 +248,7 @@ export class MassiveMarketDataProvider implements MarketDataProvider {
         adjusted: req.adjusted === false ? "false" : "true",
         sort: "asc",
         limit: req.limit != null ? String(req.limit) : "50000",
+        include_extended_hours: "true",
       },
     );
     const parsed = MassiveAggsResponseSchema.parse(raw);
@@ -369,6 +372,8 @@ export class MassiveMarketDataProvider implements MarketDataProvider {
       volume: s.volume,
       changeAbsolute: s.changeAbsolute,
       changePercent: s.changePercent,
+      preMarketChangePercent: s.preMarketChangePercent ?? null,
+      afterHoursChangePercent: s.afterHoursChangePercent ?? null,
       value: s.last,
       units: "price",
       marketSession: mapLegacySession(s.marketSession),

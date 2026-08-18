@@ -331,6 +331,7 @@ export async function loadDashboardSnapshot(options: {
     const snapshot = await getWatchlistSnapshot(env, tape, selectedId, {
       lists: sources,
       useFixtures: false,
+      session: cached?.marketSession ?? session,
     });
     return omitSyntheticWatchlistLists(
       snapshot,

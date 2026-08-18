@@ -34,6 +34,12 @@ import {
 } from "@/lib/market-data/usage";
 import { inferUsEquitySession } from "@/lib/market-data/us-session";
 import { persistLatestQuoteObservationsSafe } from "@/lib/market-data/persist-latest";
+import {
+  overlayExtendedSessionQuotes,
+  isExtendedHoursSession,
+} from "@/lib/market-data/extended-hours";
+import { fetchYahooEquityQuotesDetailed } from "@/lib/market-data/earnings/yahoo";
+import type { YahooEquityQuote } from "@/lib/market-data/earnings/types";
 import { loadOpenPositionTickers } from "@/lib/positions/store";
 import { loadFirmCoverageSymbols } from "@/lib/watchlists/firm-coverage";
 
@@ -218,6 +224,7 @@ export type RefreshServiceOptions = {
   now?: Date;
   lastRefreshAt?: Date | null;
   onHealthEvent?: (event: ProviderHealthEvent) => void;
+  yahooQuotes?: (symbols: string[]) => Promise<Map<string, YahooEquityQuote>>;
 };
 
 let lastSuccessfulRefreshAt: Date | null = null;
@@ -495,6 +502,34 @@ async function executeRefresh(args: {
       usedFallback = Boolean(quoteBatch.usedFallback);
     }
 
+    if (isExtendedHoursSession(session) && quotes.length) {
+      try {
+        const symbols = quotes.map((quote) => quote.ticker);
+        const yahooMap =
+          options.yahooQuotes != null
+            ? await options.yahooQuotes(symbols)
+            : env.NODE_ENV === "test"
+              ? new Map<string, YahooEquityQuote>()
+              : (await fetchYahooEquityQuotesDetailed(symbols)).quotes;
+        if (yahooMap.size) {
+          quotes = overlayExtendedSessionQuotes(quotes, yahooMap, session);
+          if (snapshots.length) {
+            snapshots = overlayExtendedSessionQuotes(snapshots, yahooMap, session);
+          }
+        }
+      } catch (yahooErr) {
+        onHealth({
+          at: new Date().toISOString(),
+          providerId: "yahoo",
+          status: "degraded",
+          message:
+            yahooErr instanceof Error
+              ? `Yahoo extended-hours overlay failed: ${yahooErr.message.slice(0, 180)}`
+              : "Yahoo extended-hours overlay failed.",
+        });
+      }
+    }
+
     if (snapshots.length > 0) {
       cache.writeSnapshots(snapshots, {
         feedCoverage,
@@ -529,31 +564,39 @@ async function executeRefresh(args: {
 
     const moversCoverageNotes = iexMoversCoverageNote(feedCoverage);
     let movers: NormalizedMoverObservation[] = [];
-    try {
-      const moverBatch = await router.fetchMovers({
-        universe: universe.symbols,
-        direction: "both",
-        limit: 25,
-        surface: "dashboard_display",
-      });
-      movers = moverBatch.movers;
-      if (moverBatch.usedFallback) usedFallback = true;
-    } catch (moverErr) {
-      // Derive movers from cached quotes when provider movers unavailable
+    if (isExtendedHoursSession(session)) {
       movers = deriveMoversFromQuotes(quotes, session, {
         feedCoverage,
         latencyClass,
         licenseScopeId,
         providerName,
       });
-      if (moverErr instanceof EntitlementError) {
-        onHealth({
-          at: new Date().toISOString(),
-          providerId: providerName,
-          status: "entitlement",
-          message: moverErr.message,
-          details: { code: moverErr.code },
+    } else {
+      try {
+        const moverBatch = await router.fetchMovers({
+          universe: universe.symbols,
+          direction: "both",
+          limit: 25,
+          surface: "dashboard_display",
         });
+        movers = moverBatch.movers;
+        if (moverBatch.usedFallback) usedFallback = true;
+      } catch (moverErr) {
+        movers = deriveMoversFromQuotes(quotes, session, {
+          feedCoverage,
+          latencyClass,
+          licenseScopeId,
+          providerName,
+        });
+        if (moverErr instanceof EntitlementError) {
+          onHealth({
+            at: new Date().toISOString(),
+            providerId: providerName,
+            status: "entitlement",
+            message: moverErr.message,
+            details: { code: moverErr.code },
+          });
+        }
       }
     }
     cache.writeMovers(movers, moversCoverageNotes);

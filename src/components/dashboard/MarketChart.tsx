@@ -35,6 +35,7 @@ import {
   formatVolume,
 } from "@/lib/utils/format";
 import { cn } from "@/lib/utils/cn";
+import { isExtendedHoursSession } from "@/lib/market-data/us-session";
 
 type ChartState =
   | "mock"
@@ -94,6 +95,7 @@ export function MarketChart({
   asOf,
   mode,
   initialState,
+  marketSession,
 }: {
   initialSeries: Record<string, NormalizedBar[]>;
   initialSymbol: string;
@@ -103,6 +105,7 @@ export function MarketChart({
   asOf: string;
   mode: "mock" | "provider" | "unavailable";
   initialState?: ChartState;
+  marketSession?: string | null;
 }) {
   const [internalSymbol, setInternalSymbol] = useState(initialSymbol);
   const symbol = controlledSymbol ?? internalSymbol;
@@ -121,7 +124,10 @@ export function MarketChart({
   );
   const [showVolume, setShowVolume] = useState(true);
   const [logScale, setLogScale] = useState(false);
-  const [extendedHours, setExtendedHours] = useState(false);
+  const [extendedHours, setExtendedHours] = useState(() =>
+    isExtendedHoursSession(marketSession),
+  );
+  const userToggledExtended = useRef(false);
   const [tool, setTool] = useState<ChartTool>("cursor");
   const [priceLines, setPriceLines] = useState<number[]>([]);
   const [compareSymbol, setCompareSymbol] = useState<string | null>(null);
@@ -149,6 +155,11 @@ export function MarketChart({
   const chartMounted = useRef(false);
   const prevSymbolRef = useRef(symbol);
   const spec = CHART_RANGES[range];
+
+  useEffect(() => {
+    if (userToggledExtended.current) return;
+    setExtendedHours(isExtendedHoursSession(marketSession));
+  }, [marketSession]);
 
   // External symbol picks (pulse / watchlist / earnings) open the panel.
   useEffect(() => {
@@ -492,7 +503,10 @@ export function MarketChart({
             }
             onToggleVolume={() => setShowVolume((value) => !value)}
             onToggleLog={() => setLogScale((value) => !value)}
-            onToggleExtended={() => setExtendedHours((value) => !value)}
+            onToggleExtended={() => {
+              userToggledExtended.current = true;
+              setExtendedHours((value) => !value);
+            }}
             onTool={setTool}
             onCompare={(ticker) =>
               setCompareSymbol(ticker === symbol ? null : ticker)

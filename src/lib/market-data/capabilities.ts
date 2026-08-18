@@ -51,6 +51,11 @@ export type MarketDataCapabilities = {
   reference: boolean;
   corporateActions: boolean;
   marketClock: boolean;
+  /** Full-market gainers/losers/most-active. Never implied by IEX snapshot sorting. */
+  screener?: boolean;
+  fundamentals?: boolean;
+  halts?: boolean;
+  options?: boolean;
 };
 
 export type CapabilityKeyedProvider = {

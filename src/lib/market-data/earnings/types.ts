@@ -150,8 +150,26 @@ export type YahooEquityQuote = {
   previousClose?: number | null;
   dayHigh?: number | null;
   dayLow?: number | null;
+  marketState?: string | null;
+  preMarketPrice?: number | null;
+  postMarketPrice?: number | null;
   preMarketChangePercent?: number | null;
   postMarketChangePercent?: number | null;
+  preMarketVolume?: number | null;
+  floatShares?: number | null;
+  sharesOutstanding?: number | null;
+  shortPercentOfFloat?: number | null;
+  fiftyTwoWeekHigh?: number | null;
+  firstTradeDateMs?: number | null;
+};
+
+export type YahooIntradayBar = {
+  barStart: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number | null;
 };
 
 export type YahooOptionContract = {

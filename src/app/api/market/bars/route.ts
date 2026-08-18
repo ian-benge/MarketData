@@ -15,6 +15,12 @@ import { createMarketDataRouter } from "@/lib/market-data/router";
 import { EntitlementError } from "@/lib/market-data/schemas";
 import { getUsageStore } from "@/lib/market-data/usage";
 import { MockMarketDataProvider } from "@/lib/providers/mock/mock-market-data";
+import { fetchYahooIntradayBars } from "@/lib/market-data/earnings/yahoo";
+import {
+  barIntervalMs,
+  mergeBarSeries,
+  yahooIntradayToNormalizedBars,
+} from "@/lib/market-data/extended-hours";
 
 const QuerySchema = z.object({
   symbol: z.string().min(1).max(16),
@@ -102,11 +108,33 @@ export async function GET(request: Request) {
       start: req.start,
       surface: req.surface,
     });
+    let bars = batch.bars;
+    let extendedHoursSource: "primary" | "primary+yahoo" = "primary";
+    const interval = req.interval;
+    if (interval !== "1d" && env.NODE_ENV !== "test") {
+      try {
+        const yahoo = await fetchYahooIntradayBars(
+          req.symbol,
+          interval,
+          req.start,
+        );
+        if (yahoo.length) {
+          bars = mergeBarSeries(
+            bars,
+            yahooIntradayToNormalizedBars(req.symbol, interval, yahoo),
+            barIntervalMs(interval),
+          );
+          extendedHoursSource = "primary+yahoo";
+        }
+      } catch {
+        // Keep the primary series when Yahoo chart history is unavailable.
+      }
+    }
     usage.record({
       providerKey: batch.providerName,
       requests: 1,
       symbols: 1,
-      records: batch.bars.length,
+      records: bars.length,
     });
     return jsonOk({
       source: "provider",
@@ -114,7 +142,8 @@ export async function GET(request: Request) {
       interval: req.interval,
       feedCoverage: batch.feedCoverage,
       latencyClass: batch.latencyClass,
-      bars: batch.bars,
+      bars,
+      extendedHoursSource,
     });
   } catch (error) {
     if (error instanceof EntitlementError) {

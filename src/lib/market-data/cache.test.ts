@@ -112,4 +112,40 @@ describe("MarketDataCache", () => {
     expect(snap?.latencyCoverageLabel).not.toMatch(/Real-time/i);
     expect(snap?.asOf).toBe("2026-08-10T14:30:00.000Z");
   });
+
+  it("stamps premarket percent and keeps it after the cash open", () => {
+    const cache = new MarketDataCache({ staleAfterSeconds: 180 });
+    cache.writeQuotes(
+      [
+        {
+          ...quote("NVDA", 105),
+          priorClose: 100,
+          changePercent: 5,
+          marketSession: "premarket",
+        },
+      ],
+      {
+        marketSession: "premarket",
+        at: new Date("2026-08-10T12:00:00.000Z"),
+      },
+    );
+    expect(cache.getQuote("NVDA")?.observation.preMarketChangePercent).toBeCloseTo(5);
+
+    cache.writeQuotes(
+      [
+        {
+          ...quote("NVDA", 110),
+          priorClose: 100,
+          changePercent: 10,
+          marketSession: "regular",
+        },
+      ],
+      {
+        marketSession: "regular",
+        at: new Date("2026-08-10T14:30:00.000Z"),
+      },
+    );
+    expect(cache.getQuote("NVDA")?.observation.last).toBe(110);
+    expect(cache.getQuote("NVDA")?.observation.preMarketChangePercent).toBeCloseTo(5);
+  });
 });

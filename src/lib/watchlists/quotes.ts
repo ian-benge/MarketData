@@ -6,6 +6,8 @@ import {
   fetchYahooSparkDailyClosesDetailed,
 } from "@/lib/market-data/earnings/yahoo";
 import { getMarketDataCache } from "@/lib/market-data/cache";
+import { looksUnmovedFromClose } from "@/lib/market-data/extended-hours";
+import { isExtendedHoursSession } from "@/lib/market-data/us-session";
 import {
   assembleWatchlistRows,
   buildWatchlistDiagnostics,
@@ -51,6 +53,9 @@ export type YahooQuoteHit = {
   previousClose?: number | null;
   dayHigh?: number | null;
   dayLow?: number | null;
+  marketState?: string | null;
+  preMarketPrice?: number | null;
+  postMarketPrice?: number | null;
   preMarketChangePercent?: number | null;
   postMarketChangePercent?: number | null;
 };
@@ -58,6 +63,7 @@ export type YahooQuoteHit = {
 export type CoverageQuoteDeps = {
   now?: Date;
   tape?: NormalizedQuote[];
+  session?: string | null;
   yahooQuotes?: (symbols: string[]) => Promise<Map<string, YahooQuoteHit>>;
   yahooSpark?: (
     symbols: string[],
@@ -167,6 +173,8 @@ function quoteInputs(quotes: NormalizedQuote[]): Map<string, WatchlistQuoteInput
       open: quote.open ?? null,
       changePercent: quote.changePercent ?? null,
       volume: quote.volume ?? null,
+      preMarketChangePercent: quote.preMarketChangePercent ?? null,
+      afterHoursChangePercent: quote.afterHoursChangePercent ?? null,
     });
   }
   return map;
@@ -181,6 +189,8 @@ function printFromHit(symbol: string, hit: YahooQuoteHit | undefined): Watchlist
     open: hit?.open ?? null,
     changePercent: hit?.changePercent ?? null,
     volume: hit?.volume ?? null,
+    preMarketChangePercent: hit?.preMarketChangePercent ?? null,
+    afterHoursChangePercent: hit?.postMarketChangePercent ?? null,
   };
 }
 
@@ -199,6 +209,34 @@ function printFromEnrichment(
   };
 }
 
+function applyExtendedYahooPrints(
+  tapeInputs: Map<string, WatchlistQuoteInput>,
+  enrichment: Map<string, WatchlistEnrichment>,
+  session: string | null,
+) {
+  if (!isExtendedHoursSession(session)) return;
+  for (const [ticker, extra] of enrichment) {
+    const existing = tapeInputs.get(ticker) ?? lookupWatchlistMap(tapeInputs, ticker);
+    const extendedLast = extra.last ?? null;
+    if (extendedLast == null || !existing) continue;
+    if (!looksUnmovedFromClose(existing.last, extra.previousClose ?? null)) continue;
+    tapeInputs.set(ticker, {
+      ...existing,
+      last: extendedLast,
+      changePercent:
+        extra.changePercent ??
+        extra.preMarketChangePercent ??
+        extra.afterHoursChangePercent ??
+        existing.changePercent ??
+        null,
+      preMarketChangePercent:
+        extra.preMarketChangePercent ?? existing.preMarketChangePercent ?? null,
+      afterHoursChangePercent:
+        extra.afterHoursChangePercent ?? existing.afterHoursChangePercent ?? null,
+    });
+  }
+}
+
 function mergeQuoteInput(
   existing: WatchlistQuoteInput | undefined,
   incoming: WatchlistQuoteInput,
@@ -210,6 +248,10 @@ function mergeQuoteInput(
     open: existing.open ?? incoming.open ?? null,
     changePercent: existing.changePercent ?? incoming.changePercent ?? null,
     volume: existing.volume ?? incoming.volume ?? null,
+    preMarketChangePercent:
+      incoming.preMarketChangePercent ?? existing.preMarketChangePercent ?? null,
+    afterHoursChangePercent:
+      incoming.afterHoursChangePercent ?? existing.afterHoursChangePercent ?? null,
   };
 }
 
@@ -228,6 +270,9 @@ async function defaultYahooQuotes(symbols: string[]) {
       previousClose: quote.previousClose ?? null,
       dayHigh: quote.dayHigh ?? null,
       dayLow: quote.dayLow ?? null,
+      marketState: quote.marketState ?? null,
+      preMarketPrice: quote.preMarketPrice ?? null,
+      postMarketPrice: quote.postMarketPrice ?? null,
       preMarketChangePercent: quote.preMarketChangePercent ?? null,
       postMarketChangePercent: quote.postMarketChangePercent ?? null,
     });
@@ -544,6 +589,11 @@ export async function loadCoverageQuotes(
       sources.set(ticker, yahoo.sources.get(ticker) ?? "yahoo");
     }
   }
+  applyExtendedYahooPrints(
+    tapeInputs,
+    yahoo.map,
+    deps.session ?? cache.getDashboardSnapshot()?.marketSession ?? null,
+  );
   for (const [ticker, source] of yahoo.sources) {
     if (!sources.has(ticker)) sources.set(ticker, source);
   }

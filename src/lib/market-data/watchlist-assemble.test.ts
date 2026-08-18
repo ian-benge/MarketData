@@ -106,6 +106,25 @@ describe("assembleWatchlistRows", () => {
     expect(row?.volume).toBe(489_496);
     expect(row?.marketCap).toBe(68_200_000_000);
   });
+
+  it("prefers tape premarket percent when Yahoo enrichment omits it", () => {
+    const [row] = assembleWatchlistRows(
+      ["NVDA"],
+      new Map([
+        [
+          "NVDA",
+          {
+            ticker: "NVDA",
+            last: 103.5,
+            changePercent: 3.5,
+            volume: 1_000,
+            preMarketChangePercent: 3.5,
+          },
+        ],
+      ]),
+    );
+    expect(row?.preMarketChangePercent).toBe(3.5);
+  });
 });
 
 describe("weekAgoClose", () => {

@@ -330,6 +330,8 @@ export class AlpacaMarketDataProvider implements MarketDataProvider {
       volume: s.volume,
       changeAbsolute: s.changeAbsolute,
       changePercent: s.changePercent,
+      preMarketChangePercent: "preMarketChangePercent" in s ? s.preMarketChangePercent : null,
+      afterHoursChangePercent: "afterHoursChangePercent" in s ? s.afterHoursChangePercent : null,
       value: s.last,
       units: "price",
       marketSession: mapLegacySession(s.marketSession),

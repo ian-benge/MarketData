@@ -19,3 +19,13 @@ export function inferUsEquitySession(now: Date = new Date()): ExtendedMarketSess
   if (minutes < 3 * 60) return "overnight";
   return "closed";
 }
+
+export function isExtendedHoursSession(
+  session: string | null | undefined,
+): boolean {
+  return (
+    session === "premarket" ||
+    session === "overnight" ||
+    session === "afterhours"
+  );
+}

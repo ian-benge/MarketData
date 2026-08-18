@@ -83,6 +83,8 @@ function quotesFromCache(): QuoteContext[] {
         ticker: quote.ticker.toUpperCase(),
         changePercent: quote.changePercent ?? null,
         relativeVolume: null,
+        preMarketChangePercent: quote.preMarketChangePercent ?? null,
+        afterHoursChangePercent: quote.afterHoursChangePercent ?? null,
         flags: [],
         session,
       });
@@ -94,6 +96,8 @@ function quotesFromCache(): QuoteContext[] {
         ticker,
         changePercent: mover.changePercent ?? current?.changePercent ?? null,
         relativeVolume: mover.relativeVolume ?? current?.relativeVolume ?? null,
+        preMarketChangePercent: current?.preMarketChangePercent ?? null,
+        afterHoursChangePercent: current?.afterHoursChangePercent ?? null,
         flags: current?.flags ?? [],
         session,
       });

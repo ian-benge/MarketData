@@ -71,6 +71,8 @@ export const NormalizedQuoteSchema = ProviderMetadataSchema.extend({
   volume: z.number().nullable().optional(),
   changeAbsolute: z.number().nullable().optional(),
   changePercent: z.number().nullable().optional(),
+  preMarketChangePercent: z.number().nullable().optional(),
+  afterHoursChangePercent: z.number().nullable().optional(),
   marketSession: MarketSessionSchema,
   currency: z.string().default("USD"),
 });

@@ -41,6 +41,15 @@ export function isUsRegularSession(iso: string): boolean {
   return hm >= "0930" && hm < "1600";
 }
 
+/** U.S. equity premarket: 04:00–09:30 America/New_York, weekdays. */
+export function isUsPremarketSession(iso: string): boolean {
+  const date = new Date(iso);
+  const weekday = Number(formatInTimeZone(date, NY_TZ, "i"));
+  if (weekday >= 6) return false;
+  const hm = formatInTimeZone(date, NY_TZ, "HHmm");
+  return hm >= "0400" && hm < "0930";
+}
+
 export function sliceLastTradingDays<T extends { barStart: string }>(
   bars: T[],
   tradingDays: number,

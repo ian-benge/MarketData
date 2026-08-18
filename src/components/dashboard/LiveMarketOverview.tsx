@@ -449,6 +449,7 @@ export function LiveMarketOverview({
             coverageLabel={data.latencyCoverageLabel ?? null}
             asOf={data.asOf}
             mode={chartMode}
+            marketSession={data.marketSession}
           />
         </div>
         <div className="min-w-0 space-y-3 xl:col-span-4">

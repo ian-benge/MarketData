@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   chicagoDateKey,
   defaultBarsStart,
+  isUsPremarketSession,
   isUsRegularSession,
   sliceLastTradingDays,
 } from "@/lib/market-data/bars-window";
@@ -25,6 +26,12 @@ describe("regular session and trading-day slice", () => {
     expect(isUsRegularSession("2026-08-10T19:55:00.000Z")).toBe(true);
     expect(isUsRegularSession("2026-08-10T20:00:00.000Z")).toBe(false);
     expect(isUsRegularSession("2026-08-08T14:00:00.000Z")).toBe(false);
+  });
+
+  it("treats 04:00–09:29 ET weekdays as premarket", () => {
+    expect(isUsPremarketSession("2026-08-10T08:15:00.000Z")).toBe(true);
+    expect(isUsPremarketSession("2026-08-10T13:00:00.000Z")).toBe(true);
+    expect(isUsPremarketSession("2026-08-10T13:30:00.000Z")).toBe(false);
   });
 
   it("keeps the latest N Chicago trading days and prefers RTH", () => {

@@ -150,4 +150,57 @@ describe("refresh lock", () => {
     );
     expect(snap?.latencyCoverageLabel).toBe("Real-time — IEX");
   });
+
+  it("overlays Yahoo premarket last when IEX is still the prior close", async () => {
+    const cache = new MarketDataCache();
+    const router = mockRouter(0);
+    router.fetchSnapshots = vi.fn(async ({ symbols }: { symbols: string[] }) => ({
+      providerName: "alpaca",
+      retrievalTimestamp: new Date().toISOString(),
+      feedCoverage: "iex" as const,
+      latencyClass: "realtime" as const,
+      licenseScopeId: "alpaca:test",
+      permittedSurfaces: ["dashboard_display" as const],
+      snapshots: symbols.map((ticker) => ({
+        ...makeQuote(ticker),
+        last: 100,
+        priorClose: 100,
+        changeAbsolute: 0,
+        changePercent: 0,
+      })),
+    }));
+    const result = await runMarketDataRefresh({
+      env,
+      router,
+      cache,
+      usage: new InMemoryUsageStore(),
+      lock: new InMemoryRefreshLock(),
+      force: true,
+      watchlistSymbols: ["SPY"],
+      now: new Date("2026-08-10T12:00:00.000Z"),
+      yahooQuotes: async () =>
+        new Map([
+          [
+            "SPY",
+            {
+              symbol: "SPY",
+              name: "S&P 500",
+              price: 103.5,
+              marketCap: 1,
+              avgVolume: 1,
+              quoteType: "ETF",
+              previousClose: 100,
+              marketState: "PRE",
+              preMarketPrice: 103.5,
+              preMarketChangePercent: 3.5,
+            },
+          ],
+        ]),
+    });
+    expect(result.status).toBe("completed");
+    expect(result.session).toBe("premarket");
+    expect(cache.getQuote("SPY")?.observation.last).toBe(103.5);
+    expect(cache.getQuote("SPY")?.observation.preMarketChangePercent).toBe(3.5);
+    expect(cache.getDashboardSnapshot()?.tape.find((row) => row.ticker === "SPY")?.preMarketChangePercent).toBe(3.5);
+  });
 });
