@@ -33,6 +33,27 @@ describe("TeamAccessPanel", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
+  it("renders member emails from a successful list without the empty or error copy", () => {
+    render(
+      <TeamAccessPanel
+        initialMembers={[
+          {
+            id: "user-1",
+            email: "lead@demo.local",
+            displayName: "Desk Lead",
+            role: "admin",
+            isActive: true,
+          },
+        ]}
+        demo
+      />,
+    );
+
+    expect(screen.getByText("lead@demo.local")).toBeTruthy();
+    expect(screen.queryByText("No members on this desk yet.")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("does not fetch when confirm does not match and keeps password inputs masked", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

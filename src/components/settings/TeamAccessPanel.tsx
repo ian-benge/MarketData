@@ -3,7 +3,6 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { DataTable } from "@/components/ui/DataTable";
 import { Panel } from "@/components/ui/Panel";
 import type { TeamMember } from "@/lib/auth/team-types";
 
@@ -269,7 +268,7 @@ export function TeamAccessPanel({
       <Panel
         title="Desk members"
         description="People who can sign in to this workspace."
-        bodyClassName={listError ? "p-3" : "p-0"}
+        bodyClassName={listError || sorted.length === 0 ? "p-3" : "p-0"}
       >
         {listError ? (
           <div
@@ -278,43 +277,29 @@ export function TeamAccessPanel({
           >
             {listError}
           </div>
+        ) : sorted.length === 0 ? (
+          <p className="text-[13px] text-[var(--ib-text-muted)]">
+            No members on this desk yet.
+          </p>
         ) : (
-        <DataTable
-          caption="Desk members"
-          rows={sorted}
-          rowKey={(row) => row.id}
-          emptyMessage="No members on this desk yet."
-          columns={[
-            {
-              key: "email",
-              header: "Email",
-              render: (row) => (
-                <span className="text-[var(--ib-text-primary)]">{row.email}</span>
-              ),
-            },
-            {
-              key: "name",
-              header: "Name",
-              priority: "medium",
-              render: (row) => row.displayName || "—",
-            },
-            {
-              key: "role",
-              header: "Role",
-              render: (row) => <Badge tone="brand">{row.role}</Badge>,
-            },
-            {
-              key: "access",
-              header: "Access",
-              align: "right",
-              render: (row) => (
-                <Badge tone={row.isActive ? "success" : "neutral"}>
-                  {row.isActive ? "Active" : "Inactive"}
-                </Badge>
-              ),
-            },
-          ]}
-        />
+          <ul className="divide-y divide-[var(--ib-border-subtle)]">
+            {sorted.map((row) => (
+              <li
+                key={row.id}
+                className="flex min-w-0 items-baseline justify-between gap-3 px-3 py-2.5"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-[13px] text-[var(--ib-text-primary)]">
+                    {row.email}
+                  </p>
+                  <p className="text-[11px] text-[var(--ib-text-muted)]">
+                    {row.displayName || "—"} · {row.role} ·{" "}
+                    {row.isActive ? "Active" : "Inactive"}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ul>
         )}
       </Panel>
     </div>

@@ -1,5 +1,57 @@
+import { spawnSync } from "node:child_process";
+import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { demoLogin, expectNoPageHorizontalOverflow } from "./helpers";
+
+test("settings component vitest covers live sign-out and list-error branches", () => {
+  test.setTimeout(90_000);
+  const vitestBin = path.join(
+    process.cwd(),
+    "node_modules",
+    "vitest",
+    "vitest.mjs",
+  );
+  const result = spawnSync(
+    process.execPath,
+    [
+      vitestBin,
+      "run",
+      "--reporter=verbose",
+      "src/components/settings/SessionPanel.test.tsx",
+      "src/components/settings/TeamAccessPanel.test.tsx",
+      "src/components/settings/OwnerUnlockResetPanel.test.tsx",
+      "src/components/settings/ThemePreferenceControl.test.tsx",
+    ],
+    {
+      encoding: "utf8",
+      cwd: process.cwd(),
+      env: process.env,
+    },
+  );
+  const output = `${result.stdout}\n${result.stderr}`;
+  if (result.status !== 0) {
+    throw new Error(output.slice(-4000));
+  }
+  expect(result.status).toBe(0);
+  expect(output).toContain(
+    "demo DELETE /api/auth/demo replaces /login only after HTTP 2xx",
+  );
+  expect(output).toContain(
+    "live signOut replaces /login only when the result has no error",
+  );
+  expect(output).toContain(
+    "live missing browser client does not replace and shows role=alert",
+  );
+  expect(output).toMatch(
+    /live signOut (\{ error \}|reject) does not replace and shows role=alert/,
+  );
+  expect(output).toContain(
+    "shows a list-failure alert and not the empty desk copy",
+  );
+  expect(output).toContain(
+    "shows the empty desk copy when the list succeeds with no members",
+  );
+});
 
 type AuditResult = {
   duplicateIds: string[];

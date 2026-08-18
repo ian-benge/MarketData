@@ -85,6 +85,45 @@ describe("OwnerUnlockResetPanel", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Demo session only");
   });
 
+  it("keeps unavailable copy after a live self reset instead of claiming zero grants", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, demo: false, scope: "self" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    render(
+      <OwnerUnlockResetPanel
+        isAdmin={false}
+        demo={false}
+        unlockInventoryAvailable={false}
+        unlockedGrantCount={0}
+        unlockTtlHours={8}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Lock my book" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "Your book is locked again",
+      ),
+    );
+    expect(mocks.refresh).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByText(
+        "Unlock grant inventory is unavailable in this environment",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText(/This browser holds 0 teammate unlock grant\(s\)/),
+    ).toBeNull();
+    expect(screen.getByRole("status")).not.toHaveTextContent(
+      "Demo session only",
+    );
+  });
+
   it("does not force the grant count to 0 after a live self reset", async () => {
     vi.mocked(fetch).mockResolvedValue(
       new Response(JSON.stringify({ ok: true, demo: false, scope: "self" }), {
