@@ -3,7 +3,6 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { DataTable } from "@/components/ui/DataTable";
 import { Panel } from "@/components/ui/Panel";
 import type { TeamMember } from "@/lib/auth/team-types";
 
@@ -19,9 +18,11 @@ function randomPassword() {
 export function TeamAccessPanel({
   initialMembers,
   demo,
+  listError = null,
 }: {
   initialMembers: TeamMember[];
   demo: boolean;
+  listError?: string | null;
 }) {
   const [members, setMembers] = useState(initialMembers);
   const [email, setEmail] = useState("");
@@ -29,6 +30,7 @@ export function TeamAccessPanel({
   const [role, setRole] = useState<"admin" | "member">("member");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [pending, setPending] = useState(false);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
 
@@ -177,18 +179,29 @@ export function TeamAccessPanel({
               >
                 Password
               </label>
-              <button
-                type="button"
-                className="text-[11px] text-[var(--ib-maroon-300)] hover:underline"
-                onClick={fillGeneratedPassword}
-                disabled={pending}
-              >
-                Generate
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  className="text-[11px] text-[var(--ib-maroon-300)] hover:underline"
+                  aria-pressed={showPassword}
+                  onClick={() => setShowPassword((open) => !open)}
+                  disabled={pending}
+                >
+                  {showPassword ? "Hide password" : "Show password"}
+                </button>
+                <button
+                  type="button"
+                  className="text-[11px] text-[var(--ib-maroon-300)] hover:underline"
+                  onClick={fillGeneratedPassword}
+                  disabled={pending}
+                >
+                  Generate
+                </button>
+              </div>
             </div>
             <input
               id="team-password"
-              type="text"
+              type={showPassword ? "text" : "password"}
               required
               minLength={8}
               maxLength={72}
@@ -208,7 +221,7 @@ export function TeamAccessPanel({
             </label>
             <input
               id="team-confirm"
-              type="text"
+              type={showPassword ? "text" : "password"}
               required
               minLength={8}
               maxLength={72}
@@ -255,44 +268,39 @@ export function TeamAccessPanel({
       <Panel
         title="Desk members"
         description="People who can sign in to this workspace."
-        bodyClassName="p-0"
+        bodyClassName={listError || sorted.length === 0 ? "p-3" : "p-0"}
       >
-        <DataTable
-          caption="Desk members"
-          rows={sorted}
-          rowKey={(row) => row.id}
-          emptyMessage="No members on this desk yet."
-          columns={[
-            {
-              key: "email",
-              header: "Email",
-              render: (row) => (
-                <span className="text-[var(--ib-text-primary)]">{row.email}</span>
-              ),
-            },
-            {
-              key: "name",
-              header: "Name",
-              priority: "medium",
-              render: (row) => row.displayName || "—",
-            },
-            {
-              key: "role",
-              header: "Role",
-              render: (row) => <Badge tone="brand">{row.role}</Badge>,
-            },
-            {
-              key: "access",
-              header: "Access",
-              align: "right",
-              render: (row) => (
-                <Badge tone={row.isActive ? "success" : "neutral"}>
-                  {row.isActive ? "Active" : "Inactive"}
-                </Badge>
-              ),
-            },
-          ]}
-        />
+        {listError ? (
+          <div
+            role="alert"
+            className="border border-[color-mix(in_oklab,var(--market-negative)_45%,var(--ib-border-strong))] bg-[color-mix(in_oklab,var(--market-negative)_8%,transparent)] px-3 py-2.5 text-xs leading-5 text-[var(--market-negative)]"
+          >
+            {listError}
+          </div>
+        ) : sorted.length === 0 ? (
+          <p className="text-[13px] text-[var(--ib-text-muted)]">
+            No members on this desk yet.
+          </p>
+        ) : (
+          <ul className="divide-y divide-[var(--ib-border-subtle)]">
+            {sorted.map((row) => (
+              <li
+                key={row.id}
+                className="flex min-w-0 items-baseline justify-between gap-3 px-3 py-2.5"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-[13px] text-[var(--ib-text-primary)]">
+                    {row.email}
+                  </p>
+                  <p className="text-[11px] text-[var(--ib-text-muted)]">
+                    {row.displayName || "—"} · {row.role} ·{" "}
+                    {row.isActive ? "Active" : "Inactive"}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </Panel>
     </div>
   );

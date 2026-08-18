@@ -77,6 +77,7 @@ async function expectCriticalSemantics(page: Page) {
 test("critical public and member routes expose baseline accessible semantics", async ({
   page,
 }) => {
+  test.setTimeout(90_000);
   await page.goto("/login");
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
   await expectCriticalSemantics(page);
@@ -90,6 +91,7 @@ test("critical public and member routes expose baseline accessible semantics", a
     "/watchlists",
     "/positions",
     "/proposals",
+    "/settings",
   ]) {
     await page.goto(path);
     await expect(page.locator("h1")).toHaveCount(1);

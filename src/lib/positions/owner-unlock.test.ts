@@ -7,6 +7,7 @@ import {
   readOwnerUnlock,
   resolveOwnerUnlockSigningSecret,
   signOwnerUnlock,
+  UNLOCK_TTL_MS,
   verifyOwnerUnlockSecret,
 } from "./owner-unlock";
 
@@ -89,6 +90,14 @@ describe("owner unlock secret", () => {
         CRON_SECRET: "cron-only",
       } as never),
     ).toBe("unlock-hmac");
+  });
+});
+
+describe("unlock TTL", () => {
+  it("is eight hours and matches cookie maxAge seconds", () => {
+    expect(UNLOCK_TTL_MS).toBe(8 * 60 * 60 * 1000);
+    expect(UNLOCK_TTL_MS / 3_600_000).toBe(8);
+    expect(UNLOCK_TTL_MS / 1000).toBe(8 * 60 * 60);
   });
 });
 

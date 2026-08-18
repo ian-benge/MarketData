@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Panel";
@@ -10,22 +11,36 @@ type Feedback = { tone: "success" | "error"; message: string };
 export function OwnerUnlockResetPanel({
   isAdmin,
   demo,
+  unlockInventoryAvailable,
+  unlockedGrantCount,
+  unlockTtlHours,
 }: {
   isAdmin: boolean;
   demo: boolean;
+  unlockInventoryAvailable: boolean;
+  unlockedGrantCount: number;
+  unlockTtlHours: number;
 }) {
+  const router = useRouter();
   const [pending, setPending] = useState<"self" | "desk" | null>(null);
+  const pendingRef = useRef<"self" | "desk" | null>(null);
   const [confirmDesk, setConfirmDesk] = useState(false);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
+  const [grantCount, setGrantCount] = useState(unlockedGrantCount);
+
+  useEffect(() => {
+    setGrantCount(unlockedGrantCount);
+  }, [unlockedGrantCount]);
 
   async function reset(scope: "self" | "desk") {
-    if (pending) return;
+    if (pendingRef.current) return;
     if (scope === "desk" && !confirmDesk) {
       setConfirmDesk(true);
       setFeedback(null);
       return;
     }
     if (scope === "self") setConfirmDesk(false);
+    pendingRef.current = scope;
     setPending(scope);
     setFeedback(null);
     try {
@@ -43,6 +58,13 @@ export function OwnerUnlockResetPanel({
         throw new Error(payload.error ?? "Unable to reset teammate access.");
       }
       setConfirmDesk(false);
+      if (scope === "self") {
+        if (payload.demo === true && unlockInventoryAvailable) {
+          setGrantCount(0);
+        } else if (payload.demo !== true) {
+          router.refresh();
+        }
+      }
       setFeedback({
         tone: "success",
         message:
@@ -63,6 +85,7 @@ export function OwnerUnlockResetPanel({
             : "Unable to reset teammate access.",
       });
     } finally {
+      pendingRef.current = null;
       setPending(null);
     }
   }
@@ -70,10 +93,20 @@ export function OwnerUnlockResetPanel({
   return (
     <Panel
       title="Teammate book access"
-      description="Entering the desk unlock secret unlocks a teammate’s account value and closed lots for eight hours on that browser. Never share a sign-in password. Use this to drop those grants immediately."
+      description={`Entering the desk unlock secret unlocks a teammate’s account value and closed lots for ${unlockTtlHours} hours on that browser. Never share a sign-in password. Use this to drop those grants immediately.`}
       actions={isAdmin ? <Badge tone="brand">Admin can reset all</Badge> : undefined}
       bodyClassName="space-y-3 p-3"
     >
+      {unlockInventoryAvailable ? (
+        <p className="text-[13px] text-[var(--ib-text-primary)]">
+          This browser holds {grantCount} teammate unlock grant(s)
+        </p>
+      ) : (
+        <p className="text-[13px] text-[var(--ib-text-primary)]">
+          Unlock grant inventory is unavailable in this environment
+        </p>
+      )}
+
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
         <div className="min-w-0 flex-1">
           <p className="text-[13px] font-medium text-[var(--ib-text-primary)]">
@@ -94,7 +127,7 @@ export function OwnerUnlockResetPanel({
             void reset("self");
           }}
         >
-          {pending === "self" ? "Locking…" : "Lock my book"}
+          {pending === "self" ? "Locking..." : "Lock my book"}
         </Button>
       </div>
 
@@ -121,7 +154,7 @@ export function OwnerUnlockResetPanel({
             }}
           >
             {pending === "desk"
-              ? "Resetting…"
+              ? "Resetting..."
               : confirmDesk
                 ? "Confirm reset"
                 : "Reset all unlocks"}
