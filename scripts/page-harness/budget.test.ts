@@ -43,4 +43,18 @@ describe("budgets and cancellation", () => {
     budget.recordAgentRun();
     expect(() => budget.assert()).toThrow(BudgetExceededError);
   });
+
+  it("does not count paused downtime toward elapsedActiveMs", async () => {
+    const budget = new RunBudget({
+      maxDurationMs: 60_000,
+      maxAgentRuns: 10,
+      maxTotalTokens: 1000,
+      maxIterations: 1,
+      maxContractRounds: 1,
+    });
+    budget.pause();
+    const frozen = budget.elapsedActiveMs();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(budget.elapsedActiveMs()).toBe(frozen);
+  });
 });

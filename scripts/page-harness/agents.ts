@@ -78,6 +78,20 @@ export type AgentSession = {
   close(): Promise<void>;
 };
 
+export class AgentInvocationError extends Error {
+  readonly usageAccount?: import("./usage").UsageAccount;
+  readonly runId?: string;
+  constructor(
+    message: string,
+    options?: { usageAccount?: import("./usage").UsageAccount; runId?: string },
+  ) {
+    super(message);
+    this.name = "AgentInvocationError";
+    this.usageAccount = options?.usageAccount;
+    this.runId = options?.runId;
+  }
+}
+
 export type AgentHost = {
   open(options: {
     role: RoleName;
@@ -414,8 +428,22 @@ export function createCursorAgentHost(options: {
             catalog: resolved.catalog,
           });
           if (result.status === "error") {
-            throw new Error(
+            const rawUsage = result.usage
+              ? {
+                  inputTokens: result.usage.inputTokens,
+                  outputTokens: result.usage.outputTokens,
+                  totalTokens: result.usage.totalTokens,
+                  cacheReadTokens: result.usage.cacheReadTokens,
+                  cacheWriteTokens: result.usage.cacheWriteTokens,
+                  reasoningTokens: result.usage.reasoningTokens,
+                }
+              : streamedUsage;
+            throw new AgentInvocationError(
               `${role} run failed (${result.id}): ${result.error?.message ?? "unknown"}`,
+              {
+                usageAccount: accountSdkUsage(rawUsage),
+                runId: result.id,
+              },
             );
           }
           const rawUsage = result.usage

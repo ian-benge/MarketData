@@ -260,6 +260,17 @@ export async function changedFiles(cwd: string, from: string, to = "HEAD"): Prom
     .filter(Boolean);
 }
 
+export async function dirtyFiles(cwd: string): Promise<string[]> {
+  const status = await git(["status", "--porcelain", "-uall"], cwd);
+  requireGitOk(status, "read worktree dirty files");
+  return status.stdout
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*/, ""))
+    .filter(Boolean)
+    .map((line) => line.slice(3).replace(/.* -> /, "").trim())
+    .filter(Boolean);
+}
+
 export function makeRunId(route: string): string {
   const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
   return `${slugForRoute(route)}-${stamp}-${shortId()}`;

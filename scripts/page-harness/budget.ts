@@ -36,19 +36,52 @@ export class BudgetExceededError extends Error {
 }
 
 export class RunBudget {
-  readonly startedAt = Date.now();
+  readonly startedAt: number;
+  consumedActiveMs = 0;
+  private activeStartedAt: number | null;
   agentRuns = 0;
   usage: AggregatedUsage = emptyAggregatedUsage();
   stopReason: string | null = null;
   restorationGraceRuns = 0;
   restorationRunCeiling: number | null = null;
 
-  constructor(readonly limits: BudgetLimits) {}
+  constructor(
+    readonly limits: BudgetLimits,
+    restored?: {
+      startedAt?: number;
+      consumedActiveMs?: number;
+      agentRuns?: number;
+      usage?: AggregatedUsage;
+      paused?: boolean;
+    },
+  ) {
+    this.startedAt = restored?.startedAt ?? Date.now();
+    this.consumedActiveMs = restored?.consumedActiveMs ?? 0;
+    this.agentRuns = restored?.agentRuns ?? 0;
+    if (restored?.usage) this.usage = restored.usage;
+    this.activeStartedAt = restored?.paused ? null : Date.now();
+  }
 
-  snapshot(): BudgetSnapshot {
+  elapsedActiveMs(now = Date.now()): number {
+    const live = this.activeStartedAt != null ? now - this.activeStartedAt : 0;
+    return this.consumedActiveMs + live;
+  }
+
+  pause(now = Date.now()): void {
+    if (this.activeStartedAt == null) return;
+    this.consumedActiveMs += now - this.activeStartedAt;
+    this.activeStartedAt = null;
+  }
+
+  resumeClock(now = Date.now()): void {
+    if (this.activeStartedAt != null) return;
+    this.activeStartedAt = now;
+  }
+
+  snapshot(now = Date.now()): BudgetSnapshot {
     return {
       startedAt: this.startedAt,
-      elapsedMs: Date.now() - this.startedAt,
+      elapsedMs: this.elapsedActiveMs(now),
       agentRuns: this.agentRuns,
       usage: {
         ...this.usage,

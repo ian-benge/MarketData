@@ -1,16 +1,21 @@
 import type { AgentHost } from "./agents";
+import { AgentInvocationError } from "./agents";
 import type { ArtifactStore } from "./artifacts";
 import type { RunBudget } from "./budget";
 import { wrapUntrusted } from "./injection";
 import { contractReviewPrompt } from "./prompts";
 import type { IsolatedWorkspace } from "./isolation";
+import type { RunMachine } from "./machine";
 import {
   canonicalizeContract,
+  parseArtifact,
   type ContractDecision,
   type PageContract,
 } from "./schemas";
 import { sha256Json } from "./util";
 import type { Logger } from "./util";
+import type { ContractReviewRole } from "./resume";
+import { nowIso } from "./util";
 
 export type ContractConsensusDeps = {
   host: AgentHost;
@@ -18,6 +23,13 @@ export type ContractConsensusDeps = {
   isolation: IsolatedWorkspace;
   budget: RunBudget;
   log: Logger;
+  machine?: RunMachine;
+  persistBudget?: () => void;
+};
+
+export type ContractResume = {
+  startRound: number;
+  skipBuilder: boolean;
 };
 
 export async function agreeContract(options: {
@@ -26,65 +38,73 @@ export async function agreeContract(options: {
   contract: PageContract;
   maxRounds: number;
   deps: ContractConsensusDeps;
+  resume?: ContractResume;
 }): Promise<{ contract: PageContract; hash: string; rounds: number }> {
   let current = canonicalizeContract(options.contract);
-  options.deps.store.writeJson("contract-proposal-0.json", {
-    hash: current.hash,
-    contract: current.contract,
-  });
+  if (!options.deps.store.readJson("contract-proposal-0.json")) {
+    options.deps.store.writeJson("contract-proposal-0.json", {
+      hash: current.hash,
+      contract: current.contract,
+    });
+  }
 
-  for (let round = 1; round <= options.maxRounds; round += 1) {
+  const startRound = options.resume?.startRound ?? 1;
+
+  for (let round = startRound; round <= options.maxRounds; round += 1) {
     options.deps.budget.assert();
-    const json = JSON.stringify(current.contract, null, 2);
-    const builder = await options.deps.host.open({
-      role: "builder",
-      cwd: options.deps.isolation.agentCwd,
-      purpose: "contract_reviewer",
-    });
-    let builderDecision: ContractDecision;
-    try {
-      await builder.send(
-        contractReviewPrompt({
-          role: "builder",
-          route: options.route,
-          objective: options.objective,
-          contractJson: json,
-          contractHash: current.hash,
-        }),
-      );
-      builderDecision = readDecision(options.deps.store);
-    } finally {
-      await builder.close();
-    }
-    options.deps.store.writeJson(
+    const existingBuilder = options.deps.store.readJson(
       `contract-decision-builder-${round}.json`,
-      builderDecision,
     );
-
-    const evaluator = await options.deps.host.open({
-      role: "evaluator",
-      cwd: options.deps.isolation.agentCwd,
-      purpose: "contract_reviewer",
-    });
-    let evaluatorDecision: ContractDecision;
-    try {
-      await evaluator.send(
-        contractReviewPrompt({
-          role: "evaluator",
-          route: options.route,
-          objective: options.objective,
-          contractJson: json,
-          contractHash: current.hash,
-        }),
-      );
-      evaluatorDecision = readDecision(options.deps.store);
-    } finally {
-      await evaluator.close();
-    }
-    options.deps.store.writeJson(
+    const existingEvaluator = options.deps.store.readJson(
       `contract-decision-evaluator-${round}.json`,
-      evaluatorDecision,
     );
+    if (existingBuilder && existingEvaluator) {
+      parseArtifact("contract-decision", existingBuilder);
+      parseArtifact("contract-decision", existingEvaluator);
+      options.deps.machine?.markContractRoundComplete(round, current.hash);
+      continue;
+    }
+
+    const json = JSON.stringify(current.contract, null, 2);
+    let builderDecision: ContractDecision;
+    if (existingBuilder) {
+      builderDecision = parseArtifact("contract-decision", existingBuilder);
+    } else {
+      builderDecision = await invokeReviewer({
+        round,
+        role: "builder",
+        route: options.route,
+        objective: options.objective,
+        contractJson: json,
+        contractHash: current.hash,
+        deps: options.deps,
+      });
+      options.deps.store.writeJson(
+        `contract-decision-builder-${round}.json`,
+        builderDecision,
+      );
+    }
+
+    let evaluatorDecision: ContractDecision;
+    if (existingEvaluator) {
+      evaluatorDecision = parseArtifact("contract-decision", existingEvaluator);
+    } else {
+      evaluatorDecision = await invokeReviewer({
+        round,
+        role: "evaluator",
+        route: options.route,
+        objective: options.objective,
+        contractJson: json,
+        contractHash: current.hash,
+        deps: options.deps,
+      });
+      options.deps.store.writeJson(
+        `contract-decision-evaluator-${round}.json`,
+        evaluatorDecision,
+      );
+    }
+
+    options.deps.machine?.markContractRoundComplete(round, current.hash);
 
     const builderAccept =
       builderDecision.decision === "accept" &&
@@ -118,6 +138,10 @@ export async function agreeContract(options: {
         builderNext.hash < evaluatorNext.hash ? builderNext : evaluatorNext;
       current = chosen;
       options.deps.store.writeJson("contract.json", current.contract);
+      if (options.deps.machine) {
+        options.deps.machine.state.canonicalProposalHash = current.hash;
+        options.deps.machine.persist();
+      }
       options.deps.store.writeText(
         `contract-conflict-${round}.note.md`,
         wrapUntrusted(
@@ -139,12 +163,85 @@ export async function agreeContract(options: {
       hash: current.hash,
       contract: current.contract,
     });
+    if (options.deps.machine) {
+      options.deps.machine.state.canonicalProposalHash = current.hash;
+      options.deps.machine.persist();
+    }
     options.deps.log.info(`contract round ${round} proposed hash=${current.hash.slice(0, 12)}`);
   }
 
   throw new Error(
     "Builder and evaluator did not accept the same canonical contract hash. Refusing to edit.",
   );
+}
+
+async function invokeReviewer(options: {
+  round: number;
+  role: ContractReviewRole;
+  route: string;
+  objective: string;
+  contractJson: string;
+  contractHash: string;
+  deps: ContractConsensusDeps;
+}): Promise<ContractDecision> {
+  const startedAt = nowIso();
+  options.deps.machine?.setIncompleteInvocation({
+    round: options.round,
+    role: options.role,
+    purpose: "contract_reviewer",
+    agentId: null,
+    runId: null,
+    startedAt,
+    status: "started",
+    countedTowardBudget: true,
+  });
+  const reviewer = await options.deps.host.open({
+    role: options.role,
+    cwd: options.deps.isolation.agentCwd,
+    purpose: "contract_reviewer",
+  });
+  options.deps.machine?.setIncompleteInvocation({
+    round: options.round,
+    role: options.role,
+    purpose: "contract_reviewer",
+    agentId: reviewer.agentId,
+    runId: null,
+    startedAt,
+    status: "started",
+    countedTowardBudget: true,
+  });
+  try {
+    await reviewer.send(
+      contractReviewPrompt({
+        role: options.role,
+        route: options.route,
+        objective: options.objective,
+        contractJson: options.contractJson,
+        contractHash: options.contractHash,
+      }),
+    );
+    const decision = readDecision(options.deps.store);
+    options.deps.machine?.setIncompleteInvocation(null);
+    options.deps.persistBudget?.();
+    return decision;
+  } catch (error) {
+    const runId =
+      error instanceof AgentInvocationError ? error.runId ?? null : null;
+    options.deps.machine?.setIncompleteInvocation({
+      round: options.round,
+      role: options.role,
+      purpose: "contract_reviewer",
+      agentId: reviewer.agentId,
+      runId,
+      startedAt,
+      status: "failed",
+      countedTowardBudget: true,
+    });
+    options.deps.persistBudget?.();
+    throw error;
+  } finally {
+    await reviewer.close();
+  }
 }
 
 function replacementOf(decision: ContractDecision) {

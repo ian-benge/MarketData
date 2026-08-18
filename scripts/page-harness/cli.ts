@@ -10,7 +10,7 @@ import {
   ModelUnavailableError,
   summarizeCatalog,
 } from "./model";
-import { attachIsolation, createIsolation, makeRunId, removeWorktree } from "./isolation";
+import { attachIsolation, createIsolation, currentHead, changedFiles, dirtyFiles, makeRunId, removeWorktree } from "./isolation";
 import { runHarness } from "./orchestrator";
 import {
   buildHarnessRequest,
@@ -30,6 +30,15 @@ import {
   sandboxPolicySnapshot,
 } from "./sandbox";
 import { InspectAuthError } from "./inspect-auth";
+import { classifyFailure } from "./failure";
+import {
+  formatRunStatus,
+  migratePersistedRun,
+  phaseRequiresDemoServer,
+  resolveResumeRunId,
+  restoreRunBudget,
+  validateResume,
+} from "./resume";
 
 const HELP = `Page Improvement Harness v2 — IB Market Data
 
@@ -63,8 +72,8 @@ Options:
   --max-agent-runs <n>        Fresh SDK agent cap (default: 40)
   --max-total-tokens <n>      Token cap across runs (default: 2000000)
   --risk low|medium|critical  Changes verification, skeptic, and adjacent regression requirements
-  --from-audit <run-id>       Reuse a matching audit contract+baseline. Invalid evidence stops the run.
-  --resume <run-id>           Resume a persisted run
+  --from-audit <run-id>       Reuse a completed provenance-valid audit contract+baseline.
+  --resume <run-id>           Resume an incomplete run from last atomically completed state.
   --allow-no-sandbox          Required for builder runs when filesystem sandboxing is unavailable
   --isolation <mode>          worktree | branch | none (default: worktree)
   --role <role>               member | admin | public (default: catalog)
@@ -165,10 +174,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     return specialCommands(apiKey, Boolean(parsed.values["self-check"]), repoRoot);
   }
 
-  const resumeId = parsed.values.resume || (script === "page:resume" ? parsed.positionals[0] : undefined);
-  if (resumeId) {
+  const resumeResolved = resolveResumeRunId({
+    script,
+    resumeFlag: parsed.values.resume,
+    positional: parsed.positionals[0],
+    repoRoot,
+  });
+  if (script === "page:resume" || parsed.values.resume) {
+    if (!resumeResolved.ok) {
+      console.error(resumeResolved.message);
+      return 1;
+    }
     return resumeRun({
-      runId: resumeId,
+      runId: resumeResolved.runId,
       repoRoot,
       apiKey,
       baseUrl: parsed.values["base-url"],
@@ -395,10 +413,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     } catch {
       // machine persist may already have failed
     }
-    store.markUnreusable({
-      failedPhase: machine.state.currentPhase,
-      message,
-    });
+    const classified = classifyFailure(message);
+    const status = store.readJson("run-status.json") as { resumable?: boolean } | null;
+    if (status?.resumable !== true && classified.retryable) {
+      store.writeFailureStatus({
+        phase: machine.state.currentPhase,
+        message,
+        resumable: true,
+        category: classified.category,
+      });
+    } else if (status?.resumable !== true) {
+      store.markUnreusable({
+        failedPhase: machine.state.currentPhase,
+        message,
+      });
+    }
     if (error instanceof AuditReuseError || error instanceof CriticalSkepticRequiredError) {
       store.writeJson("from-audit-rejected.json", {
         reusable: false,
@@ -570,26 +599,16 @@ function inspectRunCommand(
       console.log(`run ${runId} (no machine.json)`);
       return 0;
     }
-    const machine = JSON.parse(readFileSync(machineFile, "utf8")) as {
-      currentPhase: string;
-      iteration: number;
-      contractHash: string | null;
-      bestCommit: string | null;
-      stopReason: string | null;
-      request: { route: string; auditOnly: boolean };
-    };
-    console.log(
-      [
-        `run: ${runId}`,
-        `route: ${machine.request.route}`,
-        `phase: ${machine.currentPhase}`,
-        `iteration: ${machine.iteration}`,
-        `auditOnly: ${machine.request.auditOnly}`,
-        `contractHash: ${machine.contractHash ?? "n/a"}`,
-        `bestCommit: ${machine.bestCommit ?? "n/a"}`,
-        `stopReason: ${machine.stopReason ?? "n/a"}`,
-      ].join("\n"),
-    );
+    try {
+      const paths = createRunPaths(repoRoot, runId);
+      const store = new ArtifactStore(paths);
+      const state = migratePersistedRun(store, paths.root);
+      console.log(formatRunStatus(runId, state));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(message);
+      return 1;
+    }
   }
   if (flags.prompts) {
     const dir = path.join(root, "artifacts", "prompts");
@@ -631,22 +650,81 @@ async function resumeRun(options: {
   cleanup: boolean;
 }): Promise<number> {
   const paths = createRunPaths(options.repoRoot, options.runId);
-  const machine = RunMachine.resume(paths.root);
-  const store = new ArtifactStore(paths);
-  const log = new Logger((line) => store.appendLog(line));
-  const request = machine.state.request;
-  const status = store.readJson("run-status.json") as { reusable?: boolean } | null;
-  if (status?.reusable === false) {
+  if (!existsSync(path.join(paths.root, "machine.json"))) {
     console.error(
-      `Run ${options.runId} is not resumable (failed and marked non-reusable). Start a new audit or improve run.`,
+      `Run not found: ${options.runId}. page:resume will not start a new run.`,
     );
     return 1;
   }
+  const store = new ArtifactStore(paths);
+  const log = new Logger((line) => store.appendLog(line));
+  let machine: RunMachine;
+  try {
+    machine = RunMachine.resume(paths.root);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+
+  const migrated = migratePersistedRun(store, paths.root);
+  machine = RunMachine.resume(paths.root);
+  const validation = await validateResume({
+    store,
+    runRoot: paths.root,
+    repoRoot: options.repoRoot,
+    git: {
+      currentHead,
+      changedFiles,
+      dirtyFiles,
+    },
+  });
+  if (!validation.ok) {
+    console.error(
+      `Run ${options.runId} is not resumable: ${validation.reason}`,
+    );
+    if (validation.state) {
+      console.log(formatRunStatus(options.runId, validation.state));
+    }
+    return 1;
+  }
+  if (!migrated.resumable) {
+    console.error(
+      `Run ${options.runId} is not resumable (reusable=${migrated.reusable ? "yes" : "no"}).`,
+    );
+    console.log(formatRunStatus(options.runId, migrated));
+    return 1;
+  }
+
+  const request = machine.state.request;
   const isolation = await attachIsolation(machine.state.isolation as IsolatedWorkspace);
   process.env.PAGE_HARNESS_ACTIVE = "1";
   process.env.PAGE_HARNESS_RUN_DIR = paths.root;
   process.env.PAGE_HARNESS_WORKTREE = isolation.agentCwd;
   process.env.PAGE_HARNESS_AGENT_CWD = isolation.agentCwd;
+
+  const preflight = runPreflight(options.repoRoot, {
+    needsBuilder: !request.auditOnly,
+    allowNoSandbox: request.allowNoSandbox === true,
+    cwd: isolation.agentCwd,
+  });
+  store.writeJson("preflight.json", {
+    ...preflight,
+    sandboxPolicy: sandboxPolicySnapshot(preflight.sandboxPolicy),
+  });
+  store.writeJson("sandbox.json", preflight.sandbox);
+  store.writeJson("role-permissions.json", preflight.rolePermissions);
+  log.info(preflight.sandboxNote);
+  if (!preflight.ok) {
+    const message = "Harness preflight failed:\n" + preflight.failures.join("\n");
+    console.error(message);
+    store.writeFailureStatus({
+      phase: "PRECHECK",
+      message,
+      resumable: false,
+      category: "security_policy",
+    });
+    return 1;
+  }
 
   const sandboxPolicy = resolveSandboxPolicy({
     needsBuilder: !request.auditOnly,
@@ -657,7 +735,12 @@ async function resumeRun(options: {
   if (!sandboxPolicy.fallbackAllowed && sandboxPolicy.effective !== "enabled") {
     const err = new SandboxRequiredError(sandboxPolicy);
     log.error(err.message);
-    store.markUnreusable({ failedPhase: "PRECHECK", message: err.message });
+    store.writeFailureStatus({
+      phase: "PRECHECK",
+      message: err.message,
+      resumable: false,
+      category: "security_policy",
+    });
     return 1;
   }
 
@@ -667,11 +750,22 @@ async function resumeRun(options: {
   } catch (error) {
     return failModel(error, log);
   }
+  store.writeJson("model.json", {
+    id: model.selection.id,
+    params: model.selection.params,
+    xhighParameterId: model.xhighParameterId,
+    xhighValue: model.xhighValue,
+    displayName: model.matched.displayName,
+    catalog: summarizeCatalog(model.catalog),
+  });
+  log.info(`model ${model.selection.id} ${model.xhighParameterId}=${model.xhighValue}`);
 
+  const budget = restoreRunBudget(validation.state.budget);
   let serverStop: (() => Promise<void>) | null = null;
-  let baseUrl = options.baseUrl;
+  let baseUrl = options.baseUrl ?? "http://127.0.0.1:3200";
   try {
-    if (!baseUrl) {
+    const nextPhase = validation.state.activePhase;
+    if (!options.baseUrl && phaseRequiresDemoServer(nextPhase)) {
       const server = await startDemoServer({
         cwd: isolation.agentCwd,
         port: Number(options.port ?? HARNESS_DEFAULTS.port),
@@ -679,6 +773,7 @@ async function resumeRun(options: {
       });
       baseUrl = server.baseUrl;
       serverStop = server.stop;
+      log.info(`demo server ${baseUrl} bundler=${server.bundler}`);
     }
     const host = createCursorAgentHost({
       apiKey: options.apiKey,
@@ -693,21 +788,36 @@ async function resumeRun(options: {
     });
     const result = await runHarness(
       { ...request, resumeRunId: options.runId },
-      { host, store, paths, isolation, baseUrl, log, machine, model: model.selection },
+      {
+        host,
+        store,
+        paths,
+        isolation,
+        baseUrl,
+        log,
+        machine,
+        model: model.selection,
+        budget,
+      },
     );
     console.log(result.reportPath);
     return result.status === "failed" ? 2 : 0;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     log.error(redactSecrets(message));
+    const classified = classifyFailure(message);
+    const status = store.readJson("run-status.json") as { resumable?: boolean } | null;
+    if (status?.resumable === true) return 1;
     try {
-      machine.fail(machine.state.currentPhase, redactSecrets(message));
+      machine.fail(machine.state.currentPhase, redactSecrets(message), classified.category);
     } catch {
       // ignore persist failures
     }
-    store.markUnreusable({
-      failedPhase: machine.state.currentPhase,
+    store.writeFailureStatus({
+      phase: machine.state.currentPhase,
       message,
+      resumable: classified.retryable,
+      category: classified.category,
     });
     return 1;
   } finally {

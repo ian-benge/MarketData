@@ -117,7 +117,9 @@ export class ArtifactStore {
 
   markUnreusable(input: { failedPhase: string; message: string }): void {
     this.writeJson("run-status.json", {
+      processStatus: "failed",
       reusable: false,
+      resumable: false,
       failedPhase: input.failedPhase,
       reason: redactSecrets(input.message),
       completedAt: nowIso(),
@@ -126,6 +128,38 @@ export class ArtifactStore {
       message: redactSecrets(input.message),
       failedPhase: input.failedPhase,
       reusable: false,
+      resumable: false,
+    });
+  }
+
+  writeFailureStatus(input: {
+    phase: string;
+    message: string;
+    resumable: boolean;
+    category: string;
+    resume?: {
+      nextAction?: string | null;
+      schemaVersion?: number | null;
+    };
+  }): void {
+    this.writeJson("run-status.json", {
+      processStatus: "failed",
+      reusable: false,
+      resumable: input.resumable,
+      failedPhase: input.phase,
+      activePhase: input.phase,
+      failureCategory: input.category,
+      reason: redactSecrets(input.message),
+      nextAction: input.resume?.nextAction ?? null,
+      schemaVersion: input.resume?.schemaVersion ?? null,
+      completedAt: nowIso(),
+    });
+    this.writeJson("fatal.json", {
+      message: redactSecrets(input.message),
+      failedPhase: input.phase,
+      reusable: false,
+      resumable: input.resumable,
+      failureCategory: input.category,
     });
   }
 }

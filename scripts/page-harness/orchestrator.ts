@@ -1,6 +1,6 @@
 import path from "node:path";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import type { AgentHost, AgentSession } from "./agents";
+import { AgentInvocationError, type AgentHost, type AgentSession } from "./agents";
 import { ArtifactStore, type RunPaths } from "./artifacts";
 import { AuditReuseError, loadAuditReuse, auditFingerprint } from "./audit-reuse";
 import { BudgetExceededError, RunBudget } from "./budget";
@@ -17,6 +17,14 @@ import {
 } from "./checkpoints";
 import { snapshotRedactedConfig } from "./config-snapshot";
 import { agreeContract } from "./contract-consensus";
+import { classifyFailure } from "./failure";
+import {
+  discoverContractProgress,
+  hydrateResumeState,
+  inferIncompleteFromFailure,
+  persistBudgetFromLimits,
+  writeResumeState,
+} from "./resume";
 import {
   bindPreLockProvenance,
   isEvidenceFresh,
@@ -116,7 +124,28 @@ export type HarnessResult = {
   integrationReady?: boolean;
 };
 
-function withBudgetAccounting(host: AgentHost, budget: RunBudget): AgentHost {
+function persistLiveBudget(
+  store: ArtifactStore,
+  budget: RunBudget,
+  request: HarnessRequest,
+  paused: boolean,
+): void {
+  store.writeJson(
+    "budget.json",
+    persistBudgetFromLimits(request, {
+      agentRuns: budget.agentRuns,
+      consumedActiveRuntimeMs: budget.elapsedActiveMs(),
+      pausedAt: paused ? nowIso() : null,
+      usage: budget.usage,
+    }),
+  );
+}
+
+function withBudgetAccounting(
+  host: AgentHost,
+  budget: RunBudget,
+  onTurn?: () => void,
+): AgentHost {
   return {
     async open(options) {
       const session = await host.open(options);
@@ -125,14 +154,23 @@ function withBudgetAccounting(host: AgentHost, budget: RunBudget): AgentHost {
         async send(prompt: string) {
           budget.recordAgentRun();
           budget.assert();
-          const result = await session.send(prompt);
-          budget.accountTurn(
-            session.role,
-            session.purpose,
-            result.usageAccount ?? accountSdkUsage(result.usage),
-          );
-          budget.assert();
-          return result;
+          try {
+            const result = await session.send(prompt);
+            budget.accountTurn(
+              session.role,
+              session.purpose,
+              result.usageAccount ?? accountSdkUsage(result.usage),
+            );
+            onTurn?.();
+            budget.assert();
+            return result;
+          } catch (error) {
+            if (error instanceof AgentInvocationError && error.usageAccount) {
+              budget.accountTurn(session.role, session.purpose, error.usageAccount);
+            }
+            onTurn?.();
+            throw error;
+          }
         },
       };
     },
@@ -197,9 +235,10 @@ export async function runHarness(
     currentHead,
     ...deps.git,
   };
+  const persistBudget = () => persistLiveBudget(deps.store, budget, request, false);
   const hosted: HarnessDeps = {
     ...deps,
-    host: withBudgetAccounting(deps.host, budget),
+    host: withBudgetAccounting(deps.host, budget, persistBudget),
     git: gitImpl,
     budget,
     machine,
@@ -227,11 +266,23 @@ export async function runHarness(
       });
     }
     const message = error instanceof Error ? error.message : String(error);
-    machine.fail(machine.state.currentPhase, message);
-    deps.store.markUnreusable({
-      failedPhase: machine.state.currentPhase,
-      message,
+    const classified = classifyFailure(message);
+    budget.pause();
+    machine.fail(machine.state.currentPhase, message, classified.category);
+    persistLiveBudget(deps.store, budget, request, true);
+    const resume = hydrateResumeState({
+      store: deps.store,
+      machine: machine.state,
+      runRoot: deps.paths.root,
     });
+    deps.store.writeFailureStatus({
+      phase: machine.state.currentPhase,
+      message,
+      resumable: resume.resumable,
+      category: classified.category,
+      resume,
+    });
+    writeResumeState(deps.store, resume);
     throw error;
   }
 }
@@ -249,14 +300,18 @@ async function executeHarness(
   const inspectImpl = deps.inspect ?? inspectRoute;
   const verifyImpl = deps.verify ?? runVerification;
   const policy = resolveRiskPolicy(request.risk);
+  budget.resumeClock();
+  const persistBudget = () => persistLiveBudget(deps.store, budget, request, false);
 
-  deps.store.writeJson("request.json", {
-    ...request,
-    runId,
-    isolation: deps.isolation,
-    riskPolicy: policy,
-    startedAt: nowIso(),
-  });
+  if (!deps.store.readJson("request.json")) {
+    deps.store.writeJson("request.json", {
+      ...request,
+      runId,
+      isolation: deps.isolation,
+      riskPolicy: policy,
+      startedAt: nowIso(),
+    });
+  }
   deps.store.appendProgress({ phase: "start", route: request.route });
 
   if (!machine.shouldSkip("BASELINE")) {
@@ -367,13 +422,41 @@ async function executeHarness(
   }
 
   if (!machine.state.contractLocked && !machine.shouldSkip("DUAL_REVIEW")) {
+    const discovered = discoverContractProgress(deps.store);
+    const previousStop = machine.state.stopReason;
+    const incomplete =
+      machine.state.incompleteInvocation ??
+      inferIncompleteFromFailure(
+        discovered,
+        previousStop,
+        request.maxContractRounds,
+      );
     machine.begin("DUAL_REVIEW");
+    machine.state.stopReason = null;
+    machine.state.failureCategory = null;
+    if (incomplete) machine.setIncompleteInvocation(incomplete);
     const agreed = await agreeContract({
       route: request.route,
       objective: request.objective,
       contract,
       maxRounds: request.maxContractRounds,
-      deps: { host: deps.host, store: deps.store, isolation: deps.isolation, budget, log: deps.log },
+      resume: incomplete
+        ? {
+            startRound: incomplete.round,
+            skipBuilder: incomplete.role === "evaluator",
+          }
+        : discovered.completed.length
+          ? { startRound: discovered.completed.length + 1, skipBuilder: false }
+          : undefined,
+      deps: {
+        host: deps.host,
+        store: deps.store,
+        isolation: deps.isolation,
+        budget,
+        log: deps.log,
+        machine,
+        persistBudget,
+      },
     });
     contract = agreed.contract;
     machine.complete("DUAL_REVIEW", { hash: agreed.hash, rounds: agreed.rounds });
@@ -386,12 +469,14 @@ async function executeHarness(
   const contractHash =
     machine.state.contractHash ?? canonicalizeContract(contract).hash;
   deps.store.writeJson("contract.json", contract);
-  deps.store.writeJson("contract-agreement.json", {
-    hash: contractHash,
-    agreedAt: nowIso(),
-    auditOnly: request.auditOnly,
-    locked: true,
-  });
+  if (machine.state.contractLocked) {
+    deps.store.writeJson("contract-agreement.json", {
+      hash: contractHash,
+      agreedAt: nowIso(),
+      auditOnly: request.auditOnly,
+      locked: true,
+    });
+  }
 
   const inspectFilePath = path.join(deps.paths.inspectBefore, "inspect.json");
   const provenance = bindPreLockProvenance({

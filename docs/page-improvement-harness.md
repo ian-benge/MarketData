@@ -29,10 +29,10 @@ npm run page:resume -- <run-id>
 | `page:inspect -- <route>` | Demo server + Playwright evidence only (no agents) |
 | `page:audit -- <route>` | Read-only planner, dual contract review, locked contract, independent evaluation |
 | `page:improve -- <route>` | Isolated worktree, locked contract, build/verify/evaluate/repair |
-| `page:status [-- run-id]` | Current phase, iteration, contract hash, best checkpoint |
+| `page:status [-- run-id]` | Reusable vs resumable, failed/active phase, completed phases, contract round, remaining budgets, next action |
 | `page:prompts [-- run-id]` | Exact composed prompts persisted for the run |
 | `page:report [-- run-id]` | Print `artifacts/report.md` |
-| `page:resume -- <run-id>` | Resume a persisted machine after process failure |
+| `page:resume -- <run-id>` | Resume an incomplete run from last atomically completed state. Refuses routes and never starts a new run. |
 
 There is **no** unattended auto-merge or auto-deploy command.
 
@@ -40,7 +40,9 @@ There is **no** unattended auto-merge or auto-deploy command.
 
 `--objective`, `--objective-file`, `--audit-only`, `--skeptic` / `--no-skeptic`, `--max-iterations`, `--max-minutes` (alias `--max-duration-minutes`), `--max-contract-rounds`, `--max-agent-runs`, `--max-total-tokens`, `--risk low|medium|critical`, `--from-audit <run-id>`, `--resume <run-id>`, `--allow-no-sandbox`, `--isolation worktree|branch|none`, `--role`, `--base-url`, `--port`, `--cleanup-worktree`.
 
-`--from-audit` reuses an audit only when `scripts/page-harness/policy.ts` `assessAuditReuseValidity` passes: locked contract, exact supplied objective, matching base SHA, validated provenance rebound for pre-lock inspect, requested-route verification, and no aliased after-evidence. Invalid `--from-audit` **stops**. It never falls back to a fresh plan.
+`--from-audit` reuses an audit only when it is **reusable**: completed, provenance-valid, and `assessAuditReuseValidity` passes. Invalid `--from-audit` **stops**. It never falls back to a fresh plan.
+
+`reusable` and `resumable` are separate persisted flags. A failed run may be `reusable=false` and still `resumable=true` when the interruption is retryable (network, SDK connection, process death, recoverable server) and artifacts are internally consistent. `page:resume` continues from the last atomically completed phase/contract round. It does **not** treat `reusable=false` as non-resumable. Completed audits are reusable via `--from-audit` and are not resumable.
 
 `--risk low|medium|critical` is enforced by `resolveRiskPolicy()` (Playwright timeout, inspect samples, adjacent regression, skeptic). Critical improvement runs require a skeptic; `--no-skeptic` is refused.
 
@@ -154,7 +156,7 @@ Under `tmp/page-harness/<run-id>/` (redacted):
 - builder summaries, verification, evaluations, skeptic
 - `failed-approaches/`, `checkpoint-ranking.json`
 - `report.md`, `report.json`, `handoff.json` (worktree, branch, base SHA, final SHA)
-- `machine.json` for resume
+- `machine.json` and `resume-state.json` for resume (`reusable` vs `resumable`, incomplete reviewer, budgets)
 
 Not persisted: hidden reasoning, secrets, cookies, authorization headers, raw env values, credential-bearing commands.
 
@@ -184,6 +186,7 @@ Use `--max-iterations 1` and `--risk low` for cheap probes. `page:inspect` and `
 | Next fails in a worktree | `next.log`; Turbopack symlink — webpack fallback or `HARNESS_TURBOPACK_ROOT` |
 | Contract will not lock | `contract-conflict-*.json`; both reviewers must accept the same hash |
 | Resume cannot find worktree | Isolation was `none` or `--cleanup-worktree` ran; start a new run |
+| `page:resume` says not resumable | Failed runs can still be resumable. Check `resumable` separately from `reusable`. Permission, provenance, corrupted artifacts, contract-round exhaustion, security-policy, and worktree/SHA mismatch stay non-resumable. |
 | Audit reuse refused | `from-audit-rejected.json` — invalid provenance, pending hash, missing target-route verification, aliased after-evidence, or fingerprint mismatch. The run does not start a planner. |
 
 ## Production-ready bar

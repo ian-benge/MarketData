@@ -17,16 +17,23 @@ export type IterationRecord = {
 };
 
 export type MachineState = {
-  version: 2;
+  version: 2 | 3;
+  schemaVersion?: number;
   runId: string;
   request: HarnessRequest;
   currentPhase: HarnessPhase;
+  lastCompletedPhase?: HarnessPhase | null;
   iteration: number;
   contractLocked: boolean;
   contractHash: string | null;
+  contractRound?: number;
+  completedContractRounds?: number[];
+  incompleteInvocation?: import("./resume").IncompleteInvocation | null;
+  canonicalProposalHash?: string | null;
   startCommit: string | null;
   bestCommit: string | null;
   stopReason: string | null;
+  failureCategory?: import("./failure").FailureCategory | null;
   isolation: unknown;
   model: unknown;
   phases: Record<HarnessPhase, PhaseRecord>;
@@ -57,16 +64,23 @@ export function createMachine(options: {
   model: unknown;
 }): MachineState {
   return {
-    version: 2,
+    version: 3,
+    schemaVersion: 3,
     runId: options.runId,
     request: options.request,
     currentPhase: "PRECHECK",
+    lastCompletedPhase: null,
     iteration: 0,
     contractLocked: false,
     contractHash: null,
+    contractRound: 0,
+    completedContractRounds: [],
+    incompleteInvocation: null,
+    canonicalProposalHash: null,
     startCommit: null,
     bestCommit: null,
     stopReason: null,
+    failureCategory: null,
     isolation: options.isolation,
     model: options.model,
     phases: defaultPhases(),
@@ -150,6 +164,7 @@ export class RunMachine {
     record.endedAt = nowIso();
     record.result = result;
     record.error = null;
+    this.state.lastCompletedPhase = phase;
     this.persist();
     return record;
   }
@@ -163,14 +178,33 @@ export class RunMachine {
     return record;
   }
 
-  fail(phase: HarnessPhase, error: string): PhaseRecord {
+  fail(phase: HarnessPhase, error: string, category?: import("./failure").FailureCategory): PhaseRecord {
     const record = this.slot(phase);
     record.status = "failed";
     record.endedAt = nowIso();
     record.error = error;
     this.state.stopReason = error;
+    this.state.failureCategory = category ?? this.state.failureCategory ?? null;
     this.persist();
     return record;
+  }
+
+  setIncompleteInvocation(
+    invocation: import("./resume").IncompleteInvocation | null,
+  ): void {
+    this.state.incompleteInvocation = invocation;
+    if (invocation) this.state.contractRound = invocation.round;
+    this.persist();
+  }
+
+  markContractRoundComplete(round: number, hash: string): void {
+    const rounds = new Set(this.state.completedContractRounds ?? []);
+    rounds.add(round);
+    this.state.completedContractRounds = [...rounds].sort((a, b) => a - b);
+    this.state.contractRound = round;
+    this.state.canonicalProposalHash = hash;
+    this.state.incompleteInvocation = null;
+    this.persist();
   }
 
   startIteration(n: number): void {
