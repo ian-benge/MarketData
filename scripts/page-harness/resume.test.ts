@@ -19,6 +19,7 @@ import {
   hydrateResumeState,
   looksLikeRoute,
   looksLikeRunId,
+  applyResumeBudgetExtension,
   migratePersistedRun,
   resolveResumeRunId,
   restoreRunBudget,
@@ -165,6 +166,9 @@ describe("retryable failure classification", () => {
     expect(classifyFailure("access denied by project hooks").retryable).toBe(false);
     expect(classifyFailure("Sandbox required for builder runs").retryable).toBe(false);
     expect(classifyFailure("Builder and evaluator did not accept the same canonical contract hash. Refusing to edit.").retryable).toBe(false);
+    const budget = classifyFailure("max-total-tokens exceeded (26301234 > 25000000)");
+    expect(budget.category).toBe("budget_exhausted");
+    expect(budget.retryable).toBe(true);
   });
 });
 
@@ -390,7 +394,7 @@ describe("contract-reviewer interruption", () => {
             log: new Logger(() => {}),
           },
         }),
-      ).rejects.toThrow(/did not accept the same canonical contract hash/);
+      ).rejects.toThrow(/contract_exhausted|did not accept the same canonical/);
       expect(store.readJson("contract-decision-builder-4.json")).toBeNull();
       expect(hash).toHaveLength(64);
     } finally {
@@ -580,6 +584,116 @@ describe("resume does not repeat completed work", () => {
       ).rejects.toThrow(/Connection failed repeatedly/);
       expect(opened.some((row) => row.startsWith("planner"))).toBe(false);
       expect(opened).toEqual(["builder/contract_reviewer"]);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("budget_exhausted resume", () => {
+  it("is resumable with a strictly higher cap and rejects reduced limits", async () => {
+    const tmp = mkdtempSync(path.join(os.tmpdir(), "phr-budget-ex-"));
+    try {
+      const runId = "denied-20260818-b0d9e7a1";
+      const paths = createRunPaths(tmp, runId);
+      const store = new ArtifactStore(paths);
+      const iso = isolation(tmp);
+      const machine = RunMachine.start(
+        paths.root,
+        createMachine({ runId, request: requestBase, isolation: iso, model: {} }),
+      );
+      for (const phase of ["PRECHECK", "WORKTREE", "BASELINE", "PLAN", "CONTRACT_DRAFT"] as const) {
+        machine.begin(phase);
+        machine.complete(phase);
+      }
+      machine.begin("DUAL_REVIEW");
+      machine.fail("DUAL_REVIEW", "max-total-tokens exceeded (100 > 50)", "budget_exhausted");
+      const contract = sampleContract();
+      const hash = canonicalizeContract(contract).hash;
+      store.writeJson("request.json", {
+        route: requestBase.route,
+        suppliedObjective: requestBase.suppliedObjective,
+      });
+      store.writeJson("contract.json", contract);
+      store.writeJson("baseline.json", { route: "/denied" });
+      store.writeJson("contract-decision-builder-1.json", acceptDecision(hash));
+      store.writeJson("contract-decision-evaluator-1.json", acceptDecision(hash));
+      store.writeJson("budget.json", {
+        agentRuns: 4,
+        consumedActiveRuntimeMs: 12_000,
+        pausedAt: new Date().toISOString(),
+        usage: {
+          availability: "measured",
+          inputTokens: 80,
+          outputTokens: 20,
+          totalTokens: 100,
+          cacheReadTokens: null,
+          cacheWriteTokens: null,
+          reasoningTokens: null,
+          tokenLimitEnforced: true,
+          tokenLimitStatus: "enforced",
+          turns: [
+            {
+              role: "planner",
+              purpose: "planner",
+              availability: "measured",
+              inputTokens: 80,
+              outputTokens: 20,
+              totalTokens: 100,
+              cacheReadTokens: null,
+              cacheWriteTokens: null,
+              reasoningTokens: null,
+              tokenLimitEnforced: true,
+              tokenLimitStatus: "enforced",
+            },
+          ],
+        },
+        maxAgentRuns: 12,
+        maxTotalTokens: 50,
+        maxDurationMinutes: 120,
+        maxContractRounds: 3,
+        maxIterations: 3,
+      });
+      const state = hydrateResumeState({ store, machine: machine.state, runRoot: paths.root });
+      expect(state.failureCategory).toBe("budget_exhausted");
+      expect(state.resumable).toBe(true);
+      expect(state.reusable).toBe(false);
+      expect(state.nextAction).toMatch(/budget_exhausted/);
+      expect(state.budget.agentRuns).toBe(4);
+      expect(state.budget.usage.totalTokens).toBe(100);
+
+      const restored = restoreRunBudget(state.budget);
+      expect(() =>
+        applyResumeBudgetExtension({
+          budget: restored,
+          request: { ...requestBase },
+          store,
+          maxTotalTokens: 50,
+          reason: "same cap",
+        }),
+      ).toThrow(/must strictly increase|may only increase/);
+
+      const raised = restoreRunBudget(state.budget);
+      const record = applyResumeBudgetExtension({
+        budget: raised,
+        request: { ...requestBase },
+        store,
+        maxTotalTokens: 101,
+        reason: "resume after token exhaustion",
+      });
+      expect(record.previous.maxTotalTokens).toBe(50);
+      expect(record.next.maxTotalTokens).toBe(101);
+      expect(raised.agentRuns).toBe(4);
+      expect(raised.usage.totalTokens).toBe(100);
+      const extensions = store.readJson("budget-extensions.json") as Array<{ reason: string }>;
+      expect(extensions).toHaveLength(1);
+
+      const validated = await validateResume({
+        store,
+        runRoot: paths.root,
+        repoRoot: tmp,
+      });
+      expect(validated.ok).toBe(true);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }

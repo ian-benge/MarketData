@@ -25,6 +25,50 @@ describe("budgets and cancellation", () => {
     expect(() => tokens.assert()).toThrow(/max-total-tokens/);
   });
 
+  it("marks completed work persisted when the cap is crossed after a valid turn", () => {
+    const budget = new RunBudget({
+      maxDurationMs: 60_000,
+      maxAgentRuns: 10,
+      maxTotalTokens: 10,
+      maxIterations: 1,
+      maxContractRounds: 1,
+    });
+    budget.addUsage({ inputTokens: 8, outputTokens: 8, totalTokens: 16 });
+    try {
+      budget.assertAfterInvocation();
+      throw new Error("expected BudgetExceededError");
+    } catch (error) {
+      expect(error).toBeInstanceOf(BudgetExceededError);
+      expect((error as BudgetExceededError).completedWorkPersisted).toBe(true);
+    }
+  });
+
+  it("allows a strictly higher budget extension and rejects reduced or unchanged limits", () => {
+    const budget = new RunBudget({
+      maxDurationMs: 60_000,
+      maxAgentRuns: 10,
+      maxTotalTokens: 100,
+      maxIterations: 1,
+      maxContractRounds: 3,
+    });
+    const record = budget.extendLimits({
+      maxTotalTokens: 200,
+      maxDurationMinutes: 2,
+      maxAgentRuns: 12,
+      reason: "resume after budget_exhausted",
+    });
+    expect(record.previous.maxTotalTokens).toBe(100);
+    expect(record.next.maxTotalTokens).toBe(200);
+    expect(budget.limits.maxTotalTokens).toBe(200);
+    expect(budget.agentRuns).toBe(0);
+    expect(() =>
+      budget.extendLimits({ maxTotalTokens: 200, reason: "unchanged" }),
+    ).toThrow(/must strictly increase/);
+    expect(() =>
+      budget.extendLimits({ maxTotalTokens: 50, reason: "lower" }),
+    ).toThrow(/must strictly increase|may only increase/);
+  });
+
   it("allows restoration-grace agent runs after the cap is already crossed", () => {
     const budget = new RunBudget({
       maxDurationMs: 60_000,

@@ -14,6 +14,7 @@ import {
   parseRiskLevel,
   resolveRiskPolicy,
   resolveSkeptic,
+  resolveWorkflowPolicy,
 } from "./policy";
 import { evaluationCompleteness } from "./schemas";
 import { accountSdkUsage, emptyAggregatedUsage } from "./usage";
@@ -31,10 +32,17 @@ describe("risk policy", () => {
     expect(critical.requireSkeptic).toBe(true);
     expect(critical.allowDisableSkeptic).toBe(false);
     expect(critical.requireAdjacentRegression).toBe(true);
+    expect(critical.independentReviewers).toBe(2);
+    expect(low.independentReviewers).toBe(1);
+    expect(medium.independentReviewers).toBe(1);
     expect(critical.inspectSamples).toBeGreaterThan(low.inspectSamples);
     expect(critical.playwrightTimeoutMs).toBeGreaterThan(medium.playwrightTimeoutMs);
     expect(parseRiskLevel(undefined, true)).toBe("critical");
     expect(parseRiskLevel("low", true)).toBe("low");
+    expect(resolveWorkflowPolicy({ risk: "critical" }).effectiveReviewers).toBe(2);
+    expect(resolveWorkflowPolicy({ risk: "critical", reviewers: 1 }).effectiveReviewers).toBe(1);
+    expect(resolveWorkflowPolicy({ risk: "critical", reviewers: 1 }).source).toBe("cli-override");
+    expect(resolveWorkflowPolicy({ risk: "low" }).effectiveReviewers).toBe(1);
   });
 
   it("refuses --no-skeptic on critical improvement runs", () => {

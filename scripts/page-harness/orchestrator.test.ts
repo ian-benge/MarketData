@@ -218,7 +218,7 @@ describe("page harness orchestrator", () => {
       const usage = store.readJson("report.json") as {
         usage: { turns: unknown[]; availability: string; totalTokens: number | null };
       };
-      expect(usage.usage.turns.length).toBeGreaterThanOrEqual(4);
+      expect(usage.usage.turns.length).toBeGreaterThanOrEqual(3);
       expect(usage.usage.availability).toBe("measured");
       expect(usage.usage.totalTokens).toBeGreaterThan(0);
     } finally {
@@ -791,6 +791,7 @@ describe("page harness orchestrator", () => {
           objective: "Improve keyboard",
           maxIterations: 1,
           maxAgentRuns: 5,
+          reviewers: 2,
         },
         {
           host: scriptedHost(store, 1),
@@ -1064,6 +1065,8 @@ describe("audit server lease, skeptic, and identity", () => {
       expect(skepticPrompt).toContain(`- verification: ${verifyLine}`);
       const identity = store.readJson("evaluation-evidence.json") as { hash: string };
       expect(identity.hash).toHaveLength(64);
+      expect(evalPrompt).toContain(`Evidence identity: ${identity.hash}`);
+      expect(skepticPrompt).toContain(`Evidence identity: ${identity.hash}`);
       const report = readFileSync(result.reportPath, "utf8");
       expect(report).toMatch(/Skeptic: \*\*completed/);
     } finally {
@@ -1240,6 +1243,62 @@ describe("audit server lease, skeptic, and identity", () => {
       ).rejects.toThrow(/Connection failed/);
       const budget = store.readJson("budget.json") as { agentRuns: number };
       expect(budget.agentRuns).toBeGreaterThanOrEqual(1);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("locks a conflict-free critical audit after one planner and two reviewers", async () => {
+    const tmp = mkdtempSync(path.join(os.tmpdir(), "phr-critical-lock-"));
+    try {
+      const paths = createRunPaths(tmp, "audit-critical-lock");
+      const store = new ArtifactStore(paths);
+      const opened: string[] = [];
+      const result = await runHarness(
+        {
+          ...requestBase,
+          objective: "Audit only",
+          auditOnly: true,
+          risk: "critical",
+          maxIterations: 1,
+          maxContractRounds: 3,
+        },
+        {
+          host: scriptedHost(store, 1, { opened }),
+          store,
+          paths,
+          isolation: {
+            mode: "none",
+            repoRoot: tmp,
+            agentCwd: tmp,
+            branchName: null,
+            worktreePath: null,
+            created: false,
+            baseSha: "abc",
+          },
+          baseUrl: "http://127.0.0.1:3200",
+          log: new Logger(() => {}),
+          inspect: inspectStub(),
+          verify: async () => [{ name: "typecheck", ok: true, output: "", scope: "static" }],
+          git: {
+            checkpoint: async () => ({ commit: "aaa", dirty: false }),
+            restoreCommit: async () => {},
+            changedFiles: async () => [],
+            currentHead: async () => "abc",
+          },
+        },
+      );
+      expect(result.status).toBe("audit_complete");
+      expect(opened.filter((row) => row.startsWith("planner/"))).toEqual(["planner/planner"]);
+      expect(opened.filter((row) => row.includes("contract_reviewer"))).toEqual([
+        "builder/contract_reviewer",
+        "evaluator/contract_reviewer",
+      ]);
+      expect(opened).toContain("evaluator/evaluator");
+      expect(opened).toContain("skeptic/skeptic");
+      expect(store.readJson("contract-decision-builder-2.json")).toBeNull();
+      const finalState = store.readJson("final-state.json") as { skepticStatus?: string };
+      expect(finalState.skepticStatus).toBe("completed");
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }

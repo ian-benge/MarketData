@@ -85,4 +85,12 @@ describe("SDK usage accounting", () => {
     expect(usageReportLines(usage).join("\n")).toMatch(/lower bound/i);
     expect(usageReportLines(usage).join("\n")).toMatch(/not fully enforced retrospectively/i);
   });
+
+  it("stays partial when any historical invocation is unknown", () => {
+    const usage = emptyAggregatedUsage();
+    addTurn(usage, "planner", "planner", accountSdkUsage({ inputTokens: 4, outputTokens: 2, totalTokens: 6 }));
+    addTurn(usage, "builder", "contract_reviewer", accountSdkUsage(null));
+    expect(usage.availability).toBe("partial");
+    expect(usage.turns.some((turn) => turn.availability === "unknown")).toBe(true);
+  });
 });
