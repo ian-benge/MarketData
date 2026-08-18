@@ -35,6 +35,12 @@ Mocks are **forbidden in production** (`mocksAllowed` fail-closed). Fixture dash
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run test` | Vitest unit/integration |
 | `npm run test:e2e` | Playwright e2e (starts `npm run dev` with demo env) |
+| `npm run page:audit -- /settings` | Read-only Cursor SDK page audit (Grok 4.6 xhigh) |
+| `npm run page:improve -- /denied` | Isolated page improvement loop (never merges or pushes) |
+| `npm run page:inspect -- /settings` | Demo-app Playwright baseline (no agents) |
+| `npm run page:routes` | Inventory app routes and recommended risk (read-only) |
+| `npm run page:models` | Discover and pin Grok 4.6 xhigh from `Cursor.models.list()` |
+| `npm run page:status` | Show the latest (or named) page-harness run phase |
 | `npm run build` | Production build |
 | `npm run seed` | Local seed helper (checklist only; DB seed via Supabase) |
 | `npm run bootstrap:admin` | Bootstrap admin profile/membership (service role) |
@@ -84,6 +90,7 @@ See [`.env.example`](.env.example) and [docs/ENVIRONMENT_VARIABLES.md](docs/ENVI
 | [docs/security.md](docs/security.md) | Threat model, RLS, SSRF, invite-only |
 | [docs/operations-runbook.md](docs/operations-runbook.md) | Failures, retries, delivery |
 | [docs/assumptions.md](docs/assumptions.md) | Product assumptions |
+| [docs/page-improvement-harness.md](docs/page-improvement-harness.md) | Cursor SDK page audit/improve CLI |
 | [docs/implementation-plan.md](docs/implementation-plan.md) | Phased plan |
 | [docs/implementation-status.md](docs/implementation-status.md) | Status log |
 

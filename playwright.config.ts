@@ -1,7 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const E2E_PORT = 3100;
-const E2E_BASE_URL = `http://127.0.0.1:${E2E_PORT}`;
+const E2E_PORT = Number(process.env.PLAYWRIGHT_PORT ?? 3100);
+const E2E_BASE_URL =
+  process.env.PLAYWRIGHT_BASE_URL ?? `http://127.0.0.1:${E2E_PORT}`;
 const USE_EXTERNAL_SERVER = process.env.PLAYWRIGHT_EXTERNAL_SERVER === "true";
 
 /**

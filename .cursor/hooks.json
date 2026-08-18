@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeShellExecution": [
+      {
+        "command": "node .cursor/hooks/before-shell.mjs",
+        "timeout": 8,
+        "failClosed": true
+      }
+    ],
+    "beforeReadFile": [
+      {
+        "command": "node .cursor/hooks/before-read-file.mjs",
+        "timeout": 8,
+        "failClosed": true
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": "node .cursor/hooks/before-tool.mjs",
+        "timeout": 8,
+        "failClosed": true
+      }
+    ],
+    "subagentStart": [
+      {
+        "command": "node .cursor/hooks/before-subagent.mjs",
+        "timeout": 8,
+        "failClosed": true
+      }
+    ],
+    "beforeMCPExecution": [
+      {
+        "command": "node .cursor/hooks/before-mcp.mjs",
+        "timeout": 8,
+        "failClosed": true
+      }
+    ]
+  }
+}

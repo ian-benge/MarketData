@@ -156,4 +156,10 @@ Read-only holdings and past-trade import for Positions. Never put `SNAPTRADE_CON
 
 This schema does **not** include BLS, BEA, Treasury, or EIA keys — those adapters do not exist in this repository.
 
+`CURSOR_API_KEY` is used only by the page improvement harness (`npm run page:improve`). It is not part of `src/lib/env.ts` and must never be exposed to the browser. See [`page-improvement-harness.md`](./page-improvement-harness.md).
+
+`PAGE_HARNESS_SANDBOX=1` requests local SDK filesystem sandboxing. It does not create support: on Windows the helper is proxy-only, so the harness records `SANDBOX_UNAVAILABLE` and will not pass `sandboxOptions.enabled=true`. Builder runs still require `--allow-no-sandbox`.
+
+`HARNESS_TURBOPACK_ROOT` is set only on the harness-spawned Next process so Turbopack will resolve a worktree `node_modules` junction. Do not put it in `.env.local`.
+
 Related ops docs: [`MANUAL_BACKEND_SETUP.md`](./MANUAL_BACKEND_SETUP.md), [`deployment.md`](./deployment.md), [`owner-market-data-checklist.md`](./owner-market-data-checklist.md).

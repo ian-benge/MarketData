@@ -13,6 +13,17 @@
     "test:e2e": "playwright test",
     "test:pdf": "tsx scripts/verify-pdf.ts",
     "test:desk-intel": "tsx scripts/desk-intel-eval.ts",
+    "page:improve": "tsx scripts/page-improve.ts",
+    "page:audit": "tsx scripts/page-improve.ts --audit-only",
+    "page:models": "tsx scripts/page-improve.ts --list-models",
+    "page:login": "tsx scripts/page-improve.ts --login",
+    "page:harness-check": "tsx scripts/page-improve.ts --self-check",
+    "page:inspect": "tsx scripts/page-improve.ts --inspect-only",
+    "page:routes": "tsx scripts/page-improve.ts --list-routes",
+    "page:status": "tsx scripts/page-improve.ts --status",
+    "page:prompts": "tsx scripts/page-improve.ts --prompts",
+    "page:report": "tsx scripts/page-improve.ts --report",
+    "page:resume": "tsx scripts/page-improve.ts",
     "seed": "tsx scripts/seed-local.ts",
     "check:env": "tsx scripts/check-env.ts",
     "check:supabase": "tsx scripts/check-supabase.ts",
@@ -24,6 +35,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",
+    "@cursor/sdk": "^1.0.28",
     "@fontsource/ibm-plex-mono": "^5.3.0",
     "@fontsource/ibm-plex-sans": "^5.3.0",
     "@google/generative-ai": "^0.24.1",
@@ -63,7 +75,7 @@
     "supabase": "^2.114.0",
     "tailwindcss": "^4",
     "tsx": "^4.23.12",
-    "typescript": "^5",
+    "typescript": "^5.9.3",
     "vitest": "^4.1.10"
   }
 }
