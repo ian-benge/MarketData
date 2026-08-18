@@ -9,7 +9,10 @@ export type TokenUsage = {
 
 export type UsageAvailability = "measured" | "unknown";
 
-export type TokenLimitStatus = "enforced" | "unenforced_usage_unknown";
+export type TokenLimitStatus =
+  | "enforced"
+  | "enforced_measured_only"
+  | "unenforced_usage_unknown";
 
 export type UsageAccount = {
   availability: UsageAvailability;
@@ -141,10 +144,10 @@ export function recomputeAggregatedUsage(into: AggregatedUsage): AggregatedUsage
   into.cacheWriteTokens = sumField(measured, "cacheWriteTokens");
   into.reasoningTokens = sumField(measured, "reasoningTokens");
   into.tokenLimitEnforced = true;
-  into.tokenLimitStatus = "enforced";
+  into.tokenLimitStatus = unknown.length > 0 ? "enforced_measured_only" : "enforced";
   into.reason =
     unknown.length > 0
-      ? `${unknown.length} of ${into.turns.length} agent turn(s) had unknown usage; token cap applies to measured turns only`
+      ? `Total tokens are a lower bound from ${measured.length} measured turn(s); ${unknown.length} turn(s) from unknown attempt(s). The total-token limit was not fully enforced retrospectively.`
       : undefined;
   return into;
 }
@@ -165,6 +168,18 @@ export function usageReportLines(usage: AggregatedUsage): string[] {
       `- Agent turns recorded: ${usage.turns.length}`,
     ];
   }
+  const unknownTurns = usage.turns.filter((turn) => turn.availability === "unknown").length;
+  const partialNote =
+    usage.availability === "partial"
+      ? [
+          `- Total tokens (lower bound): ${usage.totalTokens}`,
+          `- Unknown turns: ${unknownTurns}`,
+          `- Token-limit enforcement: **${usage.tokenLimitStatus}** (not fully enforced retrospectively)`,
+        ]
+      : [
+          `- Total tokens: ${usage.totalTokens}`,
+          `- Token-limit enforcement: **${usage.tokenLimitStatus}**`,
+        ];
   return [
     `- Usage availability: **${usage.availability}**`,
     `- Input tokens: ${usage.inputTokens}`,
@@ -172,9 +187,8 @@ export function usageReportLines(usage: AggregatedUsage): string[] {
     `- Cache read tokens: ${usage.cacheReadTokens ?? 0}`,
     `- Cache write tokens: ${usage.cacheWriteTokens ?? 0}`,
     `- Reasoning tokens: ${usage.reasoningTokens ?? 0}`,
-    `- Total tokens: ${usage.totalTokens}`,
+    ...partialNote,
     `- Token identity: input+output=${(usage.inputTokens ?? 0) + (usage.outputTokens ?? 0)}; input+output+cacheRead+cacheWrite=${(usage.inputTokens ?? 0) + (usage.outputTokens ?? 0) + (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0)}; reported total=${usage.totalTokens}`,
-    `- Token-limit enforcement: **${usage.tokenLimitStatus}**`,
     usage.reason ? `- Usage note: ${usage.reason}` : "",
     `- Agent turns recorded: ${usage.turns.length}`,
   ].filter(Boolean);

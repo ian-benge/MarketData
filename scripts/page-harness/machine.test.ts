@@ -41,4 +41,22 @@ describe("resumable state machine", () => {
       rmSync(tmp, { recursive: true, force: true });
     }
   });
+
+  it("reopens completed phases so verification can run again", () => {
+    const tmp = mkdtempSync(path.join(os.tmpdir(), "phr-reopen-"));
+    try {
+      const started = RunMachine.start(
+        tmp,
+        createMachine({ runId: "r1", request, isolation: {}, model: {} }),
+      );
+      started.begin("VERIFY");
+      started.complete("VERIFY");
+      expect(started.shouldSkip("VERIFY")).toBe(true);
+      started.reopen("VERIFY", "infrastructure-failed target verification");
+      expect(started.shouldSkip("VERIFY")).toBe(false);
+      expect(started.statusOf("VERIFY")).toBe("pending");
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
 });

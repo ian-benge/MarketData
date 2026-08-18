@@ -69,4 +69,20 @@ describe("SDK usage accounting", () => {
     expect(() => budget.assert()).not.toThrow();
     expect(budget.usage.tokenLimitStatus).toBe("unenforced_usage_unknown");
   });
+
+  it("marks mixed unknown and measured usage as partial and not fully enforced retrospectively", () => {
+    const usage = emptyAggregatedUsage();
+    addTurn(usage, "planner", "planner", accountSdkUsage(null));
+    addTurn(
+      usage,
+      "evaluator",
+      "evaluator",
+      accountSdkUsage({ inputTokens: 10, outputTokens: 5, totalTokens: 15 }),
+    );
+    expect(usage.availability).toBe("partial");
+    expect(usage.tokenLimitStatus).toBe("enforced_measured_only");
+    expect(usage.totalTokens).toBe(15);
+    expect(usageReportLines(usage).join("\n")).toMatch(/lower bound/i);
+    expect(usageReportLines(usage).join("\n")).toMatch(/not fully enforced retrospectively/i);
+  });
 });

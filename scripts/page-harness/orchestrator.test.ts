@@ -10,6 +10,10 @@ import { Logger } from "./util";
 import { sampleContract, sampleEvaluation, sampleInspect } from "./test-fixtures";
 import { canonicalizeContract } from "./schemas";
 import { evidenceMeta } from "./evidence";
+import { createMachine, RunMachine } from "./machine";
+import type { ServerLease } from "./server-lease";
+import { AgentInvocationError } from "./agents";
+import { writeFileSync, mkdirSync } from "node:fs";
 
 function scriptedHost(
   store: ArtifactStore,
@@ -18,6 +22,8 @@ function scriptedHost(
     acceptedHash?: string;
     agentIds?: string[];
     usage?: { inputTokens: number; outputTokens: number; totalTokens: number } | "unknown";
+    prompts?: string[];
+    opened?: string[];
   } = {},
 ): AgentHost {
   let evalCount = 0;
@@ -28,11 +34,13 @@ function scriptedHost(
     async open({ role, purpose }): Promise<AgentSession> {
       const agentId = `fake-${role}-${purpose}-${Math.random().toString(16).slice(2)}`;
       options.agentIds?.push(agentId);
+      options.opened?.push(`${role}/${purpose}`);
       return {
         agentId,
         role,
         purpose,
         async send(prompt: string) {
+          options.prompts?.push(prompt);
           const contractReview = purpose === "contract_reviewer";
           if (role === "planner") {
             store.submit("baseline", {
@@ -82,6 +90,12 @@ function scriptedHost(
                 contractDeviation: "none",
               });
             }
+          }
+          if (role === "skeptic") {
+            store.submit("skeptic", {
+              ...sampleEvaluation(evalCount >= evaluatorPassOn, hash),
+              role: "skeptic",
+            });
           }
           if (role === "evaluator") {
             if (contractReview) {
@@ -824,3 +838,411 @@ describe("page harness orchestrator", () => {
     }
   });
 });
+
+function recordingLease(origin = "http://127.0.0.1:3200") {
+  const phases: Array<string | null> = [];
+  const lease: ServerLease = {
+    origin: () => origin,
+    handle: () => null,
+    async ensure(phase) {
+      phases.push(phase);
+      return {
+        origin,
+        started: phase === "VERIFY" || phase === "EVALUATE" || phase === "OPTIONAL_SKEPTIC" || phase === "BASELINE",
+        restarted: false,
+        probed: phase === "VERIFY" || phase === "EVALUATE" || phase === "OPTIONAL_SKEPTIC" || phase === "BASELINE",
+      };
+    },
+    async probeAlive() {
+      return { ok: true };
+    },
+    async stop() {},
+  };
+  return { lease, phases };
+}
+
+function seedLockedAudit(tmp: string, runId: string, request: typeof requestBase & { objective: string }) {
+  const paths = createRunPaths(tmp, runId);
+  const store = new ArtifactStore(paths);
+  const contract = sampleContract(request.route);
+  const hash = canonicalizeContract(contract).hash;
+  const inspect = sampleInspect({
+    route: request.route,
+    finalUrl: `http://127.0.0.1:3200${request.route}`,
+    finalPathname: request.route,
+    routeVerified: true,
+    meta: evidenceMeta({
+      runId,
+      route: request.route,
+      contractHash: "pending",
+      iteration: 0,
+      worktreeSha: "abc",
+      serverOrigin: "http://127.0.0.1:3200",
+      browser: "chrome",
+      generatingCommand: "inspectRoute baseline",
+    }),
+  });
+  store.writeJson("performance/before.json", inspect);
+  mkdirSync(paths.inspectBefore, { recursive: true });
+  writeFileSync(
+    path.join(paths.inspectBefore, "inspect.json"),
+    `${JSON.stringify(inspect, null, 2)}\n`,
+  );
+  store.submit("baseline", {
+    route: request.route,
+    summary: "ok",
+    currentWorkflows: ["Use the page"],
+    strengths: ["Existing layout"],
+    gaps: ["Need evidence"],
+    performanceNotes: ["Cheap"],
+    dataProvenanceNotes: ["None"],
+    testGaps: [],
+    doNotBreak: ["Copy"],
+  });
+  store.submit("page-map", {
+    route: request.route,
+    pageFile: "src/app/denied/page.tsx",
+    relatedFiles: [],
+    dataFlow: [],
+    apis: [],
+    clientServerBoundary: "server",
+    existingTests: [],
+    adjacentPages: [],
+    designTokens: [],
+    sharedComponents: [],
+  });
+  store.submit("contract", contract);
+  store.writeJson("contract-decision-builder-1.json", {
+    decision: "accept",
+    acceptedHash: hash,
+    amendments: [],
+    rationale: "ok",
+  });
+  store.writeJson("contract-decision-evaluator-1.json", {
+    decision: "accept",
+    acceptedHash: hash,
+    amendments: [],
+    rationale: "ok",
+  });
+  const machine = RunMachine.start(
+    paths.root,
+    createMachine({
+      runId,
+      request: { ...request, objective: request.objective },
+      isolation: {
+        mode: "none",
+        repoRoot: tmp,
+        agentCwd: tmp,
+        branchName: null,
+        worktreePath: null,
+        created: false,
+        baseSha: "abc",
+      },
+      model: {},
+    }),
+  );
+  for (const phase of [
+    "PRECHECK",
+    "WORKTREE",
+    "BASELINE",
+    "PLAN",
+    "CONTRACT_DRAFT",
+    "DUAL_REVIEW",
+    "CONTRACT_LOCK",
+  ] as const) {
+    machine.begin(phase);
+    machine.complete(phase);
+  }
+  machine.lockContract(hash);
+  return { paths, store, machine, hash, inspect };
+}
+
+describe("audit server lease, skeptic, and identity", () => {
+  it("does not start a server at DUAL_REVIEW and acquires one before VERIFY", async () => {
+    const tmp = mkdtempSync(path.join(os.tmpdir(), "phr-lease-orch-"));
+    try {
+      const { lease, phases } = recordingLease();
+      const { paths, store, machine } = seedLockedAudit(tmp, "denied-lock", {
+        ...requestBase,
+        objective: "Audit only",
+        auditOnly: true,
+      });
+      const opened: string[] = [];
+      await runHarness(
+        { ...requestBase, objective: "Audit only", auditOnly: true },
+        {
+          host: scriptedHost(store, 1, { opened }),
+          store,
+          paths,
+          isolation: {
+            mode: "none",
+            repoRoot: tmp,
+            agentCwd: tmp,
+            branchName: null,
+            worktreePath: null,
+            created: false,
+            baseSha: "abc",
+          },
+          baseUrl: "http://127.0.0.1:3200",
+          log: new Logger(() => {}),
+          inspect: inspectStub(),
+          verify: async (options) => {
+            expect(options.baseUrl).toBe("http://127.0.0.1:3200");
+            return [{ name: "typecheck", ok: true, output: "", scope: "static" }];
+          },
+          git: {
+            checkpoint: async () => ({ commit: "aaa", dirty: false }),
+            restoreCommit: async () => {},
+            changedFiles: async () => [],
+            currentHead: async () => "abc",
+          },
+          machine,
+          server: lease,
+        },
+      );
+      expect(phases).not.toContain("DUAL_REVIEW");
+      expect(phases).toContain("VERIFY");
+      expect(opened.some((row) => row.startsWith("planner/"))).toBe(false);
+      expect(opened.some((row) => row.includes("contract_reviewer"))).toBe(false);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("runs an explicit audit skeptic and shares contract/evidence identity with the evaluator", async () => {
+    const tmp = mkdtempSync(path.join(os.tmpdir(), "phr-skep-"));
+    try {
+      const paths = createRunPaths(tmp, "audit-skeptic");
+      const store = new ArtifactStore(paths);
+      const prompts: string[] = [];
+      const opened: string[] = [];
+      const result = await runHarness(
+        {
+          ...requestBase,
+          objective: "Audit only",
+          auditOnly: true,
+          skeptic: true,
+          risk: "low",
+          maxIterations: 1,
+        },
+        {
+          host: scriptedHost(store, 1, { prompts, opened }),
+          store,
+          paths,
+          isolation: {
+            mode: "none",
+            repoRoot: tmp,
+            agentCwd: tmp,
+            branchName: null,
+            worktreePath: null,
+            created: false,
+            baseSha: "abc",
+          },
+          baseUrl: "http://127.0.0.1:3200",
+          log: new Logger(() => {}),
+          inspect: inspectStub(),
+          verify: async () => [{ name: "typecheck", ok: true, output: "", scope: "static" }],
+          git: {
+            checkpoint: async () => ({ commit: "aaa", dirty: false }),
+            restoreCommit: async () => {},
+            changedFiles: async () => [],
+            currentHead: async () => "abc",
+          },
+        },
+      );
+      expect(result.status).toBe("audit_complete");
+      expect(opened).toContain("skeptic/skeptic");
+      expect(store.readJson("skeptic.json")).toMatchObject({ role: "skeptic" });
+      const evalPrompt = prompts.find((row) => row.includes("independent read-only evaluator"));
+      const skepticPrompt = prompts.find((row) => row.includes("adversarial skeptic"));
+      expect(evalPrompt).toBeTruthy();
+      expect(skepticPrompt).toBeTruthy();
+      const hashLine = evalPrompt!.match(/Contract hash: (\S+)/)?.[1];
+      expect(skepticPrompt).toContain(`Contract hash: ${hashLine}`);
+      expect(evalPrompt).toMatch(/verification: /);
+      const verifyLine = evalPrompt!.match(/- verification: (.+)/)?.[1];
+      expect(skepticPrompt).toContain(`- verification: ${verifyLine}`);
+      const identity = store.readJson("evaluation-evidence.json") as { hash: string };
+      expect(identity.hash).toHaveLength(64);
+      const report = readFileSync(result.reportPath, "utf8");
+      expect(report).toMatch(/Skeptic: \*\*completed/);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses to finalize a critical audit without a skeptic", async () => {
+    const tmp = mkdtempSync(path.join(os.tmpdir(), "phr-noskep-"));
+    try {
+      const paths = createRunPaths(tmp, "audit-critical");
+      const store = new ArtifactStore(paths);
+      const host = scriptedHost(store, 1);
+      const originalOpen = host.open.bind(host);
+      host.open = async (options) => {
+        const session = await originalOpen(options);
+        if (options.role === "skeptic") {
+          return {
+            ...session,
+            async send() {
+              return {
+                agentId: session.agentId,
+                runId: "run-skep-missing",
+                status: "finished",
+                resultText: "no artifact",
+                usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+                durationMs: 1,
+                submitted: [],
+              };
+            },
+          };
+        }
+        return session;
+      };
+      await expect(
+        runHarness(
+          {
+            ...requestBase,
+            objective: "Audit only",
+            auditOnly: true,
+            risk: "critical",
+            maxIterations: 1,
+            maxAgentRuns: 20,
+          },
+          {
+            host,
+            store,
+            paths,
+            isolation: {
+              mode: "none",
+              repoRoot: tmp,
+              agentCwd: tmp,
+              branchName: null,
+              worktreePath: null,
+              created: false,
+              baseSha: "abc",
+            },
+            baseUrl: "http://127.0.0.1:3200",
+            log: new Logger(() => {}),
+            inspect: inspectStub(),
+            verify: async () => [{ name: "typecheck", ok: true, output: "", scope: "static" }],
+            git: {
+              checkpoint: async () => ({ commit: "aaa", dirty: false }),
+              restoreCommit: async () => {},
+              changedFiles: async () => [],
+              currentHead: async () => "abc",
+            },
+          },
+        ),
+      ).rejects.toThrow(/skeptic|artifact/i);
+      const status = store.readJson("run-status.json") as { reusable?: boolean; processStatus?: string };
+      expect(status?.reusable).not.toBe(true);
+      expect(status?.processStatus).not.toBe("audit_complete");
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("classifies infrastructure-failed target verification as not reusable", async () => {
+    const tmp = mkdtempSync(path.join(os.tmpdir(), "phr-infra-"));
+    try {
+      const paths = createRunPaths(tmp, "audit-infra");
+      const store = new ArtifactStore(paths);
+      await expect(
+        runHarness(
+          { ...requestBase, objective: "Audit only", auditOnly: true, maxIterations: 1 },
+          {
+            host: scriptedHost(store, 1),
+            store,
+            paths,
+            isolation: {
+              mode: "none",
+              repoRoot: tmp,
+              agentCwd: tmp,
+              branchName: null,
+              worktreePath: null,
+              created: false,
+              baseSha: "abc",
+            },
+            baseUrl: "http://127.0.0.1:3200",
+            log: new Logger(() => {}),
+            inspect: inspectStub(),
+            verify: async () => [
+              {
+                name: "playwright-target",
+                ok: false,
+                output: "connect ECONNREFUSED 127.0.0.1:3200",
+                scope: "target",
+              },
+            ],
+            git: {
+              checkpoint: async () => ({ commit: "aaa", dirty: false }),
+              restoreCommit: async () => {},
+              changedFiles: async () => [],
+              currentHead: async () => "abc",
+            },
+          },
+        ),
+      ).rejects.toThrow(/ECONNREFUSED|infrastructure/i);
+      const status = store.readJson("run-status.json") as { reusable?: boolean };
+      expect(status?.reusable).toBe(false);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("counts a failed invocation toward the agent-run budget", async () => {
+    const tmp = mkdtempSync(path.join(os.tmpdir(), "phr-failrun-"));
+    try {
+      const paths = createRunPaths(tmp, "audit-failrun");
+      const store = new ArtifactStore(paths);
+      const host = scriptedHost(store, 1);
+      const originalOpen = host.open.bind(host);
+      host.open = async (options) => {
+        const session = await originalOpen(options);
+        if (options.role === "planner") {
+          return {
+            ...session,
+            async send() {
+              throw new AgentInvocationError("planner run failed (run-x): Connection failed repeatedly");
+            },
+          };
+        }
+        return session;
+      };
+      await expect(
+        runHarness(
+          { ...requestBase, objective: "Audit only", auditOnly: true, maxAgentRuns: 12 },
+          {
+            host,
+            store,
+            paths,
+            isolation: {
+              mode: "none",
+              repoRoot: tmp,
+              agentCwd: tmp,
+              branchName: null,
+              worktreePath: null,
+              created: false,
+              baseSha: "abc",
+            },
+            baseUrl: "http://127.0.0.1:3200",
+            log: new Logger(() => {}),
+            inspect: inspectStub(),
+            verify: async () => [{ name: "typecheck", ok: true, output: "" }],
+            git: {
+              checkpoint: async () => ({ commit: "aaa", dirty: false }),
+              restoreCommit: async () => {},
+              changedFiles: async () => [],
+              currentHead: async () => "abc",
+            },
+          },
+        ),
+      ).rejects.toThrow(/Connection failed/);
+      const budget = store.readJson("budget.json") as { agentRuns: number };
+      expect(budget.agentRuns).toBeGreaterThanOrEqual(1);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+

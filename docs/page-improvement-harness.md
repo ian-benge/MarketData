@@ -44,9 +44,11 @@ There is **no** unattended auto-merge or auto-deploy command.
 
 `reusable` and `resumable` are separate persisted flags. A failed run may be `reusable=false` and still `resumable=true` when the interruption is retryable (network, SDK connection, process death, recoverable server) and artifacts are internally consistent. `page:resume` continues from the last atomically completed phase/contract round. It does **not** treat `reusable=false` as non-resumable. Completed audits are reusable via `--from-audit` and are not resumable.
 
-`--risk low|medium|critical` is enforced by `resolveRiskPolicy()` (Playwright timeout, inspect samples, adjacent regression, skeptic). Critical improvement runs require a skeptic; `--no-skeptic` is refused.
+`--risk low|medium|critical` is enforced by `resolveRiskPolicy()` (Playwright timeout, inspect samples, adjacent regression, skeptic). Critical **audit and improve** runs require a skeptic; `--no-skeptic` is refused. Explicit `--skeptic` on an audit also runs a fresh skeptic after the evaluator.
 
-Reports separate **process status** (`audit_complete`) from **contract result** (`passed` | `failed`). Audit-only reports never copy baseline measurements into after fields. SDK token usage is `measured` or `unknown` — never a fake measured zero. Planner, reviewers, builder, evaluator, and skeptic all count toward agent-run, token, and time budgets. Budget cancellation restores the best **complete passing** checkpoint when one exists. It does not restore baseline merely because an unchanged adjacent failure is baseline debt, and it does not start another model run after the budget is exhausted. Deterministic inspect/verify may still run if time remains; otherwise the passing checkpoint is reported as preserved but not integration-ready.
+A completed audit is reusable only when target verification ran against a live harness-owned origin, required evaluation roles (including skeptic when policy or `--skeptic` requires it) completed, and provenance is valid. Infrastructure failures (`ECONNREFUSED`, server-readiness, origin mismatch) are not product test failures and cannot produce a reusable audit.
+
+Reports separate **process status** (`audit_complete`) from **contract result** (`passed` | `failed`). Audit-only reports never copy baseline measurements into after fields. SDK token usage is `measured`, `unknown`, or `partial` (known totals are a lower bound when earlier attempts were unmeasured). The total-token limit is not claimed as fully enforced retrospectively when usage is partial. Planner, reviewers, builder, evaluator, and skeptic all count toward agent-run, token, and time budgets, including failed invocations. Budget cancellation restores the best **complete passing** checkpoint when one exists. It does not restore baseline merely because an unchanged adjacent failure is baseline debt, and it does not start another model run after the budget is exhausted. Deterministic inspect/verify may still run if time remains; otherwise the passing checkpoint is reported as preserved but not integration-ready.
 
 ## Architecture
 
@@ -59,6 +61,7 @@ Every phase record has typed input, result, status, timestamps, and failure stat
 Fits this repo:
 
 - Isolated git worktrees under `.worktrees/` (gitignored). `node_modules` is a junction to the parent install. Turbopack panics if that link escapes the project, so the demo server sets `HARNESS_TURBOPACK_ROOT` to the parent repo when `next.config.ts` supports it, otherwise Next starts with `--webpack`.
+- **Phase-aware server lease:** the demo server is acquired only before BASELINE, VERIFY, EVALUATE, or OPTIONAL_SKEPTIC. A resume at DUAL_REVIEW does not start Next; transitioning into verification probes the persisted handle and restarts if it is stale.
 - Artifacts under `tmp/page-harness/<run-id>/` (gitignored via `tmp/`)
 - Playwright demo auth (`POST /api/auth/demo`) and Chrome from `playwright.config.ts`
 - Design system: `docs/ib-market-data-design-system.md` and `src/app/globals.css`

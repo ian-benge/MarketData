@@ -1,4 +1,5 @@
 export const FAILURE_CATEGORIES = [
+  "infrastructure",
   "retryable_network",
   "retryable_process",
   "retryable_server",
@@ -20,14 +21,28 @@ export type ClassifiedFailure = {
   message: string;
 };
 
+export class InfrastructureFailure extends Error {
+  readonly code = "INFRASTRUCTURE";
+  readonly category = "infrastructure" as const;
+  constructor(message: string) {
+    super(message);
+    this.name = "InfrastructureFailure";
+  }
+}
+
 const RETRYABLE_NETWORK =
   /connection failed|econnreset|etimedout|enotfound|enetunreach|socket hang up|fetch failed|network|disconnected|und_err_|econnaborted|ehostunreach|temporarily unavailable/i;
 
 const RETRYABLE_PROCESS =
   /sigterm|sigkill|killed|process terminated|uv_handle_closing|ePIPE|broken pipe|stdin.*end/i;
 
+const INFRASTRUCTURE =
+  /econnrefused|err_connection_refused|timed out waiting for demo server|does not match harness origin|server-readiness|infrastructure failure|base-url mismatch/i;
+
+const RETRYABLE_ROLE = /required skeptic is missing|skeptic did not produce/i;
+
 const RETRYABLE_SERVER =
-  /\b(502|503|504)\b|econnrefused|service unavailable|gateway timeout|recoverable server/i;
+  /\b(502|503|504)\b|service unavailable|gateway timeout|recoverable server/i;
 
 const PERMISSION =
   /permission|not authorised|not authorized|401|403|access denied|denied by (project )?hooks|api key|unauthor/i;
@@ -52,6 +67,7 @@ const APP_EDIT =
 
 export function isRetryableCategory(category: FailureCategory): boolean {
   return (
+    category === "infrastructure" ||
     category === "retryable_network" ||
     category === "retryable_process" ||
     category === "retryable_server"
@@ -76,6 +92,8 @@ function categoryOf(text: string): FailureCategory {
   if (CORRUPTED.test(text)) return "corrupted_artifact";
   if (SECURITY.test(text) && !RETRYABLE_NETWORK.test(text)) return "security_policy";
   if (PERMISSION.test(text) && !RETRYABLE_NETWORK.test(text)) return "permission";
+  if (INFRASTRUCTURE.test(text)) return "infrastructure";
+  if (RETRYABLE_ROLE.test(text)) return "retryable_process";
   if (RETRYABLE_PROCESS.test(text)) return "retryable_process";
   if (RETRYABLE_SERVER.test(text)) return "retryable_server";
   if (RETRYABLE_NETWORK.test(text)) return "retryable_network";

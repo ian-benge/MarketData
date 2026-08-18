@@ -3,7 +3,9 @@ import {
   classifyVerifyResults,
   extractDeclaredRoutes,
   extractVisitedRoutes,
+  playwrightEnvForHarness,
   specCoversRoute,
+  verifyHasInfrastructureFailure,
 } from "./verify";
 
 describe("verification routing", () => {
@@ -78,5 +80,40 @@ describe("verification routing", () => {
     expect(classified.targetOk).toBe(true);
     expect(classified.unrelatedFailures).toHaveLength(1);
     expect(classified.staticChecks).toHaveLength(1);
+  });
+
+  it("classifies ECONNREFUSED as infrastructure and does not mark the target visited", () => {
+    const classified = classifyVerifyResults({
+      requestedRoute: "/scanner",
+      results: [
+        {
+          name: "target-route-inspect",
+          ok: true,
+          output: "authenticated local origin and route /scanner",
+          scope: "target",
+          targetRouteVisited: true,
+          visitedRoutes: ["/scanner"],
+        },
+        {
+          name: "playwright-target",
+          ok: false,
+          output: "connect ECONNREFUSED 127.0.0.1:3200\nPOST http://127.0.0.1:3200/api/auth/demo",
+          scope: "target",
+          page: "/scanner",
+        },
+      ],
+    });
+    expect(classified.infrastructureFailed).toBe(true);
+    expect(classified.targetOk).toBe(false);
+    expect(
+      verifyHasInfrastructureFailure(classified.target),
+    ).toBe(true);
+  });
+
+  it("passes the harness-owned origin to Playwright as an external server", () => {
+    const env = playwrightEnvForHarness("http://127.0.0.1:3200");
+    expect(env.PLAYWRIGHT_EXTERNAL_SERVER).toBe("true");
+    expect(env.PLAYWRIGHT_BASE_URL).toBe("http://127.0.0.1:3200");
+    expect(env.NEXT_PUBLIC_APP_URL).toBe("http://127.0.0.1:3200");
   });
 });

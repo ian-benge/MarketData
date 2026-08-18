@@ -13,6 +13,12 @@ import type { IsolatedWorkspace } from "./isolation";
 import { RUNTIME_OVERLAY_FILES } from "./isolation";
 import { classifyFailure, type FailureCategory } from "./failure";
 import type { HarnessRequest } from "./request";
+import { requiresServer } from "./server-lease";
+import {
+  alignUsageWithInvocations,
+  buildInvocationLedger,
+  type InvocationLedger,
+} from "./invocations";
 
 export const HARNESS_SCHEMA_VERSION = 3;
 
@@ -72,6 +78,7 @@ export type ResumeState = {
   route: string;
   suppliedObjective: string | null;
   budget: PersistedBudget;
+  invocations?: InvocationLedger | null;
   nextAction: string;
 };
 
@@ -127,14 +134,7 @@ export function completedPhaseList(phases: MachineState["phases"]): HarnessPhase
 }
 
 export function phaseRequiresDemoServer(phase: HarnessPhase | null): boolean {
-  if (!phase) return false;
-  return (
-    phase === "BASELINE" ||
-    phase === "VERIFY" ||
-    phase === "EVALUATE" ||
-    phase === "OPTIONAL_SKEPTIC" ||
-    phase === "REPORT"
-  );
+  return requiresServer(phase);
 }
 
 export function persistBudgetFromLimits(
@@ -183,9 +183,11 @@ export function remainingBudgetLines(budget: PersistedBudget): string[] {
     budget.maxDurationMinutes * 60_000 - budget.consumedActiveRuntimeMs,
   );
   const tokenLabel =
-    budget.usage.totalTokens == null
-      ? `unknown / ${budget.maxTotalTokens}`
-      : `${budget.usage.totalTokens} / ${budget.maxTotalTokens}`;
+    budget.usage.availability === "partial"
+      ? `>= ${budget.usage.totalTokens} / ${budget.maxTotalTokens} (partial; not fully enforced retrospectively)`
+      : budget.usage.totalTokens == null
+        ? `unknown / ${budget.maxTotalTokens}`
+        : `${budget.usage.totalTokens} / ${budget.maxTotalTokens}`;
   return [
     `agentRuns: ${budget.agentRuns} / ${budget.maxAgentRuns} (remaining ${Math.max(0, budget.maxAgentRuns - budget.agentRuns)})`,
     `tokens: ${tokenLabel}`,
@@ -360,10 +362,11 @@ export function hydrateResumeState(options: {
   const failureMessage =
     options.machine.stopReason ?? status?.reason ?? fatal?.message ?? null;
   const classified = failureMessage ? classifyFailure(failureMessage) : null;
-  const incomplete =
-    options.machine.incompleteInvocation ??
-    existing?.incompleteInvocation ??
-    inferIncompleteFromFailure(discovered, failureMessage, request.maxContractRounds);
+  const incomplete = options.machine.contractLocked
+    ? null
+    : (options.machine.incompleteInvocation ??
+      existing?.incompleteInvocation ??
+      inferIncompleteFromFailure(discovered, failureMessage, request.maxContractRounds));
   const processStatus = deriveProcessStatus(options.machine, status?.processStatus);
   const reusable = processStatus === "completed" && status?.reusable === true;
   const consistent = artifactsInternallyConsistent(options.store, discovered);
@@ -387,9 +390,20 @@ export function hydrateResumeState(options: {
   const last = lastCompletedPhase(options.machine.phases);
   const diskBudget = options.store.readJson("budget.json") as PersistedBudget | null;
   const persistedBudget = existing?.budget ?? diskBudget;
+  const ledger = buildInvocationLedger({
+    runRoot: options.runRoot,
+    usage: persistedBudget?.usage ?? null,
+  });
+  if (persistedBudget?.usage) {
+    alignUsageWithInvocations(persistedBudget.usage, ledger);
+  }
   const agentRuns =
     persistedBudget?.agentRuns ??
-    Math.max(countAgentRunsFromLog(options.runRoot), discovered.completed.length * 2 + (incomplete ? 1 : 0));
+    Math.max(
+      ledger.total,
+      countAgentRunsFromLog(options.runRoot),
+      discovered.completed.length * 2 + (incomplete ? 1 : 0),
+    );
   const budget = persistBudgetFromLimits(request, {
     agentRuns,
     consumedActiveRuntimeMs:
@@ -424,6 +438,7 @@ export function hydrateResumeState(options: {
     route: request.route,
     suppliedObjective: request.suppliedObjective,
     budget,
+    invocations: ledger,
     nextAction: describeNextAction({
       processStatus,
       reusable,
@@ -432,6 +447,12 @@ export function hydrateResumeState(options: {
       contractRound,
       maxContractRounds: request.maxContractRounds,
       phase: options.machine.currentPhase,
+      failureCategory:
+        classified?.category ??
+        (crashInterrupted ? "retryable_process" : null) ??
+        status?.failureCategory ??
+        null,
+      failureMessage,
     }),
   };
   return state;
@@ -439,9 +460,10 @@ export function hydrateResumeState(options: {
 
 function deriveProcessStatus(
   machine: MachineState,
-  recorded?: ProcessStatus,
+  recorded?: string,
 ): ProcessStatus {
-  if (recorded) return recorded;
+  const coerced = coerceProcessStatus(recorded);
+  if (coerced) return coerced;
   if (machine.phases.REPORT.status === "completed") return "completed";
   if (machine.stopReason || Object.values(machine.phases).some((row) => row.status === "failed")) {
     return "failed";
@@ -450,6 +472,21 @@ function deriveProcessStatus(
     return "running";
   }
   return "running";
+}
+
+function coerceProcessStatus(recorded?: string | null): ProcessStatus | undefined {
+  if (!recorded) return undefined;
+  if (recorded === "audit_complete" || recorded === "passed") return "completed";
+  if (recorded === "cancelled") return "stopped";
+  if (
+    recorded === "running" ||
+    recorded === "completed" ||
+    recorded === "failed" ||
+    recorded === "stopped"
+  ) {
+    return recorded;
+  }
+  return undefined;
 }
 
 function artifactsInternallyConsistent(
@@ -478,6 +515,8 @@ export function describeNextAction(input: {
   contractRound: number;
   maxContractRounds: number;
   phase: HarnessPhase;
+  failureCategory?: FailureCategory | null;
+  failureMessage?: string | null;
 }): string {
   if (input.reusable && !input.resumable) {
     return "Completed audit is reusable via --from-audit; it is not resumable.";
@@ -490,6 +529,15 @@ export function describeNextAction(input: {
   }
   if (input.incomplete?.role === "evaluator") {
     return `Retry round-${input.incomplete.round} evaluator contract reviewer with a fresh Grok 4.6 xhigh context. Keep the persisted builder decision for that round. Contract round cap remains ${input.maxContractRounds}.`;
+  }
+  if (
+    input.failureCategory === "infrastructure" ||
+    /econnrefused|infrastructure/i.test(input.failureMessage ?? "") ||
+    input.phase === "VERIFY" ||
+    input.phase === "EVALUATE" ||
+    input.phase === "OPTIONAL_SKEPTIC"
+  ) {
+    return "Start the harness-owned demo server, rerun target baseline verification, then run a fresh evaluator and required skeptic. Do not repeat the planner or completed contract reviewers.";
   }
   return `Resume ${input.phase} from the last atomically completed state.`;
 }
@@ -507,6 +555,25 @@ export function formatRunStatus(runId: string, state: ResumeState): string {
     `contractRound: ${state.contractRound}`,
     `completedContractRounds: ${state.completedRounds.join(", ") || "none"}`,
     `incompleteRole: ${state.incompleteInvocation ? `${state.incompleteInvocation.role}/${state.incompleteInvocation.purpose}` : "none"}`,
+    `invocations: ${
+      state.invocations
+        ? `total ${state.invocations.total}, completed ${state.invocations.completed}, failed ${state.invocations.failed}`
+        : "n/a"
+    }`,
+    `invocationsByRole: ${
+      state.invocations
+        ? Object.entries(state.invocations.byRole)
+            .map(([role, count]) => `${role}=${count}`)
+            .join(", ") || "none"
+        : "n/a"
+    }`,
+    `invocationsByAttempt: ${
+      state.invocations
+        ? Object.entries(state.invocations.byAttempt)
+            .map(([attempt, count]) => `${attempt}=${count}`)
+            .join(", ") || "none"
+        : "n/a"
+    }`,
     `failureCategory: ${state.failureCategory ?? "n/a"}`,
     `failure: ${state.failureMessage ?? "n/a"}`,
     `canonicalProposalHash: ${state.canonicalProposalHash ?? "n/a"}`,

@@ -4,8 +4,11 @@ import { runCommand } from "./util";
 import { lookupPage, PAGE_CATALOG, routePath, type PageCatalogEntry } from "./catalog";
 import { evidenceMeta, type EvidenceMeta } from "./evidence";
 import { extractExecutedSpecs } from "./regression";
+import { InfrastructureFailure } from "./failure";
 
 export type VerifyScope = "target" | "adjacent" | "unrelated" | "static";
+
+export type VerifyKind = "product" | "infrastructure";
 
 export type VerifyResult = {
   name: string;
@@ -15,6 +18,7 @@ export type VerifyResult = {
   scope?: VerifyScope;
   visitedRoutes?: string[];
   targetRouteVisited?: boolean;
+  kind?: VerifyKind;
 };
 
 export type VerifyBundle = {
@@ -150,6 +154,46 @@ export type VerifyJobs = {
   unrelated?: boolean;
 };
 
+export function isInfrastructureVerifyOutput(output: string): boolean {
+  return /econnrefused|err_connection_refused|timed out waiting for demo server|does not match harness origin|connect econnrefused|server-readiness/i.test(
+    output,
+  );
+}
+
+export function verifyKindFromOutput(ok: boolean, output: string): VerifyKind {
+  if (!ok && isInfrastructureVerifyOutput(output)) return "infrastructure";
+  return "product";
+}
+
+export function verifyHasInfrastructureFailure(results: VerifyResult[]): boolean {
+  return results.some(
+    (row) =>
+      row.kind === "infrastructure" ||
+      (!row.ok && isInfrastructureVerifyOutput(row.output)),
+  );
+}
+
+export function playwrightEnvForHarness(origin: string): Record<string, string> {
+  let parsed: URL;
+  try {
+    parsed = new URL(origin);
+  } catch {
+    throw new InfrastructureFailure(
+      `Playwright base-URL is not a valid origin: ${origin}`,
+    );
+  }
+  if (parsed.hostname !== "127.0.0.1") {
+    throw new InfrastructureFailure(
+      `Playwright base-URL ${parsed.origin} does not match harness origin (expected 127.0.0.1).`,
+    );
+  }
+  return {
+    PLAYWRIGHT_EXTERNAL_SERVER: "true",
+    PLAYWRIGHT_BASE_URL: origin,
+    NEXT_PUBLIC_APP_URL: origin,
+  };
+}
+
 export function classifyVerifyResults(options: {
   requestedRoute: string;
   results: VerifyResult[];
@@ -162,6 +206,7 @@ export function classifyVerifyResults(options: {
   targetOk: boolean;
   unrelatedFailures: VerifyResult[];
   adjacentFailures: VerifyResult[];
+  infrastructureFailed: boolean;
 } {
   const requested = options.requestedRoute.split("?")[0] || "/";
   const target: VerifyResult[] = [];
@@ -169,16 +214,19 @@ export function classifyVerifyResults(options: {
   const unrelated: VerifyResult[] = [];
   const staticChecks: VerifyResult[] = [];
   for (const row of options.results) {
+    const kind = row.kind ?? verifyKindFromOutput(row.ok, row.output ?? "");
     const visited =
       row.visitedRoutes ??
       (row.output ? extractVisitedRoutes(row.output) : []);
     const sawTarget =
-      row.targetRouteVisited === true ||
-      visited.some((pathname) => pathname === requested || pathname.startsWith(`${requested}/`));
+      kind !== "infrastructure" &&
+      (row.targetRouteVisited === true ||
+        visited.some((pathname) => pathname === requested || pathname.startsWith(`${requested}/`)));
     const enriched = {
       ...row,
-      visitedRoutes: visited,
-      targetRouteVisited: row.targetRouteVisited ?? sawTarget,
+      kind,
+      visitedRoutes: kind === "infrastructure" ? [] : visited,
+      targetRouteVisited: kind === "infrastructure" ? false : (row.targetRouteVisited ?? sawTarget),
     };
     const scope = row.scope ?? "static";
     if (scope === "target") target.push(enriched);
@@ -186,8 +234,16 @@ export function classifyVerifyResults(options: {
     else if (scope === "unrelated") unrelated.push(enriched);
     else staticChecks.push(enriched);
   }
-  const targetVisited = target.some((row) => row.targetRouteVisited);
-  const targetOk = targetVisited && target.some((row) => row.ok && row.targetRouteVisited);
+  const infrastructureFailed = verifyHasInfrastructureFailure(options.results);
+  const targetVisited = target.some(
+    (row) => row.kind !== "infrastructure" && row.targetRouteVisited,
+  );
+  const targetOk =
+    !infrastructureFailed &&
+    targetVisited &&
+    target.some(
+      (row) => row.ok && row.kind !== "infrastructure" && row.targetRouteVisited,
+    );
   return {
     target,
     adjacent,
@@ -197,6 +253,7 @@ export function classifyVerifyResults(options: {
     targetOk,
     unrelatedFailures: unrelated.filter((row) => !row.ok),
     adjacentFailures: adjacent.filter((row) => !row.ok),
+    infrastructureFailed,
   };
 }
 
@@ -244,9 +301,7 @@ export async function runVerificationBundle(options: {
   const results: VerifyResult[] = [];
   const env = {
     ...process.env,
-    PLAYWRIGHT_EXTERNAL_SERVER: "true",
-    PLAYWRIGHT_BASE_URL: options.baseUrl,
-    NEXT_PUBLIC_APP_URL: options.baseUrl,
+    ...playwrightEnvForHarness(options.baseUrl),
   };
 
   if (jobs.staticChecks) {
@@ -390,6 +445,15 @@ export async function runVerificationBundle(options: {
 }
 
 function annotateVisits(result: VerifyResult, route: string, cwd: string): VerifyResult {
+  const kind = result.kind ?? verifyKindFromOutput(result.ok, result.output);
+  if (kind === "infrastructure") {
+    return {
+      ...result,
+      kind,
+      visitedRoutes: [],
+      targetRouteVisited: false,
+    };
+  }
   const fromOutput = extractVisitedRoutes(result.output);
   const fromManifest =
     result.name.startsWith("playwright-")
@@ -402,6 +466,7 @@ function annotateVisits(result: VerifyResult, route: string, cwd: string): Verif
   );
   return {
     ...result,
+    kind,
     visitedRoutes: visited,
     targetRouteVisited: result.targetRouteVisited ?? sawTarget,
   };
@@ -425,19 +490,24 @@ async function runNamed(
     ? visitedRoutesFromExecutedSpecs(options.cwd, output)
     : [];
   const visited = [...new Set([...fromOutput, ...fromManifest])];
+  const kind = verifyKindFromOutput(result.code === 0, output);
   return {
     name,
     ok: result.code === 0,
     output: output.slice(-8000),
     page: extra.page,
     scope: extra.scope,
-    visitedRoutes: visited,
-    targetRouteVisited: extra.page
-      ? visited.some(
-          (pathname) =>
-            pathname === extra.page || pathname.startsWith(`${extra.page}/`),
-        )
-      : false,
+    kind,
+    visitedRoutes: kind === "infrastructure" ? [] : visited,
+    targetRouteVisited:
+      kind === "infrastructure"
+        ? false
+        : extra.page
+          ? visited.some(
+              (pathname) =>
+                pathname === extra.page || pathname.startsWith(`${extra.page}/`),
+            )
+          : false,
   };
 }
 

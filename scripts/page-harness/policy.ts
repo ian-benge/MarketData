@@ -11,7 +11,7 @@ import type {
 import type { EvaluationCompleteness } from "./schemas";
 import type { AggregatedUsage } from "./usage";
 import type { VerifyResult } from "./verify";
-import { classifyVerifyResults, targetRouteVisitedInOutput } from "./verify";
+import { classifyVerifyResults, targetRouteVisitedInOutput, verifyHasInfrastructureFailure } from "./verify";
 
 /**
  * Single source of truth for harness invariants. CLI, orchestrator, evaluator
@@ -100,9 +100,6 @@ export function resolveSkeptic(input: {
   requestedSkeptic?: boolean;
   noSkeptic?: boolean;
 }): { skeptic: boolean; reason: string } {
-  if (input.auditOnly) {
-    return { skeptic: false, reason: "audit-only runs skip the skeptic" };
-  }
   const policy = resolveRiskPolicy(input.risk);
   if (input.noSkeptic) {
     if (!policy.allowDisableSkeptic || policy.requireSkeptic) {
@@ -125,6 +122,27 @@ export function resolveSkeptic(input: {
       ? "critical risk requires skeptic"
       : "optional for this risk level",
   };
+}
+
+export function effectiveHarnessRequest(request: HarnessRequest): HarnessRequest {
+  const resolved = resolveSkeptic({
+    risk: request.risk,
+    auditOnly: request.auditOnly,
+    requestedSkeptic: request.skeptic === true ? true : undefined,
+  });
+  return { ...request, skeptic: resolved.skeptic };
+}
+
+export function skepticIsRequired(request: {
+  risk: RiskLevel;
+  auditOnly: boolean;
+  skeptic: boolean;
+}): boolean {
+  return resolveSkeptic({
+    risk: request.risk,
+    auditOnly: request.auditOnly,
+    requestedSkeptic: request.skeptic === true ? true : undefined,
+  }).skeptic;
 }
 
 export function buildHarnessRequest(input: {
@@ -281,6 +299,7 @@ export function mergeTargetVerification(input: {
   targetOk: boolean;
   targetVisited: boolean;
   unrelatedFailures: VerifyResult[];
+  infrastructureFailed: boolean;
 } {
   const inspectCheck = targetRouteInspectOk({
     requestedRoute: input.requestedRoute,
@@ -295,6 +314,7 @@ export function mergeTargetVerification(input: {
       : inspectCheck.reason ?? "target route not verified",
     page: input.requestedRoute,
     scope: "target",
+    kind: "product",
     targetRouteVisited: inspectCheck.ok,
     visitedRoutes: input.inspect ? [input.inspect.finalPathname] : [],
   };
@@ -303,11 +323,14 @@ export function mergeTargetVerification(input: {
     requestedRoute: input.requestedRoute,
     results,
   });
+  const infrastructureFailed =
+    classified.infrastructureFailed || verifyHasInfrastructureFailure(results);
   return {
     results,
-    targetOk: classified.targetOk,
+    targetOk: infrastructureFailed ? false : classified.targetOk,
     targetVisited: classified.targetVisited,
     unrelatedFailures: classified.unrelatedFailures,
+    infrastructureFailed,
   };
 }
 
@@ -359,6 +382,10 @@ export type ReuseValidityInput = {
   baselineInspectMeta?: EvidenceMeta | null;
   baselineInspectPath?: string;
   targetRouteVerified?: boolean;
+  targetVerificationExecuted?: boolean;
+  infrastructureTargetFailure?: boolean;
+  skepticRequired?: boolean;
+  skepticCompleted?: boolean;
   afterAliasedFromBaseline?: boolean;
   usage?: AggregatedUsage | null;
 };
@@ -404,6 +431,24 @@ export function assessAuditReuseValidity(
   }
   if (input.processStatus && input.processStatus !== "audit_complete") {
     return { ok: false, reason: `audit process status is ${input.processStatus}, not audit_complete.` };
+  }
+  if (input.infrastructureTargetFailure) {
+    return {
+      ok: false,
+      reason: "target verification failed for infrastructure reasons; not reusable.",
+    };
+  }
+  if (input.targetVerificationExecuted === false) {
+    return {
+      ok: false,
+      reason: "required target verification never executed; not reusable.",
+    };
+  }
+  if (input.skepticRequired && !input.skepticCompleted) {
+    return {
+      ok: false,
+      reason: "required skeptic is missing; not reusable.",
+    };
   }
   if (input.afterAliasedFromBaseline) {
     return {

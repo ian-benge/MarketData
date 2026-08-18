@@ -6,6 +6,7 @@ import type { IsolatedWorkspace } from "./isolation";
 import type { InspectReport } from "./inspect";
 import type { AggregatedUsage } from "./usage";
 import { usageReportLines } from "./usage";
+import { invocationReportLines } from "./invocations";
 import type { VerifyResult } from "./verify";
 import { verificationSummary } from "./verify";
 import {
@@ -81,6 +82,9 @@ export function writeReport(options: {
   integrationReady?: boolean;
   restoreKind?: RestoreKind;
   verificationSource?: VerificationSource;
+  skepticRequired?: boolean;
+  skepticPath?: string | null;
+  invocations?: import("./invocations").InvocationLedger | null;
 }): string {
   const state: FinalRunState = {
     processStatus: options.status,
@@ -114,6 +118,14 @@ export function writeReport(options: {
     verify: verificationSummary(state.verify),
     changed: state.changed,
     stopReason: state.stopReason,
+    reusable: state.reusable,
+    skepticRequired: options.skepticRequired ?? false,
+    skepticPath: options.skepticPath ?? null,
+    skepticStatus: options.skepticRequired
+      ? options.skeptic
+        ? "completed"
+        : "missing"
+      : "not_required",
   });
   const shallow = options.changed.flatMap((file) => {
     try {
@@ -185,6 +197,9 @@ export function writeReport(options: {
     remainingLimitations: remaining,
     deferred: state.evaluation?.targetedRepair.map((item) => item.requestedFix) ?? [],
     usage: state.usage,
+    invocations: options.invocations ?? null,
+    skepticRequired: options.skepticRequired ?? false,
+    skepticPath: options.skepticPath ?? null,
     catalog: options.page,
     baseline: options.baseline?.summary ?? null,
     pageMap: options.pageMap,
@@ -205,6 +220,13 @@ export function writeReport(options: {
     `- Contract result: **${state.contractResult}**`,
     `- Integration ready: **${state.integrationReady ? "yes" : "no"}**`,
     `- Reusable audit: **${report.reusable ? "yes" : "no"}**`,
+    `- Skeptic: **${
+      options.skepticRequired
+        ? options.skeptic
+          ? `completed (${formatDisplayPath(options.skepticPath)})`
+          : "required, missing"
+        : "not required"
+    }**`,
     `- Score: ${state.score}`,
     `- Objective: ${options.request.objective}`,
     `- Supplied objective: ${options.request.suppliedObjective ?? "(none; default used)"}`,
@@ -244,6 +266,7 @@ export function writeReport(options: {
     "",
     "## Usage",
     ...usageReportLines(state.usage),
+    ...(options.invocations ? invocationReportLines(options.invocations) : []),
     "",
     "## Integration handoff",
     `- Worktree: ${formatDisplayPath(options.isolation.worktreePath)}`,

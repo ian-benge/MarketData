@@ -17,7 +17,7 @@ import {
 } from "./checkpoints";
 import { snapshotRedactedConfig } from "./config-snapshot";
 import { agreeContract } from "./contract-consensus";
-import { classifyFailure } from "./failure";
+import { classifyFailure, InfrastructureFailure } from "./failure";
 import {
   discoverContractProgress,
   hydrateResumeState,
@@ -46,10 +46,12 @@ import {
   auditAfterEvidence,
   collectedAfterEvidence,
   deriveContractResult,
+  effectiveHarnessRequest,
   evaluatedWorktreeSha,
   mergeTargetVerification,
   missingAfterEvidence,
   resolveRiskPolicy,
+  skepticIsRequired,
   type AfterEvidence,
   type RiskPolicy,
 } from "./policy";
@@ -77,14 +79,21 @@ import {
   type Baseline,
 } from "./schemas";
 import { accountSdkUsage, type AggregatedUsage } from "./usage";
-import { nowIso, type Logger } from "./util";
+import { nowIso, sha256Json, type Logger } from "./util";
 import {
   classifyVerifyResults,
   runVerification,
   verificationSummary,
   affectedAdjacentPages,
+  verifyHasInfrastructureFailure,
   type VerifyResult,
 } from "./verify";
+import type { ServerLease } from "./server-lease";
+import type { HarnessPhase } from "./phases";
+import {
+  alignUsageWithInvocations,
+  buildInvocationLedger,
+} from "./invocations";
 
 export type { HarnessRequest } from "./request";
 
@@ -108,6 +117,7 @@ export type HarnessDeps = {
   machine?: RunMachine;
   budget?: RunBudget;
   model?: unknown;
+  server?: ServerLease;
   regressionBaselineFingerprints?: FailureFingerprint[];
 };
 
@@ -193,6 +203,41 @@ function persistInspect(dir: string, report: InspectReport): string {
   const file = path.join(dir, "inspect.json");
   writeFileSync(file, `${JSON.stringify(report, null, 2)}\n`, "utf8");
   return file;
+}
+
+async function acquireOrigin(deps: HarnessDeps, phase: HarnessPhase): Promise<string> {
+  if (!deps.server) return deps.baseUrl;
+  const result = await deps.server.ensure(phase);
+  deps.baseUrl = result.origin;
+  return result.origin;
+}
+
+function evaluationEvidenceIdentity(input: {
+  contractHash: string;
+  inspectPath: string;
+  verifyPath: string;
+  performancePath: string;
+}) {
+  return { ...input, hash: sha256Json(input) };
+}
+
+function verifyArtifactInfrastructureInvalid(
+  store: ArtifactStore,
+  file = "verify-baseline.json",
+): boolean {
+  const rows = store.readJson(file) as VerifyResult[] | null;
+  if (!Array.isArray(rows) || rows.length === 0) return false;
+  return verifyHasInfrastructureFailure(rows);
+}
+
+function infrastructureVerifyMessage(results: VerifyResult[]): string {
+  const hit = results.find(
+    (row) =>
+      row.kind === "infrastructure" ||
+      (!row.ok && /econnrefused|timed out waiting for demo server|does not match harness origin/i.test(row.output)),
+  );
+  const excerpt = (hit?.output ?? "server unavailable").split("\n")[0];
+  return `Target verification failed for infrastructure reasons: ${excerpt}`;
 }
 
 function excerpt(file: string, limit = 8000): string {
@@ -288,13 +333,18 @@ export async function runHarness(
 }
 
 async function executeHarness(
-  request: HarnessRequest,
+  incoming: HarnessRequest,
   deps: HarnessDeps,
   machine: RunMachine,
   budget: RunBudget,
   runId: string,
   gitImpl: GitOps,
 ): Promise<HarnessResult> {
+  const request = effectiveHarnessRequest(incoming);
+  if (machine.state.request.skeptic !== request.skeptic) {
+    machine.state.request = { ...machine.state.request, skeptic: request.skeptic };
+    machine.persist();
+  }
   const page = lookupPage(request.route);
   const inspectRole = request.inspectRole ?? page?.role ?? "member";
   const inspectImpl = deps.inspect ?? inspectRoute;
@@ -316,6 +366,7 @@ async function executeHarness(
 
   if (!machine.shouldSkip("BASELINE")) {
     machine.begin("BASELINE", { route: request.route });
+    const origin = await acquireOrigin(deps, "BASELINE");
     deps.log.info(`inspect baseline ${request.route} as ${inspectRole}`);
     const evaluatedSha = await resolveEvaluatedSha(
       gitImpl,
@@ -323,7 +374,7 @@ async function executeHarness(
       deps.isolation.baseSha,
     );
     const before = await inspectImpl({
-      baseUrl: deps.baseUrl,
+      baseUrl: origin,
       route: request.route,
       role: inspectRole,
       outDir: deps.paths.inspectBefore,
@@ -335,7 +386,7 @@ async function executeHarness(
         contractHash: "pending",
         iteration: 0,
         worktreeSha: evaluatedSha,
-        serverOrigin: deps.baseUrl,
+        serverOrigin: origin,
         browser: "chrome",
         generatingCommand: "inspectRoute baseline",
       },
@@ -348,7 +399,7 @@ async function executeHarness(
     }
     assertInspectEvidence({
       requestedRoute: request.route,
-      expectedOrigin: deps.baseUrl,
+      expectedOrigin: origin,
       finalUrl: before.finalUrl,
       title: before.title,
       headings: before.headings,
@@ -570,10 +621,11 @@ async function executeHarness(
     let routeError: InspectAuthError | null = null;
     if (!machine.shouldSkip("VERIFY")) {
       machine.begin("VERIFY", { iteration });
+      const origin = await acquireOrigin(deps, "VERIFY");
       const verifyRaw = await verifyImpl({
         cwd: deps.isolation.agentCwd,
         route: request.route,
-        baseUrl: deps.baseUrl,
+        baseUrl: origin,
         changedFiles: changed,
         timeoutMs: policy.playwrightTimeoutMs,
         requireAdjacent: policy.requireAdjacentRegression,
@@ -583,14 +635,14 @@ async function executeHarness(
           contractHash,
           iteration,
           worktreeSha: evaluatedSha,
-          serverOrigin: deps.baseUrl,
+          serverOrigin: origin,
           browser: "n/a",
         },
       });
       let after: InspectReport | null = null;
       try {
         after = await inspectImpl({
-          baseUrl: deps.baseUrl,
+          baseUrl: origin,
           route: request.route,
           role: inspectRole,
           outDir: path.join(deps.paths.inspectAfter, `iter-${iteration}`),
@@ -602,7 +654,7 @@ async function executeHarness(
             contractHash,
             iteration,
             worktreeSha: evaluatedSha,
-            serverOrigin: deps.baseUrl,
+            serverOrigin: origin,
             browser: "chrome",
             generatingCommand: `inspectRoute iteration ${iteration}`,
           },
@@ -617,7 +669,7 @@ async function executeHarness(
       if (!after) {
         after = sampleFailedInspect(
           request.route,
-          deps.baseUrl,
+          origin,
           runId,
           contractHash,
           iteration,
@@ -628,7 +680,7 @@ async function executeHarness(
       try {
         assertInspectEvidence({
           requestedRoute: request.route,
-          expectedOrigin: deps.baseUrl,
+          expectedOrigin: origin,
           finalUrl: after.finalUrl,
           title: after.title,
           headings: after.headings,
@@ -645,10 +697,13 @@ async function executeHarness(
       const merged = mergeTargetVerification({
         requestedRoute: request.route,
         inspect: after,
-        expectedOrigin: deps.baseUrl,
+        expectedOrigin: origin,
         verify: verifyRaw,
       });
       deps.store.writeJson(`verify-iteration-${iteration}.json`, merged.results);
+      if (merged.infrastructureFailed) {
+        throw new InfrastructureFailure(infrastructureVerifyMessage(merged.results));
+      }
       const compare = compareInspect(before, after);
       deps.store.writeJson(`performance/compare-${iteration}.json`, compare);
       machine.complete("VERIFY", { tests: verificationSummary(merged.results) });
@@ -677,6 +732,14 @@ async function executeHarness(
       throw new Error(`Evaluator evidence is not fresh: ${freshness.reason}`);
     }
 
+    await acquireOrigin(deps, "EVALUATE");
+    const iterationEvidence = evaluationEvidenceIdentity({
+      contractHash,
+      inspectPath,
+      performancePath: path.join(deps.paths.performance, `after-${iteration}.json`),
+      verifyPath: path.join(deps.paths.artifacts, `verify-iteration-${iteration}.json`),
+    });
+    deps.store.writeJson("evaluation-evidence.json", iterationEvidence);
     const evaluation = await runEvaluator({
       role: "evaluator",
       request,
@@ -694,6 +757,7 @@ async function executeHarness(
       ),
       inspectExcerpt: excerpt(inspectPath),
       budget,
+      expectedIdentity: iterationEvidence,
     });
     lastEvaluation = evaluation;
     deps.store.writeJson(`evaluation-iteration-${iteration}.json`, evaluation);
@@ -732,8 +796,9 @@ async function executeHarness(
     });
     deps.store.writeJson(`regression-iteration-${iteration}.json`, regression);
 
-    if (request.skeptic) {
+    if (request.skeptic || policy.requireSkeptic) {
       if (!machine.shouldSkip("OPTIONAL_SKEPTIC")) {
+        await acquireOrigin(deps, "OPTIONAL_SKEPTIC");
         machine.begin("OPTIONAL_SKEPTIC", { iteration });
         skepticEval = await runEvaluator({
           role: "skeptic",
@@ -755,6 +820,7 @@ async function executeHarness(
           ),
           inspectExcerpt: excerpt(inspectPath),
           budget,
+          expectedIdentity: iterationEvidence,
         });
         machine.complete("OPTIONAL_SKEPTIC");
       }
@@ -968,42 +1034,79 @@ async function runAuditTail(options: {
   policy: RiskPolicy;
   provenance: ProvenanceManifest;
 }): Promise<HarnessResult> {
+  const request = effectiveHarnessRequest(options.request);
+  const skepticRequired = request.skeptic || options.policy.requireSkeptic;
   options.machine.skip("BUILD", "audit-only");
-  options.machine.begin("VERIFY");
+
+  const verifyInvalid = verifyArtifactInfrastructureInvalid(options.deps.store);
+  if (verifyInvalid && options.machine.shouldSkip("VERIFY")) {
+    options.machine.reopen("VERIFY", "infrastructure-invalid target verification");
+  }
+  if (verifyInvalid && options.machine.shouldSkip("EVALUATE")) {
+    options.machine.reopen("EVALUATE", "superseded infrastructure-failed evidence");
+  }
+
+  let merged: ReturnType<typeof mergeTargetVerification>;
   const evaluatedSha = await resolveEvaluatedSha(
     options.gitImpl,
     options.deps.isolation.agentCwd,
     options.deps.isolation.baseSha,
   );
-  const verifyRaw = await options.verifyImpl({
-    cwd: options.deps.isolation.agentCwd,
-    route: options.request.route,
-    baseUrl: options.deps.baseUrl,
-    timeoutMs: options.policy.playwrightTimeoutMs,
-    requireAdjacent: false,
-    meta: {
-      runId: options.runId,
-      route: options.request.route,
-      contractHash: options.contractHash,
-      iteration: 0,
-      worktreeSha: evaluatedSha,
-      serverOrigin: options.deps.baseUrl,
-      browser: "n/a",
-    },
-  });
-  const merged = mergeTargetVerification({
-    requestedRoute: options.request.route,
-    inspect: options.before,
-    expectedOrigin: options.deps.baseUrl,
-    verify: verifyRaw,
-  });
-  options.deps.store.writeJson("verify-baseline.json", merged.results);
-  options.machine.complete("VERIFY");
+  if (!options.machine.shouldSkip("VERIFY")) {
+    options.machine.begin("VERIFY");
+    const origin = await acquireOrigin(options.deps, "VERIFY");
+    const verifyRaw = await options.verifyImpl({
+      cwd: options.deps.isolation.agentCwd,
+      route: request.route,
+      baseUrl: origin,
+      timeoutMs: options.policy.playwrightTimeoutMs,
+      requireAdjacent: false,
+      meta: {
+        runId: options.runId,
+        route: request.route,
+        contractHash: options.contractHash,
+        iteration: 0,
+        worktreeSha: evaluatedSha,
+        serverOrigin: origin,
+        browser: "n/a",
+      },
+    });
+    merged = mergeTargetVerification({
+      requestedRoute: request.route,
+      inspect: options.before,
+      expectedOrigin: origin,
+      verify: verifyRaw,
+    });
+    options.deps.store.writeJson("verify-baseline.json", merged.results);
+    if (merged.infrastructureFailed) {
+      throw new InfrastructureFailure(infrastructureVerifyMessage(merged.results));
+    }
+    options.machine.complete("VERIFY");
+  } else {
+    const stored = (options.deps.store.readJson("verify-baseline.json") as VerifyResult[]) ?? [];
+    merged = mergeTargetVerification({
+      requestedRoute: request.route,
+      inspect: options.before,
+      expectedOrigin: options.deps.baseUrl,
+      verify: stored.filter((row) => row.name !== "target-route-inspect"),
+    });
+  }
+
   const inspectPath = path.join(options.deps.paths.inspectBefore, "inspect.json");
+  const verifyPath = path.join(options.deps.paths.artifacts, "verify-baseline.json");
+  const performancePath = path.join(options.deps.paths.performance, "before.json");
+  const identity = evaluationEvidenceIdentity({
+    contractHash: options.contractHash,
+    inspectPath,
+    verifyPath,
+    performancePath,
+  });
+  options.deps.store.writeJson("evaluation-evidence.json", identity);
+
   const freshness = isEvidenceFresh({
     meta: options.before.meta,
     runId: options.runId,
-    route: options.request.route,
+    route: request.route,
     contractHash: options.contractHash,
     iteration: 0,
     provenance: options.provenance,
@@ -1017,27 +1120,77 @@ async function runAuditTail(options: {
     provenance: options.provenance,
     inspectFilePath: inspectPath,
     runId: options.runId,
-    route: options.request.route,
+    route: request.route,
     iteration: 0,
   };
-  const evaluation = await runEvaluator({
-    role: "evaluator",
-    request: options.request,
-    deps: options.deps,
-    machine: options.machine,
-    contract: options.contract,
-    contractHash: options.contractHash,
-    iteration: 0,
-    inspectPath,
-    performancePath: path.join(options.deps.paths.performance, "before.json"),
-    verifyPath: path.join(options.deps.paths.artifacts, "verify-baseline.json"),
-    inspectExcerpt: excerpt(inspectPath),
-    budget: options.budget,
-  });
-  options.machine.skip("OPTIONAL_SKEPTIC", "audit-only default");
-  options.machine.skip("CHECKPOINT", "audit-only");
-  options.machine.skip("REPAIR_OR_FINISH", "audit-only");
-  options.machine.skip("RESTORE_BEST", "audit-only");
+
+  await acquireOrigin(options.deps, "EVALUATE");
+  const evaluation = options.machine.shouldSkip("EVALUATE")
+    ? requireArtifact<Evaluation>(options.deps.store, "evaluation")
+    : await runEvaluator({
+        role: "evaluator",
+        request,
+        deps: options.deps,
+        machine: options.machine,
+        contract: options.contract,
+        contractHash: options.contractHash,
+        iteration: 0,
+        inspectPath,
+        performancePath,
+        verifyPath,
+        inspectExcerpt: excerpt(inspectPath),
+        budget: options.budget,
+        expectedIdentity: identity,
+      });
+
+  let skepticEval =
+    (options.deps.store.readJson("skeptic.json") as Evaluation | null) ?? null;
+  if (skepticRequired) {
+    if (options.machine.shouldSkip("OPTIONAL_SKEPTIC") && !skepticEval) {
+      options.machine.reopen("OPTIONAL_SKEPTIC", "required skeptic missing");
+    }
+    if (!options.machine.shouldSkip("OPTIONAL_SKEPTIC") || !skepticEval) {
+      if (options.machine.shouldSkip("OPTIONAL_SKEPTIC")) {
+        options.machine.reopen("OPTIONAL_SKEPTIC", "required skeptic missing");
+      }
+      await acquireOrigin(options.deps, "OPTIONAL_SKEPTIC");
+      options.machine.begin("OPTIONAL_SKEPTIC");
+      skepticEval = await runEvaluator({
+        role: "skeptic",
+        request,
+        deps: options.deps,
+        machine: options.machine,
+        contract: options.contract,
+        contractHash: options.contractHash,
+        iteration: 0,
+        inspectPath,
+        performancePath,
+        verifyPath,
+        inspectExcerpt: excerpt(inspectPath),
+        budget: options.budget,
+        expectedIdentity: identity,
+      });
+      options.machine.complete("OPTIONAL_SKEPTIC", {
+        artifact: "skeptic.json",
+        evidenceHash: identity.hash,
+      });
+    }
+  } else if (!options.machine.shouldSkip("OPTIONAL_SKEPTIC")) {
+    options.machine.skip("OPTIONAL_SKEPTIC", "not required");
+  }
+  if (skepticRequired && !skepticEval) {
+    throw new Error("Required skeptic is missing; refusing audit_complete.");
+  }
+
+  if (!options.machine.shouldSkip("CHECKPOINT")) {
+    options.machine.skip("CHECKPOINT", "audit-only");
+  }
+  if (!options.machine.shouldSkip("REPAIR_OR_FINISH")) {
+    options.machine.skip("REPAIR_OR_FINISH", "audit-only");
+  }
+  if (!options.machine.shouldSkip("RESTORE_BEST")) {
+    options.machine.skip("RESTORE_BEST", "audit-only");
+  }
   const completeness = evaluationCompleteness(options.contract, evaluation, evidence);
   if (!freshness.ok) {
     completeness.ineligibleEvidence = [
@@ -1052,13 +1205,28 @@ async function runAuditTail(options: {
   options.deps.store.writeJson(
     "audit-fingerprint.json",
     auditFingerprint({
-      request: options.request,
+      request,
       isolation: options.deps.isolation,
       contract: options.contract,
     }),
   );
-  const reusable = freshness.ok && merged.targetOk;
-  return finalize(options.request, options.deps, {
+  const ledger = buildInvocationLedger({
+    runRoot: options.deps.paths.root,
+    usage: options.budget.usage,
+  });
+  alignUsageWithInvocations(options.budget.usage, ledger);
+  options.deps.store.writeJson("invocation-ledger.json", ledger);
+  options.machine.state.stopReason = null;
+  options.machine.state.failureCategory = null;
+  const reusable =
+    freshness.ok &&
+    merged.targetOk &&
+    !merged.infrastructureFailed &&
+    Boolean(skepticRequired ? skepticEval : true);
+  if (skepticRequired && !skepticEval) {
+    throw new Error("Required skeptic is missing; refusing audit_complete.");
+  }
+  return finalize(request, options.deps, {
     status: "audit_complete",
     contractResult,
     reusable,
@@ -1077,6 +1245,9 @@ async function runAuditTail(options: {
     usage: options.budget.usage,
     completeness,
     evaluatedSha,
+    skepticRequired,
+    skepticEval,
+    invocations: ledger,
   });
 }
 
@@ -1282,8 +1453,9 @@ async function inspectVerifyEvaluateRestored(options: {
     ),
     baseSha: options.evaluatedSha,
   });
+  const origin = await acquireOrigin(options.deps, "VERIFY");
   const afterReport = await options.inspectImpl({
-    baseUrl: options.deps.baseUrl,
+    baseUrl: origin,
     route: options.request.route,
     role: options.inspectRole,
     outDir: options.deps.paths.inspectAfter,
@@ -1295,14 +1467,14 @@ async function inspectVerifyEvaluateRestored(options: {
       contractHash: options.contractHash,
       iteration: options.machine.state.iteration,
       worktreeSha: sha,
-      serverOrigin: options.deps.baseUrl,
+      serverOrigin: origin,
       browser: "chrome",
       generatingCommand: "inspectRoute restored",
     },
   });
   assertInspectEvidence({
     requestedRoute: options.request.route,
-    expectedOrigin: options.deps.baseUrl,
+    expectedOrigin: origin,
     finalUrl: afterReport.finalUrl,
     title: afterReport.title,
     headings: afterReport.headings,
@@ -1315,7 +1487,7 @@ async function inspectVerifyEvaluateRestored(options: {
   const verifyRaw = await options.verifyImpl({
     cwd: options.deps.isolation.agentCwd,
     route: options.request.route,
-    baseUrl: options.deps.baseUrl,
+    baseUrl: origin,
     timeoutMs: options.policy.playwrightTimeoutMs,
     requireAdjacent: options.policy.requireAdjacentRegression,
     meta: {
@@ -1324,17 +1496,20 @@ async function inspectVerifyEvaluateRestored(options: {
       contractHash: options.contractHash,
       iteration: options.machine.state.iteration,
       worktreeSha: sha,
-      serverOrigin: options.deps.baseUrl,
+      serverOrigin: origin,
       browser: "n/a",
     },
   });
   const merged = mergeTargetVerification({
     requestedRoute: options.request.route,
     inspect: afterReport,
-    expectedOrigin: options.deps.baseUrl,
+    expectedOrigin: origin,
     verify: verifyRaw,
   });
   options.deps.store.writeJson("verify-final.json", merged.results);
+  if (merged.infrastructureFailed) {
+    throw new InfrastructureFailure(infrastructureVerifyMessage(merged.results));
+  }
   const inspectPath = path.join(options.deps.paths.inspectAfter, "inspect.json");
   let evaluation: Evaluation;
   if (options.allowAgents === false) {
@@ -1441,6 +1616,9 @@ function finalize(
     integrationReady?: boolean;
     restoreKind?: RestoreKind;
     verificationSource?: VerificationSource;
+    skepticRequired?: boolean;
+    skepticEval?: Evaluation | null;
+    invocations?: import("./invocations").InvocationLedger;
   },
 ): HarnessResult {
   deps.store.writeJson("handoff.json", {
@@ -1457,11 +1635,30 @@ function finalize(
       ? canonicalizeContract(options.contract).hash
       : null,
   });
+  const skeptic =
+    options.skepticEval ??
+    ((deps.store.readJson("skeptic.json") as Evaluation | null) ?? null);
+  const skepticRequired =
+    options.skepticRequired ?? skepticIsRequired(request);
+  const infrastructureInvalid = verifyHasInfrastructureFailure(options.verify);
+  const reusable =
+    options.reusable &&
+    !infrastructureInvalid &&
+    (!skepticRequired || Boolean(skeptic));
+  if (skepticRequired && !skeptic && options.status === "audit_complete") {
+    throw new Error("Required skeptic is missing; refusing audit_complete.");
+  }
+  if (infrastructureInvalid && options.status === "audit_complete") {
+    throw new InfrastructureFailure(infrastructureVerifyMessage(options.verify));
+  }
   deps.store.writeJson("run-status.json", {
     processStatus: options.status,
     contractResult: options.contractResult,
-    reusable: options.reusable,
+    reusable,
     integrationReady: options.integrationReady ?? false,
+    skepticRequired,
+    skepticStatus: skepticRequired ? (skeptic ? "completed" : "missing") : "not_required",
+    skepticPath: skeptic ? "skeptic.json" : null,
     completedAt: nowIso(),
   });
   const reportPath = writeReport({
@@ -1476,7 +1673,7 @@ function finalize(
     before: options.before,
     after: options.after,
     evaluation: options.evaluation,
-    skeptic: (deps.store.readJson("skeptic.json") as Evaluation | null) ?? null,
+    skeptic,
     verify: options.verify,
     status: options.status,
     contractResult: options.contractResult,
@@ -1488,16 +1685,19 @@ function finalize(
     stopReason: options.stopReason,
     compare: options.compare,
     model: deps.model,
-    reusable: options.reusable,
+    reusable,
     evaluatedSha: options.evaluatedSha,
     integrationReady: options.integrationReady,
     restoreKind: options.restoreKind,
     verificationSource: options.verificationSource,
+    skepticRequired,
+    skepticPath: skeptic ? path.join(deps.paths.artifacts, "skeptic.json") : null,
+    invocations: options.invocations,
   });
   return {
     status: options.status,
     contractResult: options.contractResult,
-    reusable: options.reusable,
+    reusable,
     runId: options.runId,
     route: request.route,
     reportPath,
@@ -1682,9 +1882,37 @@ async function runEvaluator(options: {
   inspectExcerpt: string;
   comparePath?: string;
   budget: RunBudget;
+  expectedIdentity?: {
+    hash: string;
+    contractHash: string;
+    inspectPath: string;
+    verifyPath: string;
+    performancePath: string;
+  };
 }): Promise<Evaluation> {
   if (options.role === "evaluator") {
     options.machine.begin("EVALUATE", { iteration: options.iteration });
+  }
+  if (options.expectedIdentity) {
+    const stored = options.deps.store.readJson("evaluation-evidence.json") as {
+      hash?: string;
+      contractHash?: string;
+      inspectPath?: string;
+      verifyPath?: string;
+      performancePath?: string;
+    } | null;
+    if (
+      stored &&
+      (stored.hash !== options.expectedIdentity.hash ||
+        stored.contractHash !== options.expectedIdentity.contractHash ||
+        stored.inspectPath !== options.expectedIdentity.inspectPath ||
+        stored.verifyPath !== options.expectedIdentity.verifyPath ||
+        stored.performancePath !== options.expectedIdentity.performancePath)
+    ) {
+      throw new Error(
+        "Skeptic evidence identity does not match the evaluator contract/evidence identity.",
+      );
+    }
   }
   const session = await options.deps.host.open({
     role: options.role,

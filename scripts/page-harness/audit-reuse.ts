@@ -8,7 +8,8 @@ import type { ArtifactStore } from "./artifacts";
 import type { EvidenceMeta, ProvenanceManifest } from "./evidence";
 import { assessAuditReuseValidity } from "./policy";
 import type { InspectReport } from "./inspect";
-import { classifyVerifyResults, type VerifyResult } from "./verify";
+import { classifyVerifyResults, verifyHasInfrastructureFailure, type VerifyResult } from "./verify";
+import { skepticIsRequired } from "./policy";
 import type { AggregatedUsage } from "./usage";
 
 export class AuditReuseError extends Error {
@@ -134,7 +135,11 @@ export function inspectAuditReuse(
     : null;
   const machine = existsSync(machineFile)
     ? (JSON.parse(readFileSync(machineFile, "utf8")) as {
-        request?: { auditOnly?: boolean };
+        request?: {
+          auditOnly?: boolean;
+          skeptic?: boolean;
+          risk?: "low" | "medium" | "critical";
+        };
         contractLocked?: boolean;
         stopReason?: string | null;
         phases?: Record<string, { status?: string }>;
@@ -149,9 +154,10 @@ export function inspectAuditReuse(
   const verify = existsSync(verifyFile)
     ? (JSON.parse(readFileSync(verifyFile, "utf8")) as VerifyResult[])
     : [];
+  const verifyRows = Array.isArray(verify) ? verify.map(normalizeLegacyVerify) : [];
   const classified = classifyVerifyResults({
     requestedRoute: request.route,
-    results: Array.isArray(verify) ? verify.map(normalizeLegacyVerify) : [],
+    results: verifyRows,
   });
   const afterAliasedFromBaseline =
     !existsSync(afterInspectFile) &&
@@ -163,11 +169,26 @@ export function inspectAuditReuse(
     ? (JSON.parse(readFileSync(fingerprintFile, "utf8")) as AuditFingerprint)
     : null;
 
+  const infrastructureTargetFailure =
+    classified.infrastructureFailed || verifyHasInfrastructureFailure(verifyRows);
+  const targetVerificationExecuted =
+    existsSync(verifyFile) &&
+    verifyRows.some((row) => row.scope === "target" || row.name.startsWith("playwright-"));
   const targetRouteVerified =
+    !infrastructureTargetFailure &&
     inspect?.routeVerified === true &&
     (inspect.finalPathname === request.route ||
       inspect.finalPathname?.startsWith(`${request.route}/`)) &&
-    (classified.targetOk || inspect.routeVerified === true);
+    classified.targetOk;
+  const machineRequest = machine?.request;
+  const skepticRequired = machineRequest
+    ? skepticIsRequired({
+        risk: machineRequest.risk ?? "low",
+        auditOnly: machineRequest.auditOnly ?? true,
+        skeptic: machineRequest.skeptic === true,
+      })
+    : false;
+  const skepticCompleted = existsSync(path.join(auditRoot, "artifacts", "skeptic.json"));
 
   const validity = assessAuditReuseValidity({
     processStatus: report?.processStatus ?? status?.processStatus ?? "audit_complete",
@@ -203,6 +224,10 @@ export function inspectAuditReuse(
     baselineInspectMeta: inspect?.meta as EvidenceMeta | undefined,
     baselineInspectPath: existsSync(inspectFile) ? inspectFile : undefined,
     targetRouteVerified,
+    targetVerificationExecuted,
+    infrastructureTargetFailure,
+    skepticRequired,
+    skepticCompleted,
     afterAliasedFromBaseline,
     usage: existsSync(reportFile)
       ? ((JSON.parse(readFileSync(reportFile, "utf8")) as { usage?: AggregatedUsage }).usage ??

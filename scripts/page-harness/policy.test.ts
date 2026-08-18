@@ -61,8 +61,14 @@ describe("risk policy", () => {
       }),
     ).toThrow(/require a skeptic/);
     expect(
-      resolveSkeptic({ risk: "critical", auditOnly: true, noSkeptic: true }).skeptic,
-    ).toBe(false);
+      resolveSkeptic({ risk: "critical", auditOnly: true }).skeptic,
+    ).toBe(true);
+    expect(() =>
+      resolveSkeptic({ risk: "critical", auditOnly: true, noSkeptic: true }),
+    ).toThrow(CriticalSkepticRequiredError);
+    expect(
+      resolveSkeptic({ risk: "low", auditOnly: true, requestedSkeptic: true }).skeptic,
+    ).toBe(true);
     expect(resolveSkeptic({ risk: "low", auditOnly: false, noSkeptic: true }).skeptic).toBe(
       false,
     );
@@ -137,6 +143,34 @@ describe("target route verification", () => {
     expect(merged.targetOk).toBe(false);
     expect(merged.targetVisited).toBe(false);
   });
+
+  it("treats Playwright ECONNREFUSED as infrastructure failure, not a product pass", () => {
+    const inspect = sampleInspect({
+      route: "/scanner",
+      finalUrl: "http://127.0.0.1:3200/scanner",
+      finalPathname: "/scanner",
+      routeVerified: true,
+    });
+    const merged = mergeTargetVerification({
+      requestedRoute: "/scanner",
+      inspect,
+      expectedOrigin: "http://127.0.0.1:3200",
+      verify: [
+        {
+          name: "playwright-target",
+          ok: false,
+          output:
+            "Error: apiRequestContext.post: connect ECONNREFUSED 127.0.0.1:3200\nPOST http://127.0.0.1:3200/api/auth/demo",
+          scope: "target",
+          page: "/scanner",
+          targetRouteVisited: true,
+          visitedRoutes: ["/scanner"],
+        },
+      ],
+    });
+    expect(merged.infrastructureFailed).toBe(true);
+    expect(merged.targetOk).toBe(false);
+  });
 });
 
 describe("audit reuse validity", () => {
@@ -180,6 +214,63 @@ describe("audit reuse validity", () => {
     if (!verdict.ok) {
       expect(verdict.reason).toMatch(/alias|requested route|provenance/i);
     }
+  });
+
+  it("blocks reuse when target verification failed for infrastructure reasons", () => {
+    const verdict = assessAuditReuseValidity({
+      processStatus: "audit_complete",
+      contractResult: "failed",
+      reusableFlag: true,
+      auditOnly: true,
+      contractLocked: true,
+      fingerprint: {
+        route: "/scanner",
+        objective: "Improve Scanner",
+        suppliedObjective: "Improve Scanner",
+        baseSha: "abc",
+        contractHash: "a".repeat(64),
+        inspectRole: "member",
+      },
+      provenance: {
+        runId: "scanner-20260818-d66a2767",
+        route: "/scanner",
+        lockedContractHash: "a".repeat(64),
+        inspectFileSha256: "b".repeat(64),
+        boundAt: new Date().toISOString(),
+      } as never,
+      targetRouteVerified: true,
+      targetVerificationExecuted: true,
+      infrastructureTargetFailure: true,
+      skepticRequired: true,
+      skepticCompleted: true,
+    });
+    expect(verdict.ok).toBe(false);
+    if (!verdict.ok) expect(verdict.reason).toMatch(/infrastructure/i);
+  });
+
+  it("blocks reuse when a required skeptic is missing", () => {
+    const verdict = assessAuditReuseValidity({
+      processStatus: "audit_complete",
+      contractResult: "failed",
+      reusableFlag: true,
+      auditOnly: true,
+      contractLocked: true,
+      fingerprint: {
+        route: "/scanner",
+        objective: "Improve Scanner",
+        suppliedObjective: "Improve Scanner",
+        baseSha: "abc",
+        contractHash: "a".repeat(64),
+        inspectRole: "member",
+      },
+      targetRouteVerified: true,
+      targetVerificationExecuted: true,
+      infrastructureTargetFailure: false,
+      skepticRequired: true,
+      skepticCompleted: false,
+    });
+    expect(verdict.ok).toBe(false);
+    if (!verdict.ok) expect(verdict.reason).toMatch(/skeptic/i);
   });
 });
 

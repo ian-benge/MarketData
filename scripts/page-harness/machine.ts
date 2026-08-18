@@ -215,6 +215,17 @@ export class RunMachine {
     this.persist();
   }
 
+  reopen(phase: HarnessPhase, reason: string): PhaseRecord {
+    const record = this.slot(phase);
+    record.status = "pending";
+    record.startedAt = null;
+    record.endedAt = null;
+    record.error = null;
+    record.result = { reopened: reason, previous: record.result };
+    this.persist();
+    return record;
+  }
+
   lockContract(hash: string): void {
     this.state.contractLocked = true;
     this.state.contractHash = hash;

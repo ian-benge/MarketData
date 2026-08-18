@@ -17,7 +17,7 @@ import {
   CriticalSkepticRequiredError,
 } from "./policy";
 import { AuditReuseError } from "./audit-reuse";
-import { startDemoServer } from "./server";
+import { createHarnessServerLease } from "./server-lease";
 import { decideReadPath, decideShellCommand } from "./safety";
 import { runPreflight } from "./preflight";
 import { formatRouteInventory, inventoryRoutes } from "./routes-inventory";
@@ -34,7 +34,6 @@ import { classifyFailure } from "./failure";
 import {
   formatRunStatus,
   migratePersistedRun,
-  phaseRequiresDemoServer,
   resolveResumeRunId,
   restoreRunBudget,
   validateResume,
@@ -65,7 +64,7 @@ Options:
   --objective <text>          Optional short objective
   --objective-file <path>     Read objective from a file
   --audit-only                Read-only planner, dual review, evaluator; no edits
-  --skeptic / --no-skeptic    Adversarial pass. Critical risk requires a skeptic; --no-skeptic is refused.
+  --skeptic / --no-skeptic    Adversarial pass after the evaluator. Critical risk requires a skeptic for audit and improve; --no-skeptic is refused.
   --max-iterations <n>        Builder/evaluator repair rounds (default: 3)
   --max-minutes <n>           Wall-clock budget (alias: --max-duration-minutes, default: 90)
   --max-contract-rounds <n>   Dual-review rounds (default: 3)
@@ -331,21 +330,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   machine.begin("WORKTREE", { mode: isolation.mode });
   machine.complete("WORKTREE", isolation);
 
-  let serverStop: (() => Promise<void>) | null = null;
-  let baseUrl = parsed.values["base-url"];
+  const lease = createHarnessServerLease({
+    cwd: isolation.agentCwd,
+    port: Number(parsed.values.port ?? HARNESS_DEFAULTS.port),
+    logFile: path.join(paths.root, "next.log"),
+    store,
+    role: request.inspectRole,
+    route,
+    externalOrigin: parsed.values["base-url"],
+  });
+  let baseUrl = lease.origin();
   try {
-    if (!baseUrl) {
-      const server = await startDemoServer({
-        cwd: isolation.agentCwd,
-        port: Number(parsed.values.port ?? HARNESS_DEFAULTS.port),
-        logFile: path.join(paths.root, "next.log"),
-      });
-      baseUrl = server.baseUrl;
-      serverStop = server.stop;
-      log.info(`demo server ${baseUrl} bundler=${server.bundler}`);
-    }
-
     if (parsed.values["inspect-only"]) {
+      const ready = await lease.ensure("BASELINE");
+      baseUrl = ready.origin;
+      log.info(`demo server ${baseUrl}`);
       const { inspectRoute } = await import("./inspect");
       const before = await inspectRoute({
         baseUrl,
@@ -399,6 +398,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       log,
       machine,
       model: model.selection,
+      server: lease,
     });
     log.info(`done status=${result.status} score=${result.score} report=${result.reportPath}`);
     console.log(result.reportPath);
@@ -443,7 +443,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
     return 1;
   } finally {
-    if (serverStop) await serverStop();
+    await lease.stop();
     if (parsed.values["cleanup-worktree"] && isolation.worktreePath) {
       await removeWorktree(repoRoot, isolation.worktreePath);
     }
@@ -761,20 +761,17 @@ async function resumeRun(options: {
   log.info(`model ${model.selection.id} ${model.xhighParameterId}=${model.xhighValue}`);
 
   const budget = restoreRunBudget(validation.state.budget);
-  let serverStop: (() => Promise<void>) | null = null;
-  let baseUrl = options.baseUrl ?? "http://127.0.0.1:3200";
+  const lease = createHarnessServerLease({
+    cwd: isolation.agentCwd,
+    port: Number(options.port ?? HARNESS_DEFAULTS.port),
+    logFile: path.join(paths.root, "next.log"),
+    store,
+    role: request.inspectRole,
+    route: request.route,
+    externalOrigin: options.baseUrl,
+  });
+  const baseUrl = lease.origin();
   try {
-    const nextPhase = validation.state.activePhase;
-    if (!options.baseUrl && phaseRequiresDemoServer(nextPhase)) {
-      const server = await startDemoServer({
-        cwd: isolation.agentCwd,
-        port: Number(options.port ?? HARNESS_DEFAULTS.port),
-        logFile: path.join(paths.root, "next.log"),
-      });
-      baseUrl = server.baseUrl;
-      serverStop = server.stop;
-      log.info(`demo server ${baseUrl} bundler=${server.bundler}`);
-    }
     const host = createCursorAgentHost({
       apiKey: options.apiKey,
       model,
@@ -798,6 +795,7 @@ async function resumeRun(options: {
         machine,
         model: model.selection,
         budget,
+        server: lease,
       },
     );
     console.log(result.reportPath);
@@ -821,7 +819,7 @@ async function resumeRun(options: {
     });
     return 1;
   } finally {
-    if (serverStop) await serverStop();
+    await lease.stop();
     if (options.cleanup && isolation.worktreePath) {
       await removeWorktree(options.repoRoot, isolation.worktreePath);
     }

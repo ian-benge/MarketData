@@ -153,6 +153,14 @@ describe("retryable failure classification", () => {
     expect(classified.retryable).toBe(true);
   });
 
+  it("classifies ECONNREFUSED as retryable infrastructure", () => {
+    const classified = classifyFailure(
+      "Target verification failed for infrastructure reasons: connect ECONNREFUSED 127.0.0.1:3200",
+    );
+    expect(classified.category).toBe("infrastructure");
+    expect(classified.retryable).toBe(true);
+  });
+
   it("keeps permission and security failures non-retryable", () => {
     expect(classifyFailure("access denied by project hooks").retryable).toBe(false);
     expect(classifyFailure("Sandbox required for builder runs").retryable).toBe(false);
