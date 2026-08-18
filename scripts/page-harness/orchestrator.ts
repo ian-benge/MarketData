@@ -17,6 +17,7 @@ import {
 } from "./checkpoints";
 import { snapshotRedactedConfig } from "./config-snapshot";
 import { agreeContract } from "./contract-consensus";
+import { ContractExhaustedError } from "./contract-ops";
 import { classifyFailure, InfrastructureFailure } from "./failure";
 import {
   discoverContractProgress,
@@ -24,6 +25,7 @@ import {
   inferIncompleteFromFailure,
   persistBudgetFromLimits,
   writeResumeState,
+  type PersistedBudget,
 } from "./resume";
 import {
   bindPreLockProvenance,
@@ -51,9 +53,11 @@ import {
   mergeTargetVerification,
   missingAfterEvidence,
   resolveRiskPolicy,
+  resolveWorkflowPolicy,
   skepticIsRequired,
   type AfterEvidence,
   type RiskPolicy,
+  type WorkflowPolicy,
 } from "./policy";
 import { builderPrompt, evaluatorPrompt, plannerPrompt } from "./prompts";
 import { writeReport } from "./report";
@@ -90,10 +94,13 @@ import {
 } from "./verify";
 import type { ServerLease } from "./server-lease";
 import type { HarnessPhase } from "./phases";
+import { persistInvocationCompletion } from "./invocations";
 import {
   alignUsageWithInvocations,
   buildInvocationLedger,
 } from "./invocations";
+import { buildRouteContextBundle, type RouteContextBundle } from "./route-context";
+import { writeAuthoritativeState, budgetExhaustedNextAction } from "./final-state";
 
 export type { HarnessRequest } from "./request";
 
@@ -140,15 +147,15 @@ function persistLiveBudget(
   request: HarnessRequest,
   paused: boolean,
 ): void {
-  store.writeJson(
-    "budget.json",
-    persistBudgetFromLimits(request, {
-      agentRuns: budget.agentRuns,
-      consumedActiveRuntimeMs: budget.elapsedActiveMs(),
-      pausedAt: paused ? nowIso() : null,
-      usage: budget.usage,
-    }),
-  );
+  const prev = store.readJson("budget.json") as PersistedBudget | null;
+  const persisted = persistBudgetFromLimits(request, {
+    agentRuns: budget.agentRuns,
+    consumedActiveRuntimeMs: budget.elapsedActiveMs(),
+    pausedAt: paused ? nowIso() : null,
+    usage: budget.usage,
+  });
+  persisted.extensions = prev?.extensions;
+  store.writeJson("budget.json", persisted);
 }
 
 function withBudgetAccounting(
@@ -162,8 +169,8 @@ function withBudgetAccounting(
       return {
         ...session,
         async send(prompt: string) {
+          budget.assertBeforeInvocation();
           budget.recordAgentRun();
-          budget.assert();
           try {
             const result = await session.send(prompt);
             budget.accountTurn(
@@ -172,7 +179,6 @@ function withBudgetAccounting(
               result.usageAccount ?? accountSdkUsage(result.usage),
             );
             onTurn?.();
-            budget.assert();
             return result;
           } catch (error) {
             if (error instanceof AgentInvocationError && error.usageAccount) {
@@ -299,7 +305,52 @@ export async function runHarness(
     if (error instanceof BudgetExceededError) {
       deps.log.warn(error.reason);
       machine.state.stopReason = error.reason;
+      machine.state.failureCategory = "budget_exhausted";
+      if (error.completedWorkPersisted) {
+        machine.setIncompleteInvocation(null);
+      }
       machine.persist();
+      if (!machine.state.contractLocked) {
+        budget.pause();
+        persistLiveBudget(deps.store, budget, request, true);
+        const resume = hydrateResumeState({
+          store: deps.store,
+          machine: machine.state,
+          runRoot: deps.paths.root,
+        });
+        resume.failureCategory = "budget_exhausted";
+        resume.resumable = true;
+        resume.reusable = false;
+        resume.nextAction = budgetExhaustedNextAction({
+          tokensConsumed: budget.usage.totalTokens,
+          tokenLimit: budget.limits.maxTotalTokens,
+          agentRuns: budget.agentRuns,
+          agentRunLimit: budget.limits.maxAgentRuns,
+          consumedMs: budget.elapsedActiveMs(),
+          durationLimitMs: budget.limits.maxDurationMs,
+          incompleteRole: resume.incompleteInvocation?.role ?? null,
+        });
+        writeResumeState(deps.store, resume);
+        deps.store.writeFailureStatus({
+          phase: machine.state.currentPhase,
+          message: error.reason,
+          resumable: true,
+          category: "budget_exhausted",
+          resume,
+        });
+        return {
+          status: "stopped",
+          contractResult: "not_evaluated",
+          reusable: false,
+          runId,
+          route: request.route,
+          reportPath: path.join(deps.paths.artifacts, "report.md"),
+          bestCommit: null,
+          score: 0,
+          stopReason: error.reason,
+          integrationReady: false,
+        };
+      }
       return recoverFromBudget({
         request,
         deps: hosted,
@@ -309,6 +360,28 @@ export async function runHarness(
         gitImpl,
         reason: error.reason,
       });
+    }
+    if (error instanceof ContractExhaustedError) {
+      budget.pause();
+      machine.fail(machine.state.currentPhase, error.message, "contract_exhausted");
+      persistLiveBudget(deps.store, budget, request, true);
+      const resume = hydrateResumeState({
+        store: deps.store,
+        machine: machine.state,
+        runRoot: deps.paths.root,
+      });
+      resume.resumable = false;
+      resume.reusable = false;
+      resume.failureCategory = "contract_exhausted";
+      writeResumeState(deps.store, resume);
+      deps.store.writeFailureStatus({
+        phase: machine.state.currentPhase,
+        message: error.message,
+        resumable: false,
+        category: "contract_exhausted",
+        resume,
+      });
+      throw error;
     }
     const message = error instanceof Error ? error.message : String(error);
     const classified = classifyFailure(message);
@@ -350,6 +423,10 @@ async function executeHarness(
   const inspectImpl = deps.inspect ?? inspectRoute;
   const verifyImpl = deps.verify ?? runVerification;
   const policy = resolveRiskPolicy(request.risk);
+  const workflow = resolveWorkflowPolicy({
+    risk: request.risk,
+    reviewers: request.reviewers,
+  });
   budget.resumeClock();
   const persistBudget = () => persistLiveBudget(deps.store, budget, request, false);
 
@@ -359,20 +436,55 @@ async function executeHarness(
       runId,
       isolation: deps.isolation,
       riskPolicy: policy,
+      requestedWorkflow: {
+        risk: request.risk,
+        reviewers: request.reviewers ?? null,
+        skeptic: request.skeptic,
+      },
+      effectiveWorkflow: {
+        risk: workflow.risk,
+        independentReviewers: workflow.independentReviewers,
+        disputeReviewers: workflow.disputeReviewers,
+        requireSkeptic: workflow.requireSkeptic,
+        requireTargetRouteVerification: workflow.requireTargetRouteVerification,
+        requireAdjacentRegression: workflow.requireAdjacentRegression,
+        source: workflow.source,
+      },
       startedAt: nowIso(),
     });
   }
+  deps.store.writeJson("workflow-policy.json", {
+    requested: {
+      risk: request.risk,
+      reviewers: request.reviewers ?? null,
+      skeptic: incoming.skeptic,
+    },
+    effective: workflow,
+  });
   deps.store.appendProgress({ phase: "start", route: request.route });
 
   if (!machine.shouldSkip("BASELINE")) {
     machine.begin("BASELINE", { route: request.route });
     const origin = await acquireOrigin(deps, "BASELINE");
+    const leaseProbe = deps.server
+      ? await deps.server.probeAlive(origin)
+      : { ok: true as const };
+    if (!leaseProbe.ok) {
+      throw new InfrastructureFailure(
+        `Demo-server lease/health failed before planner: ${leaseProbe.reason ?? "unhealthy"}`,
+      );
+    }
     deps.log.info(`inspect baseline ${request.route} as ${inspectRole}`);
     const evaluatedSha = await resolveEvaluatedSha(
       gitImpl,
       deps.isolation.agentCwd,
       deps.isolation.baseSha,
     );
+    if (deps.isolation.baseSha && evaluatedSha !== deps.isolation.baseSha && deps.isolation.mode === "worktree") {
+      throw new Error(
+        `Worktree SHA mismatch before planner: HEAD ${evaluatedSha} != base ${deps.isolation.baseSha}.`,
+      );
+    }
     const before = await inspectImpl({
       baseUrl: origin,
       route: request.route,
@@ -405,14 +517,49 @@ async function executeHarness(
       headings: before.headings,
       routeVerified: before.routeVerified,
     });
+    const preflightVerify = await verifyImpl({
+      cwd: deps.isolation.agentCwd,
+      route: request.route,
+      baseUrl: origin,
+      timeoutMs: policy.playwrightTimeoutMs,
+      requireAdjacent: false,
+      jobs: { staticChecks: true, target: true, unrelated: false, adjacent: false },
+      meta: {
+        runId,
+        route: request.route,
+        contractHash: "pending",
+        iteration: 0,
+        worktreeSha: evaluatedSha,
+        serverOrigin: origin,
+        browser: "n/a",
+      },
+    });
+    const preflightMerged = mergeTargetVerification({
+      requestedRoute: request.route,
+      inspect: before,
+      expectedOrigin: origin,
+      verify: preflightVerify,
+    });
+    deps.store.writeJson("verify-preflight.json", preflightMerged.results);
+    if (preflightMerged.infrastructureFailed) {
+      throw new InfrastructureFailure(infrastructureVerifyMessage(preflightMerged.results));
+    }
     machine.complete("BASELINE", {
       measuredAt: before.measuredAt,
       finalUrl: before.finalUrl,
       routeVerified: true,
       worktreeSha: evaluatedSha,
+      productTestFailures: preflightMerged.results.filter((row) => !row.ok && row.kind !== "infrastructure").length,
     });
   }
   const before = requireInspect(deps, "performance/before.json");
+  const contextBundle: RouteContextBundle = buildRouteContextBundle({
+    repoRoot: deps.isolation.repoRoot,
+    route: request.route,
+    inspectPath: path.join(deps.paths.inspectBefore, "inspect.json"),
+    performancePath: path.join(deps.paths.performance, "before.json"),
+  });
+  deps.store.writeJson("route-context.json", contextBundle);
 
   let reusedAudit = false;
   if (request.fromAudit && !request.auditOnly && !machine.state.contractLocked) {
@@ -445,7 +592,7 @@ async function executeHarness(
       cwd: deps.isolation.agentCwd,
       purpose: "planner",
     });
-    await withSession(planner, (session) =>
+    const plannerTurn = await withSession(planner, (session) =>
       session.send(
         plannerPrompt({
           route: request.route,
@@ -454,10 +601,23 @@ async function executeHarness(
           inspectPath: path.join(deps.paths.inspectBefore, "inspect.json"),
           performancePath: path.join(deps.paths.performance, "before.json"),
           inspectExcerpt: excerpt(path.join(deps.paths.inspectBefore, "inspect.json")),
+          contextBundle,
         }),
       ),
     );
+    persistInvocationCompletion(deps.store, {
+      status: "completed",
+      role: "planner",
+      purpose: "planner",
+      runId: plannerTurn.runId ?? null,
+      agentId: planner.agentId,
+      artifactName: "invocation-planner.json",
+      artifact: { baseline: true, pageMap: true, contract: true },
+      usage: plannerTurn.usageAccount ?? null,
+      phaseDecision: "planned",
+    });
     machine.complete("PLAN");
+    budget.assertAfterInvocation();
   }
 
   const baseline = requireArtifact<Baseline>(deps.store, "baseline");
@@ -491,14 +651,13 @@ async function executeHarness(
       objective: request.objective,
       contract,
       maxRounds: request.maxContractRounds,
+      independentReviewers: workflow.independentReviewers,
+      disputeReviewers: workflow.disputeReviewers,
       resume: incomplete
         ? {
             startRound: incomplete.round,
-            skipBuilder: incomplete.role === "evaluator",
           }
-        : discovered.completed.length
-          ? { startRound: discovered.completed.length + 1, skipBuilder: false }
-          : undefined,
+        : { startRound: 1 },
       deps: {
         host: deps.host,
         store: deps.store,
@@ -507,6 +666,7 @@ async function executeHarness(
         log: deps.log,
         machine,
         persistBudget,
+        contextBundle,
       },
     });
     contract = agreed.contract;
@@ -1055,22 +1215,28 @@ async function runAuditTail(options: {
   if (!options.machine.shouldSkip("VERIFY")) {
     options.machine.begin("VERIFY");
     const origin = await acquireOrigin(options.deps, "VERIFY");
-    const verifyRaw = await options.verifyImpl({
-      cwd: options.deps.isolation.agentCwd,
-      route: request.route,
-      baseUrl: origin,
-      timeoutMs: options.policy.playwrightTimeoutMs,
-      requireAdjacent: false,
-      meta: {
-        runId: options.runId,
-        route: request.route,
-        contractHash: options.contractHash,
-        iteration: 0,
-        worktreeSha: evaluatedSha,
-        serverOrigin: origin,
-        browser: "n/a",
-      },
-    });
+    const preflight = options.deps.store.readJson("verify-preflight.json") as VerifyResult[] | null;
+    const verifyRaw =
+      preflight &&
+      preflight.length > 0 &&
+      !verifyHasInfrastructureFailure(preflight)
+        ? preflight.filter((row) => row.name !== "target-route-inspect")
+        : await options.verifyImpl({
+            cwd: options.deps.isolation.agentCwd,
+            route: request.route,
+            baseUrl: origin,
+            timeoutMs: options.policy.playwrightTimeoutMs,
+            requireAdjacent: false,
+            meta: {
+              runId: options.runId,
+              route: request.route,
+              contractHash: options.contractHash,
+              iteration: 0,
+              worktreeSha: evaluatedSha,
+              serverOrigin: origin,
+              browser: "n/a",
+            },
+          });
     merged = mergeTargetVerification({
       requestedRoute: request.route,
       inspect: options.before,
@@ -1621,20 +1787,6 @@ function finalize(
     invocations?: import("./invocations").InvocationLedger;
   },
 ): HarnessResult {
-  deps.store.writeJson("handoff.json", {
-    worktree: formatHandoffPath(deps.isolation.worktreePath),
-    branch: deps.isolation.branchName,
-    baseSha: deps.isolation.baseSha,
-    finalSha: options.bestCommit,
-    evaluatedSha: options.evaluatedSha ?? options.bestCommit,
-    integrationReady: options.integrationReady ?? false,
-    restoreKind: options.restoreKind ?? "none",
-    route: request.route,
-    runId: options.runId,
-    contractHash: options.contract
-      ? canonicalizeContract(options.contract).hash
-      : null,
-  });
   const skeptic =
     options.skepticEval ??
     ((deps.store.readJson("skeptic.json") as Evaluation | null) ?? null);
@@ -1651,15 +1803,45 @@ function finalize(
   if (infrastructureInvalid && options.status === "audit_complete") {
     throw new InfrastructureFailure(infrastructureVerifyMessage(options.verify));
   }
-  deps.store.writeJson("run-status.json", {
+  const workflow =
+    (deps.store.readJson("workflow-policy.json") as { effective?: WorkflowPolicy } | null)?.effective ??
+    resolveWorkflowPolicy({ risk: request.risk, reviewers: request.reviewers });
+  const contractHash = options.contract ? canonicalizeContract(options.contract).hash : null;
+  writeAuthoritativeState({
+    store: deps.store,
+    request,
     processStatus: options.status,
     contractResult: options.contractResult,
     reusable,
+    resumable: false,
     integrationReady: options.integrationReady ?? false,
+    contractLocked: Boolean(contractHash),
+    contractHash,
+    verificationSource: options.verificationSource ?? (options.verify.length ? "final" : "not_run"),
     skepticRequired,
-    skepticStatus: skepticRequired ? (skeptic ? "completed" : "missing") : "not_required",
-    skepticPath: skeptic ? "skeptic.json" : null,
-    completedAt: nowIso(),
+    skeptic,
+    skepticPath: skeptic ? path.join(deps.paths.artifacts, "skeptic.json") : null,
+    after: options.after,
+    restoreKind: options.restoreKind ?? "none",
+    evaluatedSha: options.evaluatedSha ?? options.bestCommit,
+    bestCommit: options.bestCommit,
+    stopReason: options.stopReason,
+    failureCategory: null,
+    workflow,
+    usage: options.usage,
+    invocations: options.invocations ?? null,
+  });
+  deps.store.writeJson("handoff.json", {
+    worktree: formatHandoffPath(deps.isolation.worktreePath),
+    branch: deps.isolation.branchName,
+    baseSha: deps.isolation.baseSha,
+    finalSha: options.bestCommit,
+    evaluatedSha: options.evaluatedSha ?? options.bestCommit,
+    integrationReady: options.integrationReady ?? false,
+    restoreKind: options.restoreKind ?? "none",
+    route: request.route,
+    runId: options.runId,
+    contractHash,
   });
   const reportPath = writeReport({
     request,
@@ -1919,7 +2101,8 @@ async function runEvaluator(options: {
     cwd: options.deps.isolation.agentCwd,
     purpose: options.role,
   });
-  await withSession(session, (agent) =>
+  const contextBundle = (options.deps.store.readJson("route-context.json") as RouteContextBundle | null) ?? null;
+  const turn = await withSession(session, (agent) =>
     agent.send(
       evaluatorPrompt({
         role: options.role,
@@ -1932,17 +2115,33 @@ async function runEvaluator(options: {
         verifyPath: options.verifyPath,
         comparePath: options.comparePath,
         inspectExcerpt: options.inspectExcerpt,
+        contextBundle,
+        evidenceIdentityHash: options.expectedIdentity?.hash,
       }),
     ),
   );
   const name = options.role === "skeptic" ? "skeptic" : "evaluation";
   const evaluation = requireArtifact<Evaluation>(options.deps.store, name);
+  persistInvocationCompletion(options.deps.store, {
+    status: "completed",
+    role: options.role,
+    purpose: options.role,
+    runId: turn.runId ?? null,
+    agentId: session.agentId,
+    artifactName: `${name}.json`,
+    artifact: evaluation,
+    usage: turn.usageAccount ?? null,
+    proposalHash: options.contractHash,
+    evidenceHash: options.expectedIdentity?.hash ?? null,
+    phaseDecision: options.role,
+  });
   if (evaluation.contractHash !== options.contractHash) {
     throw new Error("Evaluator contractHash does not match the locked contract.");
   }
   if (options.role === "evaluator") {
     options.machine.complete("EVALUATE", { iteration: options.iteration });
   }
+  options.budget.assertAfterInvocation();
   return evaluation;
 }
 

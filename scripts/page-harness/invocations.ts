@@ -1,10 +1,12 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
+import type { ArtifactStore } from "./artifacts";
 import {
   addTurn,
   recomputeAggregatedUsage,
   unknownUsage,
   type AggregatedUsage,
+  type UsageAccount,
 } from "./usage";
 
 export type InvocationStatus = "completed" | "failed";
@@ -16,7 +18,47 @@ export type InvocationRecord = {
   runId: string | null;
   agentId: string | null;
   status: InvocationStatus;
+  proposalHash?: string | null;
+  evidenceHash?: string | null;
+  phaseDecision?: string | null;
 };
+
+export type InvocationCompletion = {
+  status: "completed";
+  role: string;
+  purpose: string;
+  runId: string | null;
+  agentId: string | null;
+  artifactName: string;
+  artifact: unknown;
+  usage: UsageAccount | null;
+  proposalHash?: string | null;
+  evidenceHash?: string | null;
+  phaseDecision?: string | null;
+};
+
+export function persistInvocationCompletion(
+  store: ArtifactStore,
+  completion: InvocationCompletion,
+): void {
+  store.writeJson(completion.artifactName, completion.artifact);
+  const existing =
+    (store.readJson("invocation-completions.json") as InvocationCompletion[] | null) ?? [];
+  existing.push(completion);
+  store.writeJson("invocation-completions.json", existing);
+  store.writeJson("invocation-latest.json", {
+    status: completion.status,
+    role: completion.role,
+    purpose: completion.purpose,
+    runId: completion.runId,
+    agentId: completion.agentId,
+    artifactName: completion.artifactName,
+    proposalHash: completion.proposalHash ?? null,
+    evidenceHash: completion.evidenceHash ?? null,
+    phaseDecision: completion.phaseDecision ?? null,
+    usageAvailability: completion.usage?.availability ?? "unknown",
+  });
+}
 
 export type InvocationLedger = {
   total: number;
@@ -149,9 +191,13 @@ export function invocationReportLines(ledger: InvocationLedger): string[] {
   const byAttempt = Object.entries(ledger.byAttempt)
     .map(([attempt, count]) => `attempt ${attempt}=${count}`)
     .join(", ");
+  const byPurpose = Object.entries(ledger.byPurpose)
+    .map(([purpose, count]) => `${purpose}=${count}`)
+    .join(", ");
   return [
     `- Agent invocations (all attempts): **${ledger.total}** total, **${ledger.completed}** completed, **${ledger.failed}** failed`,
     `- Invocations by role: ${byRole || "none"}`,
+    `- Invocations by purpose: ${byPurpose || "none"}`,
     `- Invocations by attempt: ${byAttempt || "none"}`,
   ];
 }

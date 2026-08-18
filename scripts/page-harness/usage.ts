@@ -193,3 +193,38 @@ export function usageReportLines(usage: AggregatedUsage): string[] {
     `- Agent turns recorded: ${usage.turns.length}`,
   ].filter(Boolean);
 }
+
+export function roleUsageLines(usage: AggregatedUsage): string[] {
+  const byRole = new Map<string, { runs: number; input: number; cached: number; output: number; reasoning: number; total: number }>();
+  const byPurpose = new Map<string, { runs: number; total: number }>();
+  for (const turn of usage.turns) {
+    const role = byRole.get(turn.role) ?? { runs: 0, input: 0, cached: 0, output: 0, reasoning: 0, total: 0 };
+    role.runs += 1;
+    role.input += turn.inputTokens ?? 0;
+    role.cached += turn.cacheReadTokens ?? 0;
+    role.output += turn.outputTokens ?? 0;
+    role.reasoning += turn.reasoningTokens ?? 0;
+    role.total += turn.totalTokens ?? 0;
+    byRole.set(turn.role, role);
+    const purpose = byPurpose.get(turn.purpose) ?? { runs: 0, total: 0 };
+    purpose.runs += 1;
+    purpose.total += turn.totalTokens ?? 0;
+    byPurpose.set(turn.purpose, purpose);
+  }
+  const roleLines = [...byRole.entries()].map(
+    ([role, row]) =>
+      `- Role ${role}: runs ${row.runs}, input ${row.input}, cached input ${row.cached}, output ${row.output}, reasoning ${row.reasoning}, total ${row.total}`,
+  );
+  const purposeLines = [...byPurpose.entries()].map(
+    ([purpose, row]) => `- Purpose ${purpose}: runs ${row.runs}, total tokens ${row.total}`,
+  );
+  const dispute = usage.turns.filter((turn) => /dispute/i.test(turn.purpose)).length;
+  return [
+    "",
+    "### Usage by role and purpose",
+    ...roleLines,
+    ...purposeLines,
+    `- Repeated vs reused context: cache read tokens ${usage.cacheReadTokens ?? 0} of input ${usage.inputTokens ?? 0}`,
+    `- Dispute-only calls recorded: ${dispute}`,
+  ];
+}

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { RunBudget } from "./budget";
+import { RunBudget, type BudgetExtensionRecord } from "./budget";
+import { budgetExhaustedNextAction } from "./final-state";
 import type { ArtifactStore } from "./artifacts";
 import type { AggregatedUsage } from "./usage";
 import { emptyAggregatedUsage } from "./usage";
@@ -41,9 +42,10 @@ export type IncompleteInvocation = {
 
 export type CompletedContractRound = {
   round: number;
-  builderDecision: ContractDecision;
-  evaluatorDecision: ContractDecision;
+  builderDecision: ContractDecision | null;
+  evaluatorDecision: ContractDecision | null;
   proposalHash: string;
+  roles: ContractReviewRole[];
 };
 
 export type PersistedBudget = {
@@ -56,6 +58,7 @@ export type PersistedBudget = {
   maxDurationMinutes: number;
   maxContractRounds: number;
   maxIterations: number;
+  extensions?: BudgetExtensionRecord[];
 };
 
 export type ResumeState = {
@@ -159,6 +162,42 @@ export function persistBudgetFromLimits(
   };
 }
 
+export function applyResumeBudgetExtension(input: {
+  budget: RunBudget;
+  request: HarnessRequest;
+  store: ArtifactStore;
+  maxTotalTokens?: number;
+  maxMinutes?: number;
+  maxAgentRuns?: number;
+  maxContractRounds?: number;
+  reason: string;
+}): BudgetExtensionRecord {
+  const record = input.budget.extendLimits({
+    maxTotalTokens: input.maxTotalTokens,
+    maxDurationMinutes: input.maxMinutes,
+    maxAgentRuns: input.maxAgentRuns,
+    maxContractRounds: input.maxContractRounds,
+    reason: input.reason,
+  });
+  const existing =
+    (input.store.readJson("budget-extensions.json") as BudgetExtensionRecord[] | null) ?? [];
+  existing.push(record);
+  input.store.writeJson("budget-extensions.json", existing);
+  input.request.maxTotalTokens = record.next.maxTotalTokens;
+  input.request.maxDurationMinutes = record.next.maxDurationMinutes;
+  input.request.maxAgentRuns = record.next.maxAgentRuns;
+  input.request.maxContractRounds = record.next.maxContractRounds;
+  const persisted = persistBudgetFromLimits(input.request, {
+    agentRuns: input.budget.agentRuns,
+    consumedActiveRuntimeMs: input.budget.elapsedActiveMs(),
+    pausedAt: new Date().toISOString(),
+    usage: input.budget.usage,
+  });
+  persisted.extensions = existing;
+  input.store.writeJson("budget.json", persisted);
+  return record;
+}
+
 export function restoreRunBudget(persisted: PersistedBudget): RunBudget {
   return new RunBudget(
     {
@@ -188,11 +227,31 @@ export function remainingBudgetLines(budget: PersistedBudget): string[] {
       : budget.usage.totalTokens == null
         ? `unknown / ${budget.maxTotalTokens}`
         : `${budget.usage.totalTokens} / ${budget.maxTotalTokens}`;
+  const tokenMin =
+    budget.usage.totalTokens != null && budget.usage.totalTokens >= budget.maxTotalTokens
+      ? budget.usage.totalTokens + 1
+      : null;
+  const runMin = budget.agentRuns >= budget.maxAgentRuns ? budget.agentRuns + 1 : null;
+  const minuteMin =
+    budget.consumedActiveRuntimeMs >= budget.maxDurationMinutes * 60_000
+      ? Math.ceil(budget.consumedActiveRuntimeMs / 60_000) + 1
+      : null;
+  const extension =
+    tokenMin || runMin || minuteMin
+      ? `min extension: ${[
+          tokenMin ? `--max-total-tokens ${tokenMin}` : null,
+          minuteMin ? `--max-minutes ${minuteMin}` : null,
+          runMin ? `--max-agent-runs ${runMin}` : null,
+        ]
+          .filter(Boolean)
+          .join(" ")}`
+      : "within limits";
   return [
     `agentRuns: ${budget.agentRuns} / ${budget.maxAgentRuns} (remaining ${Math.max(0, budget.maxAgentRuns - budget.agentRuns)})`,
     `tokens: ${tokenLabel}`,
     `activeRuntimeMs: ${budget.consumedActiveRuntimeMs} / ${budget.maxDurationMinutes * 60_000} (remaining ${remainingMs}ms)`,
-    `contractRounds: in progress; cap ${budget.maxContractRounds} (not reset)`,
+    `contractRounds: cap ${budget.maxContractRounds} (not reset; consumed rounds never rewind)`,
+    `budgetExtension: ${extension}`,
   ];
 }
 
@@ -220,23 +279,32 @@ export function discoverContractProgress(store: ArtifactStore): {
       | { hash?: string }
       | null;
     if (proposal?.hash) lastHash = proposal.hash;
+    const roles = expectedReviewRoles(store, round);
+    const needBuilder = roles.includes("builder");
+    const needEvaluator = roles.includes("evaluator");
 
-    if (builderRaw && evaluatorRaw) {
-      const builder = parseArtifact("contract-decision", builderRaw);
-      const evaluator = parseArtifact("contract-decision", evaluatorRaw);
+    if (!builderRaw && !evaluatorRaw) {
+      break;
+    }
+
+    const builder = builderRaw ? parseArtifact("contract-decision", builderRaw) : null;
+    const evaluator = evaluatorRaw ? parseArtifact("contract-decision", evaluatorRaw) : null;
+    const haveRequired =
+      (!needBuilder || Boolean(builder)) && (!needEvaluator || Boolean(evaluator));
+    if (haveRequired) {
       completed.push({
         round,
         builderDecision: builder,
         evaluatorDecision: evaluator,
         proposalHash: lastHash ?? "",
+        roles,
       });
       continue;
     }
-    if (builderRaw && !evaluatorRaw) {
-      parseArtifact("contract-decision", builderRaw);
+    if (needBuilder && !builder) {
       incomplete = {
         round,
-        role: "evaluator",
+        role: "builder",
         purpose: "contract_reviewer",
         agentId: null,
         runId: null,
@@ -246,14 +314,17 @@ export function discoverContractProgress(store: ArtifactStore): {
       };
       break;
     }
-    if (!builderRaw && !evaluatorRaw) {
-      break;
-    }
-    if (!builderRaw && evaluatorRaw) {
-      throw new Error(
-        `Corrupted contract artifacts: evaluator decision exists for round ${round} without a builder decision.`,
-      );
-    }
+    incomplete = {
+      round,
+      role: "evaluator",
+      purpose: "contract_reviewer",
+      agentId: null,
+      runId: null,
+      startedAt: null,
+      status: "started",
+      countedTowardBudget: true,
+    };
+    break;
   }
 
   const live = store.readJson("contract.json");
@@ -268,6 +339,22 @@ export function discoverContractProgress(store: ArtifactStore): {
   return { completed, incomplete, canonicalProposalHash: lastHash };
 }
 
+function expectedReviewRoles(store: ArtifactStore, round: number): ContractReviewRole[] {
+  const meta = store.readJson(`contract-round-${round}-roles.json`) as {
+    roles?: ContractReviewRole[];
+  } | null;
+  if (meta?.roles?.length) return meta.roles;
+  const workflow = store.readJson("workflow-policy.json") as {
+    effective?: { independentReviewers?: number; disputeReviewers?: number };
+  } | null;
+  const count =
+    round === 1
+      ? workflow?.effective?.independentReviewers
+      : workflow?.effective?.disputeReviewers ?? workflow?.effective?.independentReviewers;
+  if (count === 1) return round === 1 ? ["builder"] : ["evaluator"];
+  return ["builder", "evaluator"];
+}
+
 export function inferIncompleteFromFailure(
   discovered: ReturnType<typeof discoverContractProgress>,
   failureMessage: string | null,
@@ -275,9 +362,10 @@ export function inferIncompleteFromFailure(
 ): IncompleteInvocation | null {
   if (discovered.incomplete) return discovered.incomplete;
   if (!failureMessage) return null;
+  const classified = classifyFailure(failureMessage);
+  if (classified.category === "budget_exhausted") return null;
   const nextRound = discovered.completed.length + 1;
   if (nextRound > maxContractRounds) return null;
-  const classified = classifyFailure(failureMessage);
   if (!classified.retryable) return null;
   const builderFailed = /builder run failed/i.test(failureMessage);
   const evaluatorFailed = /evaluator run failed/i.test(failureMessage);
@@ -376,16 +464,22 @@ export function hydrateResumeState(options: {
     consistent &&
     (Boolean(incomplete) || options.machine.currentPhase !== "REPORT");
   const retryable =
-    classified?.retryable === true || crashInterrupted;
+    classified?.retryable === true ||
+    crashInterrupted ||
+    classified?.category === "budget_exhausted";
   const dualReviewNeedsRole =
     options.machine.currentPhase === "DUAL_REVIEW" ||
     options.machine.phases.DUAL_REVIEW.status === "failed" ||
     options.machine.phases.DUAL_REVIEW.status === "in_progress";
+  const pendingReconcile = discovered.completed.length > 0 && !discovered.incomplete;
   const resumable =
     processStatus !== "completed" &&
     consistent &&
     retryable &&
-    (!dualReviewNeedsRole || Boolean(incomplete));
+    (classified?.category === "budget_exhausted" ||
+      pendingReconcile ||
+      !dualReviewNeedsRole ||
+      Boolean(incomplete));
   const completedPhases = completedPhaseList(options.machine.phases);
   const last = lastCompletedPhase(options.machine.phases);
   const diskBudget = options.store.readJson("budget.json") as PersistedBudget | null;
@@ -412,6 +506,40 @@ export function hydrateResumeState(options: {
     pausedAt: persistedBudget?.pausedAt ?? options.machine.updatedAt,
     usage: persistedBudget?.usage ?? emptyAggregatedUsage(),
   });
+  if (persistedBudget) {
+    budget.maxAgentRuns = persistedBudget.maxAgentRuns;
+    budget.maxTotalTokens = persistedBudget.maxTotalTokens;
+    budget.maxDurationMinutes = persistedBudget.maxDurationMinutes;
+    budget.maxContractRounds = persistedBudget.maxContractRounds;
+    budget.extensions = persistedBudget.extensions;
+  }
+  const failureCategory: FailureCategory | null =
+    classified?.category ??
+    (crashInterrupted ? "retryable_process" : null) ??
+    status?.failureCategory ??
+    null;
+  const nextAction =
+    failureCategory === "budget_exhausted"
+      ? budgetExhaustedNextAction({
+          tokensConsumed: budget.usage.totalTokens,
+          tokenLimit: budget.maxTotalTokens,
+          agentRuns: budget.agentRuns,
+          agentRunLimit: budget.maxAgentRuns,
+          consumedMs: budget.consumedActiveRuntimeMs,
+          durationLimitMs: budget.maxDurationMinutes * 60_000,
+          incompleteRole: incomplete?.role ?? null,
+        })
+      : describeNextAction({
+          processStatus,
+          reusable,
+          resumable,
+          incomplete,
+          contractRound: incomplete?.round ?? discovered.completed.length,
+          maxContractRounds: budget.maxContractRounds,
+          phase: options.machine.currentPhase,
+          failureCategory,
+          failureMessage,
+        });
   const contractRound = incomplete?.round ?? discovered.completed.length;
   const state: ResumeState = {
     schemaVersion: HARNESS_SCHEMA_VERSION,
@@ -426,11 +554,7 @@ export function hydrateResumeState(options: {
     incompleteInvocation: incomplete,
     canonicalProposalHash:
       discovered.canonicalProposalHash ?? existing?.canonicalProposalHash ?? null,
-    failureCategory:
-      classified?.category ??
-      (crashInterrupted ? "retryable_process" : null) ??
-      status?.failureCategory ??
-      null,
+    failureCategory,
     failureMessage,
     worktreePath: isolation.worktreePath ?? null,
     baseSha: isolation.baseSha ?? null,
@@ -439,21 +563,7 @@ export function hydrateResumeState(options: {
     suppliedObjective: request.suppliedObjective,
     budget,
     invocations: ledger,
-    nextAction: describeNextAction({
-      processStatus,
-      reusable,
-      resumable,
-      incomplete,
-      contractRound,
-      maxContractRounds: request.maxContractRounds,
-      phase: options.machine.currentPhase,
-      failureCategory:
-        classified?.category ??
-        (crashInterrupted ? "retryable_process" : null) ??
-        status?.failureCategory ??
-        null,
-      failureMessage,
-    }),
+    nextAction,
   };
   return state;
 }
@@ -498,8 +608,8 @@ function artifactsInternallyConsistent(
     if (!store.readJson("contract.json")) return false;
     if (!store.readJson("baseline.json")) return false;
     for (const round of discovered.completed) {
-      parseArtifact("contract-decision", round.builderDecision);
-      parseArtifact("contract-decision", round.evaluatorDecision);
+      if (round.builderDecision) parseArtifact("contract-decision", round.builderDecision);
+      if (round.evaluatorDecision) parseArtifact("contract-decision", round.evaluatorDecision);
     }
     return true;
   } catch {
@@ -529,6 +639,14 @@ export function describeNextAction(input: {
   }
   if (input.incomplete?.role === "evaluator") {
     return `Retry round-${input.incomplete.round} evaluator contract reviewer with a fresh Grok 4.6 xhigh context. Keep the persisted builder decision for that round. Contract round cap remains ${input.maxContractRounds}.`;
+  }
+  if (
+    input.failureCategory === "budget_exhausted" ||
+    /max-total-tokens exceeded|max-minutes exceeded|max-agent-runs exceeded/i.test(
+      input.failureMessage ?? "",
+    )
+  ) {
+    return "budget_exhausted. Resume with a strictly higher --max-total-tokens, --max-minutes, and/or --max-agent-runs. Consumed totals are not reset. Retry only the incomplete phase or role.";
   }
   if (
     input.failureCategory === "infrastructure" ||
@@ -760,11 +878,20 @@ export async function validateResume(options: {
     machine.phases.DUAL_REVIEW.status === "failed" ||
     machine.phases.DUAL_REVIEW.status === "in_progress";
   if (dualReview && !state.incompleteInvocation) {
-    return failValidation(
-      state,
-      "unknown_fatal",
-      "Evidence is insufficient to resume: no incomplete reviewer invocation was recorded.",
-    );
+    const progress = discoverContractProgress(options.store);
+    const orphan = Boolean(options.store.readJson("contract-decision.json"));
+    const canContinue =
+      state.failureCategory === "budget_exhausted" ||
+      progress.completed.length > 0 ||
+      progress.incomplete != null ||
+      orphan;
+    if (!canContinue) {
+      return failValidation(
+        state,
+        "unknown_fatal",
+        "Evidence is insufficient to resume: no incomplete reviewer invocation was recorded.",
+      );
+    }
   }
 
   return { ok: true, state };

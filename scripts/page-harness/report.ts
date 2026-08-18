@@ -5,7 +5,7 @@ import type { PageCatalogEntry } from "./catalog";
 import type { IsolatedWorkspace } from "./isolation";
 import type { InspectReport } from "./inspect";
 import type { AggregatedUsage } from "./usage";
-import { usageReportLines } from "./usage";
+import { roleUsageLines, usageReportLines } from "./usage";
 import { invocationReportLines } from "./invocations";
 import type { VerifyResult } from "./verify";
 import { verificationSummary } from "./verify";
@@ -106,7 +106,9 @@ export function writeReport(options: {
     score: options.score,
     verificationSource: options.verificationSource ?? (options.verify.length ? "final" : "not_run"),
   };
+  const previous = (options.store.readJson("final-state.json") as Record<string, unknown> | null) ?? {};
   options.store.writeJson("final-state.json", {
+    ...previous,
     processStatus: state.processStatus,
     contractResult: state.contractResult,
     evaluatedSha: state.evaluatedSha,
@@ -115,10 +117,12 @@ export function writeReport(options: {
     integrationReady: state.integrationReady,
     verificationSource: state.verificationSource,
     afterStatus: state.after.status,
+    afterReason: state.after.status === "unavailable" ? state.after.reason : null,
     verify: verificationSummary(state.verify),
     changed: state.changed,
     stopReason: state.stopReason,
     reusable: state.reusable,
+    resumable: previous.resumable ?? false,
     skepticRequired: options.skepticRequired ?? false,
     skepticPath: options.skepticPath ?? null,
     skepticStatus: options.skepticRequired
@@ -126,6 +130,8 @@ export function writeReport(options: {
         ? "completed"
         : "missing"
       : "not_required",
+    usage: state.usage,
+    score: state.score,
   });
   const shallow = options.changed.flatMap((file) => {
     try {
@@ -200,6 +206,14 @@ export function writeReport(options: {
     invocations: options.invocations ?? null,
     skepticRequired: options.skepticRequired ?? false,
     skepticPath: options.skepticPath ?? null,
+    requestedWorkflow: {
+      risk: options.request.risk,
+      reviewers: options.request.reviewers ?? null,
+      skeptic: options.request.skeptic,
+    },
+    effectiveWorkflow:
+      (options.store.readJson("workflow-policy.json") as { effective?: unknown } | null)?.effective ??
+      null,
     catalog: options.page,
     baseline: options.baseline?.summary ?? null,
     pageMap: options.pageMap,
@@ -230,6 +244,17 @@ export function writeReport(options: {
     `- Score: ${state.score}`,
     `- Objective: ${options.request.objective}`,
     `- Supplied objective: ${options.request.suppliedObjective ?? "(none; default used)"}`,
+    `- Requested workflow: risk ${options.request.risk}, reviewers ${options.request.reviewers ?? "default"}, skeptic ${options.request.skeptic}`,
+    `- Effective workflow: ${
+      (() => {
+        const workflowFile = options.store.readJson("workflow-policy.json") as {
+          effective?: { independentReviewers?: number; source?: string };
+        } | null;
+        return workflowFile?.effective
+          ? `reviewers ${workflowFile.effective.independentReviewers} (${workflowFile.effective.source})`
+          : options.request.risk;
+      })()
+    }`,
     `- Best checkpoint: ${state.bestCommit ?? "n/a"}`,
     `- Evaluated SHA: ${state.evaluatedSha ?? "n/a"}`,
     `- Restore: ${state.restoreKind}`,
@@ -267,6 +292,7 @@ export function writeReport(options: {
     "## Usage",
     ...usageReportLines(state.usage),
     ...(options.invocations ? invocationReportLines(options.invocations) : []),
+    ...roleUsageLines(state.usage),
     "",
     "## Integration handoff",
     `- Worktree: ${formatDisplayPath(options.isolation.worktreePath)}`,

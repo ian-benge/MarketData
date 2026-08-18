@@ -3,6 +3,7 @@ export const FAILURE_CATEGORIES = [
   "retryable_network",
   "retryable_process",
   "retryable_server",
+  "budget_exhausted",
   "permission",
   "provenance",
   "corrupted_artifact",
@@ -53,8 +54,11 @@ const PROVENANCE =
 const CORRUPTED =
   /corrupted|invalid json|unexpected end of json|parseartifact|parse failed|schema/i;
 
+const BUDGET_EXHAUSTED =
+  /max-total-tokens exceeded|max-minutes exceeded|max-agent-runs exceeded|budget_exhausted|budget exceeded/i;
+
 const CONTRACT_EXHAUSTED =
-  /did not accept the same canonical contract hash|contract-exhausted|max-contract-rounds|refusing to edit/i;
+  /did not accept the same canonical contract hash|contract-exhausted|contract_exhausted|max-contract-rounds|refusing to (edit|BUILD)|unresolved normative/i;
 
 const SECURITY =
   /sandbox required|security-policy|hooks.*fail|mutating tools blocked|PAGE_HARNESS/i;
@@ -70,7 +74,8 @@ export function isRetryableCategory(category: FailureCategory): boolean {
     category === "infrastructure" ||
     category === "retryable_network" ||
     category === "retryable_process" ||
-    category === "retryable_server"
+    category === "retryable_server" ||
+    category === "budget_exhausted"
   );
 }
 
@@ -85,6 +90,7 @@ export function classifyFailure(message: string): ClassifiedFailure {
 }
 
 function categoryOf(text: string): FailureCategory {
+  if (BUDGET_EXHAUSTED.test(text)) return "budget_exhausted";
   if (CONTRACT_EXHAUSTED.test(text)) return "contract_exhausted";
   if (WORKTREE.test(text)) return "incompatible_worktree";
   if (APP_EDIT.test(text)) return "application_edit";

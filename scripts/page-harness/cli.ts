@@ -32,6 +32,7 @@ import {
 import { InspectAuthError } from "./inspect-auth";
 import { classifyFailure } from "./failure";
 import {
+  applyResumeBudgetExtension,
   formatRunStatus,
   migratePersistedRun,
   resolveResumeRunId,
@@ -50,6 +51,7 @@ Usage:
   npm run page:prompts -- [run-id]
   npm run page:report -- [run-id]
   npm run page:resume -- <run-id>
+  npm run page:resume -- <run-id> --max-total-tokens <higher> --max-minutes <higher> --max-agent-runs <higher>
   npm run page:models
   npm run page:harness-check
   npm run page:login
@@ -67,12 +69,15 @@ Options:
   --skeptic / --no-skeptic    Adversarial pass after the evaluator. Critical risk requires a skeptic for audit and improve; --no-skeptic is refused.
   --max-iterations <n>        Builder/evaluator repair rounds (default: 3)
   --max-minutes <n>           Wall-clock budget (alias: --max-duration-minutes, default: 90)
-  --max-contract-rounds <n>   Dual-review rounds (default: 3)
+  --max-contract-rounds <n>   Dual-review / dispute ceiling (default: 3; safety cap, not a target)
   --max-agent-runs <n>        Fresh SDK agent cap (default: 40)
-  --max-total-tokens <n>      Token cap across runs (default: 2000000)
-  --risk low|medium|critical  Changes verification, skeptic, and adjacent regression requirements
+  --max-total-tokens <n>      Token cap across runs (default: 2000000). Resume may only increase this.
+  --reviewers 1|2             Override independent contract reviewer count
+  --risk low|medium|critical  Changes verification, skeptic, reviewer count, and adjacent regression
   --from-audit <run-id>       Reuse a completed provenance-valid audit contract+baseline.
   --resume <run-id>           Resume an incomplete run from last atomically completed state.
+                              Budget exhaustion requires a strictly higher cap; consumed totals never reset.
+                              Contract-round increases require an explicit higher --max-contract-rounds.
   --allow-no-sandbox          Required for builder runs when filesystem sandboxing is unavailable
   --isolation <mode>          worktree | branch | none (default: worktree)
   --role <role>               member | admin | public (default: catalog)
@@ -112,6 +117,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       "max-contract-rounds": { type: "string" },
       "max-agent-runs": { type: "string" },
       "max-total-tokens": { type: "string" },
+      reviewers: { type: "string" },
       risk: { type: "string" },
       "from-audit": { type: "string" },
       resume: { type: "string" },
@@ -191,6 +197,23 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       baseUrl: parsed.values["base-url"],
       port: parsed.values.port,
       cleanup: Boolean(parsed.values["cleanup-worktree"]),
+      budgetExtension: {
+        maxTotalTokens: parsed.values["max-total-tokens"]
+          ? Number(parsed.values["max-total-tokens"])
+          : undefined,
+        maxMinutes: parsed.values["max-minutes"]
+          ? Number(parsed.values["max-minutes"])
+          : parsed.values["max-duration-minutes"]
+            ? Number(parsed.values["max-duration-minutes"])
+            : undefined,
+        maxAgentRuns: parsed.values["max-agent-runs"]
+          ? Number(parsed.values["max-agent-runs"])
+          : undefined,
+        maxContractRounds: parsed.values["max-contract-rounds"]
+          ? Number(parsed.values["max-contract-rounds"])
+          : undefined,
+        reason: "CLI resume budget extension",
+      },
     });
   }
 
@@ -300,6 +323,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         (parsed.values.role as HarnessRequest["inspectRole"] | undefined) ??
         page?.role ??
         "member",
+      reviewers: parseReviewers(parsed.values.reviewers),
       fromAudit: parsed.values["from-audit"] ?? null,
       resumeRunId: null,
       allowNoSandbox,
@@ -648,6 +672,13 @@ async function resumeRun(options: {
   baseUrl?: string;
   port?: string;
   cleanup: boolean;
+  budgetExtension?: {
+    maxTotalTokens?: number;
+    maxMinutes?: number;
+    maxAgentRuns?: number;
+    maxContractRounds?: number;
+    reason: string;
+  };
 }): Promise<number> {
   const paths = createRunPaths(options.repoRoot, options.runId);
   if (!existsSync(path.join(paths.root, "machine.json"))) {
@@ -678,16 +709,32 @@ async function resumeRun(options: {
       dirtyFiles,
     },
   });
+  const extensionRequested = Boolean(
+    options.budgetExtension &&
+      (options.budgetExtension.maxTotalTokens != null ||
+        options.budgetExtension.maxMinutes != null ||
+        options.budgetExtension.maxAgentRuns != null ||
+        options.budgetExtension.maxContractRounds != null),
+  );
   if (!validation.ok) {
-    console.error(
-      `Run ${options.runId} is not resumable: ${validation.reason}`,
-    );
-    if (validation.state) {
-      console.log(formatRunStatus(options.runId, validation.state));
+    const category = validation.category;
+    const allowContractExtension =
+      category === "contract_exhausted" &&
+      options.budgetExtension?.maxContractRounds != null &&
+      options.budgetExtension.maxContractRounds > (migrated.budget.maxContractRounds ?? 0);
+    const allowBudgetExtension =
+      category === "budget_exhausted" && extensionRequested;
+    if (!allowContractExtension && !allowBudgetExtension) {
+      console.error(
+        `Run ${options.runId} is not resumable: ${validation.reason}`,
+      );
+      if (validation.state) {
+        console.log(formatRunStatus(options.runId, validation.state));
+      }
+      return 1;
     }
-    return 1;
   }
-  if (!migrated.resumable) {
+  if (!migrated.resumable && !extensionRequested) {
     console.error(
       `Run ${options.runId} is not resumable (reusable=${migrated.reusable ? "yes" : "no"}).`,
     );
@@ -760,7 +807,36 @@ async function resumeRun(options: {
   });
   log.info(`model ${model.selection.id} ${model.xhighParameterId}=${model.xhighValue}`);
 
-  const budget = restoreRunBudget(validation.state.budget);
+  const resumeState = validation.ok ? validation.state : migrated;
+  const budget = restoreRunBudget(resumeState.budget);
+  if (extensionRequested && options.budgetExtension) {
+    try {
+      applyResumeBudgetExtension({
+        budget,
+        request,
+        store,
+        maxTotalTokens: options.budgetExtension.maxTotalTokens,
+        maxMinutes: options.budgetExtension.maxMinutes,
+        maxAgentRuns: options.budgetExtension.maxAgentRuns,
+        maxContractRounds: options.budgetExtension.maxContractRounds,
+        reason: options.budgetExtension.reason,
+      });
+      machine.state.request = request;
+      machine.state.stopReason = null;
+      if (machine.state.failureCategory === "budget_exhausted" || machine.state.failureCategory === "contract_exhausted") {
+        machine.state.failureCategory = null;
+      }
+      machine.persist();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(message);
+      return 1;
+    }
+  } else if (resumeState.failureCategory === "budget_exhausted") {
+    console.error(resumeState.nextAction);
+    console.log(formatRunStatus(options.runId, resumeState));
+    return 1;
+  }
   const lease = createHarnessServerLease({
     cwd: isolation.agentCwd,
     port: Number(options.port ?? HARNESS_DEFAULTS.port),
@@ -824,6 +900,13 @@ async function resumeRun(options: {
       await removeWorktree(options.repoRoot, isolation.worktreePath);
     }
   }
+}
+
+function parseReviewers(value: string | undefined): 1 | 2 | null {
+  if (value == null) return null;
+  if (value === "1") return 1;
+  if (value === "2") return 2;
+  throw new Error("--reviewers must be 1 or 2");
 }
 
 function failModel(error: unknown, log?: Logger): number {
