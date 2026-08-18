@@ -10,7 +10,7 @@ import { UNASSIGNED_OWNER_ID } from "./owners";
 import type { PositionBookOwner } from "./types";
 
 export const OWNER_UNLOCK_COOKIE = "md_owner_unlock";
-const UNLOCK_TTL_MS = 8 * 60 * 60 * 1000;
+export const UNLOCK_TTL_MS = 8 * 60 * 60 * 1000;
 
 export type OwnerUnlockPayload = {
   v: string;
@@ -219,7 +219,7 @@ export async function persistOwnerUnlock(
     Date.now(),
     epochs,
   );
-  store.set(OWNER_UNLOCK_COOKIE, token, cookieOptions(60 * 60 * 8));
+  store.set(OWNER_UNLOCK_COOKIE, token, cookieOptions(UNLOCK_TTL_MS / 1000));
 }
 
 export async function clearOwnerUnlockCookie(): Promise<void> {

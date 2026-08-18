@@ -33,6 +33,7 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith("/reports") ||
     pathname.startsWith("/watchlists") ||
     pathname.startsWith("/positions") ||
+    pathname.startsWith("/settings") ||
     pathname.startsWith("/proposals") ||
     pathname.startsWith("/admin") ||
     pathname.startsWith("/api/");

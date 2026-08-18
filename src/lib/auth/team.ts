@@ -66,9 +66,14 @@ export async function listTeamMembers(user: SessionUser): Promise<TeamMember[]> 
       .select("user_id, role, is_active, profiles(email, display_name)")
       .eq("firm_id", user.firmId)
       .order("created_at", { ascending: true });
-    if (error || !data) return [];
+    if (error) {
+      throw new TeamAccessError(
+        error.message || "Unable to list desk members.",
+        500,
+      );
+    }
     const members: TeamMember[] = [];
-    for (const row of data as Array<{
+    for (const row of (data ?? []) as Array<{
       user_id: string;
       role: string;
       is_active: boolean;
@@ -89,8 +94,9 @@ export async function listTeamMembers(user: SessionUser): Promise<TeamMember[]> 
       });
     }
     return members;
-  } catch {
-    return [];
+  } catch (error) {
+    if (error instanceof TeamAccessError) throw error;
+    throw new TeamAccessError("Unable to list desk members.", 500);
   }
 }
 

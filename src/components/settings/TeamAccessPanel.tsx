@@ -19,9 +19,11 @@ function randomPassword() {
 export function TeamAccessPanel({
   initialMembers,
   demo,
+  listError = null,
 }: {
   initialMembers: TeamMember[];
   demo: boolean;
+  listError?: string | null;
 }) {
   const [members, setMembers] = useState(initialMembers);
   const [email, setEmail] = useState("");
@@ -29,6 +31,7 @@ export function TeamAccessPanel({
   const [role, setRole] = useState<"admin" | "member">("member");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [pending, setPending] = useState(false);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
 
@@ -177,18 +180,29 @@ export function TeamAccessPanel({
               >
                 Password
               </label>
-              <button
-                type="button"
-                className="text-[11px] text-[var(--ib-maroon-300)] hover:underline"
-                onClick={fillGeneratedPassword}
-                disabled={pending}
-              >
-                Generate
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  className="text-[11px] text-[var(--ib-maroon-300)] hover:underline"
+                  aria-pressed={showPassword}
+                  onClick={() => setShowPassword((open) => !open)}
+                  disabled={pending}
+                >
+                  {showPassword ? "Hide password" : "Show password"}
+                </button>
+                <button
+                  type="button"
+                  className="text-[11px] text-[var(--ib-maroon-300)] hover:underline"
+                  onClick={fillGeneratedPassword}
+                  disabled={pending}
+                >
+                  Generate
+                </button>
+              </div>
             </div>
             <input
               id="team-password"
-              type="text"
+              type={showPassword ? "text" : "password"}
               required
               minLength={8}
               maxLength={72}
@@ -208,7 +222,7 @@ export function TeamAccessPanel({
             </label>
             <input
               id="team-confirm"
-              type="text"
+              type={showPassword ? "text" : "password"}
               required
               minLength={8}
               maxLength={72}
@@ -255,8 +269,16 @@ export function TeamAccessPanel({
       <Panel
         title="Desk members"
         description="People who can sign in to this workspace."
-        bodyClassName="p-0"
+        bodyClassName={listError ? "p-3" : "p-0"}
       >
+        {listError ? (
+          <div
+            role="alert"
+            className="border border-[color-mix(in_oklab,var(--market-negative)_45%,var(--ib-border-strong))] bg-[color-mix(in_oklab,var(--market-negative)_8%,transparent)] px-3 py-2.5 text-xs leading-5 text-[var(--market-negative)]"
+          >
+            {listError}
+          </div>
+        ) : (
         <DataTable
           caption="Desk members"
           rows={sorted}
@@ -293,6 +315,7 @@ export function TeamAccessPanel({
             },
           ]}
         />
+        )}
       </Panel>
     </div>
   );

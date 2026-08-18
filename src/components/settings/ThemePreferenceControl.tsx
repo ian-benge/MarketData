@@ -1,6 +1,7 @@
 "use client";
 
 import { Monitor, Moon, Sun } from "lucide-react";
+import { useRef, type KeyboardEvent } from "react";
 import { useTheme } from "@/components/providers/ThemeProvider";
 import { Panel } from "@/components/ui/Panel";
 import type { ThemePreference } from "@/lib/theme";
@@ -34,6 +35,34 @@ const OPTIONS: Array<{
 
 export function ThemePreferenceControl() {
   const { preference, resolved, setPreference } = useTheme();
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  function selectAt(index: number) {
+    const option = OPTIONS[index];
+    if (!option) return;
+    setPreference(option.value);
+    optionRefs.current[index]?.focus();
+  }
+
+  function onRadioKeyDown(
+    event: KeyboardEvent<HTMLButtonElement>,
+    currentIndex: number,
+  ) {
+    if (
+      event.key !== "ArrowRight" &&
+      event.key !== "ArrowLeft" &&
+      event.key !== "ArrowDown" &&
+      event.key !== "ArrowUp"
+    ) {
+      return;
+    }
+    event.preventDefault();
+    const delta =
+      event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : -1;
+    const nextIndex =
+      (currentIndex + delta + OPTIONS.length) % OPTIONS.length;
+    selectAt(nextIndex);
+  }
 
   return (
     <Panel
@@ -46,16 +75,22 @@ export function ThemePreferenceControl() {
         aria-label="Theme preference"
         className="grid gap-2 sm:grid-cols-3"
       >
-        {OPTIONS.map((option) => {
+        {OPTIONS.map((option, index) => {
           const Icon = option.icon;
           const selected = preference === option.value;
           return (
             <button
               key={option.value}
+              ref={(node) => {
+                optionRefs.current[index] = node;
+              }}
               type="button"
               role="radio"
+              aria-label={option.label}
               aria-checked={selected}
-              onClick={() => setPreference(option.value)}
+              tabIndex={selected ? 0 : -1}
+              onClick={() => selectAt(index)}
+              onKeyDown={(event) => onRadioKeyDown(event, index)}
               className={cn(
                 "flex min-h-[6.5rem] flex-col items-start gap-2 rounded-[4px] border px-3 py-3 text-left transition-colors",
                 selected
@@ -85,7 +120,10 @@ export function ThemePreferenceControl() {
           );
         })}
       </div>
-      <p className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
+      <p
+        aria-live="polite"
+        className="font-mono text-[11px] text-[var(--ib-text-muted)]"
+      >
         Active · {resolved}
         {preference === "system" ? " (from system)" : ""}
       </p>

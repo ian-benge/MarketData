@@ -90,6 +90,7 @@ test("critical public and member routes expose baseline accessible semantics", a
     "/watchlists",
     "/positions",
     "/proposals",
+    "/settings",
   ]) {
     await page.goto(path);
     await expect(page.locator("h1")).toHaveCount(1);
