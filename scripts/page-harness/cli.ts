@@ -1,0 +1,735 @@
+import { parseArgs } from "node:util";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import path from "node:path";
+import { ArtifactStore, createRunPaths } from "./artifacts";
+import { buildLocalAgentCreateOptions, createCursorAgentHost } from "./agents";
+import { HARNESS_DEFAULTS, lookupPage, normalizeRoute, PAGE_CATALOG } from "./catalog";
+import { loadHarnessEnv, Logger, redactSecrets } from "./util";
+import {
+  listAndResolveGrok46Xhigh,
+  ModelUnavailableError,
+  summarizeCatalog,
+} from "./model";
+import { attachIsolation, createIsolation, makeRunId, removeWorktree } from "./isolation";
+import { runHarness } from "./orchestrator";
+import {
+  buildHarnessRequest,
+  CriticalSkepticRequiredError,
+} from "./policy";
+import { AuditReuseError } from "./audit-reuse";
+import { startDemoServer } from "./server";
+import { decideReadPath, decideShellCommand } from "./safety";
+import { runPreflight } from "./preflight";
+import { formatRouteInventory, inventoryRoutes } from "./routes-inventory";
+import { RunMachine, createMachine } from "./machine";
+import type { HarnessRequest } from "./request";
+import type { IsolatedWorkspace } from "./isolation";
+import {
+  SandboxRequiredError,
+  resolveSandboxPolicy,
+  sandboxPolicySnapshot,
+} from "./sandbox";
+import { InspectAuthError } from "./inspect-auth";
+
+const HELP = `Page Improvement Harness v2 — IB Market Data
+
+Usage:
+  npm run page:improve -- <route> [options]
+  npm run page:audit -- <route>
+  npm run page:inspect -- <route>
+  npm run page:routes
+  npm run page:status -- [run-id]
+  npm run page:prompts -- [run-id]
+  npm run page:report -- [run-id]
+  npm run page:resume -- <run-id>
+  npm run page:models
+  npm run page:harness-check
+  npm run page:login
+
+Examples:
+  npm run page:audit -- /settings
+  npm run page:improve -- /denied --objective "Tighten keyboard access" --max-iterations 1
+  npm run page:improve -- /denied --from-audit <run-id>
+  npm run page:resume -- denied-20260817-abc123
+
+Options:
+  --objective <text>          Optional short objective
+  --objective-file <path>     Read objective from a file
+  --audit-only                Read-only planner, dual review, evaluator; no edits
+  --skeptic / --no-skeptic    Adversarial pass. Critical risk requires a skeptic; --no-skeptic is refused.
+  --max-iterations <n>        Builder/evaluator repair rounds (default: 3)
+  --max-minutes <n>           Wall-clock budget (alias: --max-duration-minutes, default: 90)
+  --max-contract-rounds <n>   Dual-review rounds (default: 3)
+  --max-agent-runs <n>        Fresh SDK agent cap (default: 40)
+  --max-total-tokens <n>      Token cap across runs (default: 2000000)
+  --risk low|medium|critical  Changes verification, skeptic, and adjacent regression requirements
+  --from-audit <run-id>       Reuse a matching audit contract+baseline. Invalid evidence stops the run.
+  --resume <run-id>           Resume a persisted run
+  --allow-no-sandbox          Required for builder runs when filesystem sandboxing is unavailable
+  --isolation <mode>          worktree | branch | none (default: worktree)
+  --role <role>               member | admin | public (default: catalog)
+  --base-url <url>            Use an already running app; do not spawn Next
+  --port <n>                  Demo server port (default: 3200)
+  --cleanup-worktree          Remove the worktree after the run (never merges)
+  --list-models               Print Cursor.models.list() and pinned Grok 4.6 xhigh
+  --list-routes               Inventory app routes and recommended risk
+  --self-check                Verify hooks, sandbox policy, then resolve Grok 4.6 xhigh
+  --login                     Mint a local SDK key via Cursor.auth.login()
+  --inspect-only              Start the demo app and capture inspect/performance only
+  --status / --prompts / --report
+  --help                      Show this help
+
+Safety:
+  Never merges, pushes, deploys, or writes secrets into artifacts.
+  Requires CURSOR_API_KEY. Fails if Grok 4.6 xhigh is unavailable.
+  No edits occur before CONTRACT_LOCK. No auto-merge or auto-deploy command exists.
+  Builder runs require local filesystem sandboxing or an explicit --allow-no-sandbox acknowledgement.
+`;
+
+export async function main(argv = process.argv.slice(2)): Promise<number> {
+  const script = process.env.npm_lifecycle_event ?? "";
+  const implied = impliedFlags(script);
+  const parsed = parseArgs({
+    args: [...implied, ...argv],
+    allowPositionals: true,
+    options: {
+      objective: { type: "string" },
+      "objective-file": { type: "string" },
+      "audit-only": { type: "boolean", default: false },
+      skeptic: { type: "boolean" },
+      "no-skeptic": { type: "boolean", default: false },
+      "max-iterations": { type: "string" },
+      "max-minutes": { type: "string" },
+      "max-duration-minutes": { type: "string" },
+      "max-contract-rounds": { type: "string" },
+      "max-agent-runs": { type: "string" },
+      "max-total-tokens": { type: "string" },
+      risk: { type: "string" },
+      "from-audit": { type: "string" },
+      resume: { type: "string" },
+      isolation: { type: "string" },
+      role: { type: "string" },
+      "base-url": { type: "string" },
+      port: { type: "string" },
+      "cleanup-worktree": { type: "boolean", default: false },
+      "allow-no-sandbox": { type: "boolean", default: false },
+      "list-models": { type: "boolean", default: false },
+      "list-routes": { type: "boolean", default: false },
+      "self-check": { type: "boolean", default: false },
+      login: { type: "boolean", default: false },
+      "inspect-only": { type: "boolean", default: false },
+      status: { type: "boolean", default: false },
+      prompts: { type: "boolean", default: false },
+      report: { type: "boolean", default: false },
+      help: { type: "boolean", default: false },
+    },
+  });
+
+  if (parsed.values.help) {
+    console.log(HELP);
+    return 0;
+  }
+
+  if (parsed.values.login) {
+    const { Cursor } = await import("@cursor/sdk");
+    console.log("Opening Cursor auth to mint a local SDK key. The key is not printed.");
+    await Cursor.auth.login();
+    console.log("SDK login complete.");
+    if (
+      !parsed.positionals[0] &&
+      !parsed.values["list-models"] &&
+      !parsed.values["self-check"]
+    ) {
+      return 0;
+    }
+  }
+
+  loadHarnessEnv();
+  const apiKey = process.env.CURSOR_API_KEY?.trim();
+  const repoRoot = process.cwd();
+
+  if (parsed.values["list-routes"]) {
+    console.log(formatRouteInventory(inventoryRoutes(repoRoot)));
+    return 0;
+  }
+
+  if (parsed.values.status || parsed.values.prompts || parsed.values.report) {
+    return inspectRunCommand(repoRoot, parsed.positionals[0], {
+      status: Boolean(parsed.values.status),
+      prompts: Boolean(parsed.values.prompts),
+      report: Boolean(parsed.values.report),
+    });
+  }
+
+  if (parsed.values["list-models"] || parsed.values["self-check"]) {
+    return specialCommands(apiKey, Boolean(parsed.values["self-check"]), repoRoot);
+  }
+
+  const resumeId = parsed.values.resume || (script === "page:resume" ? parsed.positionals[0] : undefined);
+  if (resumeId) {
+    return resumeRun({
+      runId: resumeId,
+      repoRoot,
+      apiKey,
+      baseUrl: parsed.values["base-url"],
+      port: parsed.values.port,
+      cleanup: Boolean(parsed.values["cleanup-worktree"]),
+    });
+  }
+
+  const routeArg = parsed.positionals[0];
+  if (!routeArg) {
+    console.error("A target page or route is required.\n");
+    console.log(HELP);
+    return 1;
+  }
+
+  const route = normalizeRoute(routeArg);
+  const page = lookupPage(route);
+  const runId = makeRunId(route);
+  const paths = createRunPaths(repoRoot, runId);
+  const store = new ArtifactStore(paths);
+  const log = new Logger((line) => store.appendLog(line));
+  process.env.PAGE_HARNESS_ACTIVE = "1";
+  process.env.PAGE_HARNESS_RUN_DIR = paths.root;
+
+  const inspectOnly = Boolean(parsed.values["inspect-only"]);
+  const auditOnly = Boolean(parsed.values["audit-only"] || inspectOnly);
+  const allowNoSandbox = Boolean(parsed.values["allow-no-sandbox"]);
+  const needsBuilder = !auditOnly;
+  const preflight = runPreflight(repoRoot, {
+    needsBuilder,
+    allowNoSandbox,
+    cwd: repoRoot,
+  });
+  store.writeJson("preflight.json", {
+    ...preflight,
+    sandboxPolicy: sandboxPolicySnapshot(preflight.sandboxPolicy),
+  });
+  store.writeJson("sandbox.json", preflight.sandbox);
+  store.writeJson("role-permissions.json", preflight.rolePermissions);
+  log.info(preflight.sandboxNote);
+  if (!preflight.ok) {
+    const message = "Harness preflight failed:\n" + preflight.failures.join("\n");
+    console.error(message);
+    store.markUnreusable({ failedPhase: "PRECHECK", message });
+    return 1;
+  }
+
+  let model: Awaited<ReturnType<typeof listAndResolveGrok46Xhigh>> | null = null;
+  if (!parsed.values["inspect-only"]) {
+    try {
+      model = await listAndResolveGrok46Xhigh(apiKey);
+    } catch (error) {
+      return failModel(error, log);
+    }
+    store.writeJson("model.json", {
+      id: model.selection.id,
+      params: model.selection.params,
+      xhighParameterId: model.xhighParameterId,
+      xhighValue: model.xhighValue,
+      displayName: model.matched.displayName,
+      catalog: summarizeCatalog(model.catalog),
+    });
+    log.info(
+      `model ${model.selection.id} ${model.xhighParameterId}=${model.xhighValue}`,
+    );
+  }
+
+  const isolationMode =
+    (parsed.values.isolation as "worktree" | "branch" | "none" | undefined) ??
+    HARNESS_DEFAULTS.isolation;
+  const isolation = await createIsolation({
+    repoRoot,
+    route,
+    mode: parsed.values["inspect-only"] ? "none" : isolationMode,
+    runId,
+  });
+  process.env.PAGE_HARNESS_WORKTREE = isolation.agentCwd;
+  process.env.PAGE_HARNESS_AGENT_CWD = isolation.agentCwd;
+  log.info(
+    `isolation ${isolation.mode} cwd=${isolation.agentCwd} branch=${isolation.branchName ?? "n/a"} sha=${isolation.baseSha ?? "n/a"}`,
+  );
+
+  const suppliedObjective = readSuppliedObjective(
+    parsed.values.objective,
+    parsed.values["objective-file"],
+  );
+  let request: HarnessRequest;
+  try {
+    request = buildHarnessRequest({
+      route,
+      pageTitle: page?.title,
+      pageCritical: Boolean(page?.critical),
+      suppliedObjective,
+      auditOnly: Boolean(parsed.values["audit-only"] || parsed.values["inspect-only"]),
+      skeptic: parsed.values.skeptic,
+      noSkeptic: Boolean(parsed.values["no-skeptic"]),
+      risk: parsed.values.risk,
+      maxIterations: Number(parsed.values["max-iterations"] ?? HARNESS_DEFAULTS.maxIterations),
+      maxDurationMinutes: Number(
+        parsed.values["max-minutes"] ??
+          parsed.values["max-duration-minutes"] ??
+          HARNESS_DEFAULTS.maxDurationMinutes,
+      ),
+      maxContractRounds: Number(
+        parsed.values["max-contract-rounds"] ?? HARNESS_DEFAULTS.maxContractRounds,
+      ),
+      maxAgentRuns: Number(parsed.values["max-agent-runs"] ?? HARNESS_DEFAULTS.maxAgentRuns),
+      maxTotalTokens: Number(
+        parsed.values["max-total-tokens"] ?? HARNESS_DEFAULTS.maxTotalTokens,
+      ),
+      inspectRole:
+        (parsed.values.role as HarnessRequest["inspectRole"] | undefined) ??
+        page?.role ??
+        "member",
+      fromAudit: parsed.values["from-audit"] ?? null,
+      resumeRunId: null,
+      allowNoSandbox,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log.error(redactSecrets(message));
+    store.markUnreusable({ failedPhase: "PRECHECK", message });
+    return 1;
+  }
+
+  const machine = RunMachine.start(
+    paths.root,
+    createMachine({
+      runId,
+      request,
+      isolation,
+      model: model
+        ? { id: model.selection.id, params: model.selection.params }
+        : null,
+    }),
+  );
+  machine.begin("PRECHECK", { route });
+    machine.complete("PRECHECK", {
+      model: model?.selection.id ?? null,
+      sandbox: preflight.sandbox,
+    });
+  machine.begin("WORKTREE", { mode: isolation.mode });
+  machine.complete("WORKTREE", isolation);
+
+  let serverStop: (() => Promise<void>) | null = null;
+  let baseUrl = parsed.values["base-url"];
+  try {
+    if (!baseUrl) {
+      const server = await startDemoServer({
+        cwd: isolation.agentCwd,
+        port: Number(parsed.values.port ?? HARNESS_DEFAULTS.port),
+        logFile: path.join(paths.root, "next.log"),
+      });
+      baseUrl = server.baseUrl;
+      serverStop = server.stop;
+      log.info(`demo server ${baseUrl} bundler=${server.bundler}`);
+    }
+
+    if (parsed.values["inspect-only"]) {
+      const { inspectRoute } = await import("./inspect");
+      const before = await inspectRoute({
+        baseUrl,
+        route,
+        role: request.inspectRole,
+        outDir: paths.inspectBefore,
+        viewports: (await import("./catalog")).FULL_VIEWPORTS,
+        meta: {
+          runId,
+          route,
+          contractHash: "pending",
+          iteration: 0,
+          worktreeSha: isolation.baseSha ?? "unknown",
+          serverOrigin: baseUrl,
+          browser: "chrome",
+          generatingCommand: "inspect-only",
+        },
+      });
+      store.writeJson("performance/before.json", before);
+      store.writeJson("request.json", { ...request, inspectOnly: true });
+      log.info(
+        `inspect-only consoleErrors=${before.consoleErrors.length} transferKb=${before.transferKb} navMs=${before.navigationMsMedian}`,
+      );
+      console.log(path.join(paths.inspectBefore, "inspect.json"));
+      return 0;
+    }
+
+    if (!model) {
+      throw new Error("Grok 4.6 xhigh was not resolved before the agent loop.");
+    }
+
+    const host = createCursorAgentHost({
+      apiKey,
+      model,
+      store,
+      agentCwd: isolation.agentCwd,
+      baseUrl,
+      route,
+      adjacentRoutes: page?.route ? ["/login", "/dashboard"] : [],
+      inspectRole: request.inspectRole,
+      sandboxPolicy: preflight.sandboxPolicy,
+      log,
+    });
+
+    const result = await runHarness(request, {
+      host,
+      store,
+      paths,
+      isolation,
+      baseUrl,
+      log,
+      machine,
+      model: model.selection,
+    });
+    log.info(`done status=${result.status} score=${result.score} report=${result.reportPath}`);
+    console.log(result.reportPath);
+    if (result.status === "failed") return 2;
+    if (result.status === "cancelled" || result.status === "stopped") return 3;
+    return 0;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log.error(redactSecrets(message));
+    try {
+      machine.fail(machine.state.currentPhase, redactSecrets(message));
+    } catch {
+      // machine persist may already have failed
+    }
+    store.markUnreusable({
+      failedPhase: machine.state.currentPhase,
+      message,
+    });
+    if (error instanceof AuditReuseError || error instanceof CriticalSkepticRequiredError) {
+      store.writeJson("from-audit-rejected.json", {
+        reusable: false,
+        reason: redactSecrets(error.message),
+      });
+    }
+    if (error instanceof InspectAuthError) {
+      store.writeJson("baseline-invalid.json", {
+        reusable: false,
+        ...error.diagnostics,
+        message: redactSecrets(error.message),
+      });
+    }
+    return 1;
+  } finally {
+    if (serverStop) await serverStop();
+    if (parsed.values["cleanup-worktree"] && isolation.worktreePath) {
+      await removeWorktree(repoRoot, isolation.worktreePath);
+    }
+  }
+}
+
+function impliedFlags(script: string): string[] {
+  switch (script) {
+    case "page:audit":
+      return ["--audit-only"];
+    case "page:inspect":
+      return ["--inspect-only"];
+    case "page:models":
+      return ["--list-models"];
+    case "page:harness-check":
+      return ["--self-check"];
+    case "page:login":
+      return ["--login"];
+    case "page:routes":
+      return ["--list-routes"];
+    case "page:status":
+      return ["--status"];
+    case "page:prompts":
+      return ["--prompts"];
+    case "page:report":
+      return ["--report"];
+    case "page:resume":
+      return [];
+    default:
+      return [];
+  }
+}
+
+function readSuppliedObjective(text: string | undefined, file: string | undefined): string | null {
+  if (file) {
+    return readFileSync(file, "utf8");
+  }
+  if (text !== undefined) return text;
+  return null;
+}
+
+async function specialCommands(
+  apiKey: string | undefined,
+  selfCheck: boolean,
+  repoRoot: string,
+): Promise<number> {
+  if (selfCheck) {
+    const auditPreflight = runPreflight(repoRoot, {
+      needsBuilder: false,
+      allowNoSandbox: false,
+      cwd: repoRoot,
+    });
+    const improvePreflight = runPreflight(repoRoot, {
+      needsBuilder: true,
+      allowNoSandbox: false,
+      cwd: repoRoot,
+    });
+    if (!auditPreflight.ok) {
+      console.error("Safety self-check failed.", auditPreflight.failures);
+      return 1;
+    }
+    const push = decideShellCommand("git push origin main", {
+      PAGE_HARNESS_ACTIVE: "1",
+    });
+    const envRead = decideReadPath(path.join(repoRoot, ".env.local"));
+    const example = decideReadPath(path.join(repoRoot, ".env.example"));
+    if (push.permission !== "deny" || envRead.permission !== "deny" || example.permission !== "allow") {
+      console.error("Safety self-check failed.", { push, envRead, example });
+      return 1;
+    }
+    const auditLocal = buildLocalAgentCreateOptions({
+      cwd: repoRoot,
+      policy: auditPreflight.sandboxPolicy,
+    });
+    const improveLocal = buildLocalAgentCreateOptions({
+      cwd: repoRoot,
+      policy: improvePreflight.sandboxPolicy,
+    });
+    if (auditLocal.sandboxOptions.enabled && !auditPreflight.sandboxPolicy.detected.supported) {
+      console.error(
+        "Self-check failed: effective Agent.create config would pass sandboxOptions.enabled=true without filesystem sandbox support.",
+      );
+      return 1;
+    }
+    console.log("Safety self-check passed (hooks, push denied, .env denied, .env.example allowed).");
+    console.log(`Audit sandbox: ${auditPreflight.sandboxNote}`);
+    console.log(`Improve sandbox: ${improvePreflight.sandboxNote}`);
+    console.log(
+      `Agent.create local.sandboxOptions (audit): ${JSON.stringify(auditLocal.sandboxOptions)}`,
+    );
+    console.log(
+      `Agent.create local.sandboxOptions (improve, no ack): ${JSON.stringify(improveLocal.sandboxOptions)}`,
+    );
+    if (!improvePreflight.sandboxPolicy.fallbackAllowed) {
+      console.log(
+        "Builder runs on this machine require --allow-no-sandbox; audit fallback is SANDBOX_UNAVAILABLE after read-only tool verification.",
+      );
+    }
+    console.log(`Known pages: ${PAGE_CATALOG.map((page) => page.route).join(", ")}`);
+    const smokeId = `selfcheck-${Date.now().toString(36)}`;
+    const isolation = await createIsolation({
+      repoRoot,
+      route: "/denied",
+      mode: "worktree",
+      runId: smokeId,
+    });
+    if (!isolation.worktreePath || !isolation.branchName) {
+      console.error("Worktree self-check failed: missing path/branch.");
+      return 1;
+    }
+    await removeWorktree(repoRoot, isolation.worktreePath);
+    const delBranch = await import("./util").then((mod) =>
+      mod.git(["branch", "-D", isolation.branchName!], repoRoot),
+    );
+    if (delBranch.code !== 0) {
+      console.warn(`Could not delete smoke branch ${isolation.branchName}`);
+    }
+    console.log(`Worktree self-check passed (${isolation.branchName}).`);
+  }
+
+  try {
+    const resolved = await listAndResolveGrok46Xhigh(apiKey);
+    console.log(`Pinned model: ${resolved.selection.id}`);
+    console.log(`Pinned params: ${JSON.stringify(resolved.selection.params)}`);
+    console.log(`xhigh parameter: ${resolved.xhighParameterId}=${resolved.xhighValue}`);
+    if (!selfCheck) {
+      console.log("\nCatalog:\n" + summarizeCatalog(resolved.catalog));
+    }
+  } catch (error) {
+    return failModel(error);
+  }
+  return 0;
+}
+
+function inspectRunCommand(
+  repoRoot: string,
+  runIdArg: string | undefined,
+  flags: { status: boolean; prompts: boolean; report: boolean },
+): number {
+  const runId = runIdArg || latestRunId(repoRoot);
+  if (!runId) {
+    console.error("No page-harness runs found under tmp/page-harness.");
+    return 1;
+  }
+  const root = path.join(repoRoot, "tmp", "page-harness", runId);
+  if (!existsSync(root)) {
+    console.error(`Run not found: ${runId}`);
+    return 1;
+  }
+  if (flags.status) {
+    const machineFile = path.join(root, "machine.json");
+    if (!existsSync(machineFile)) {
+      console.log(`run ${runId} (no machine.json)`);
+      return 0;
+    }
+    const machine = JSON.parse(readFileSync(machineFile, "utf8")) as {
+      currentPhase: string;
+      iteration: number;
+      contractHash: string | null;
+      bestCommit: string | null;
+      stopReason: string | null;
+      request: { route: string; auditOnly: boolean };
+    };
+    console.log(
+      [
+        `run: ${runId}`,
+        `route: ${machine.request.route}`,
+        `phase: ${machine.currentPhase}`,
+        `iteration: ${machine.iteration}`,
+        `auditOnly: ${machine.request.auditOnly}`,
+        `contractHash: ${machine.contractHash ?? "n/a"}`,
+        `bestCommit: ${machine.bestCommit ?? "n/a"}`,
+        `stopReason: ${machine.stopReason ?? "n/a"}`,
+      ].join("\n"),
+    );
+  }
+  if (flags.prompts) {
+    const dir = path.join(root, "artifacts", "prompts");
+    if (!existsSync(dir)) {
+      console.log("No prompts recorded.");
+    } else {
+      for (const file of readdirSync(dir)) {
+        console.log(path.join(dir, file));
+      }
+    }
+  }
+  if (flags.report) {
+    const report = path.join(root, "artifacts", "report.md");
+    if (!existsSync(report)) {
+      console.error("No report.md for this run.");
+      return 1;
+    }
+    console.log(report);
+    console.log(readFileSync(report, "utf8"));
+  }
+  return 0;
+}
+
+function latestRunId(repoRoot: string): string | null {
+  const root = path.join(repoRoot, "tmp", "page-harness");
+  if (!existsSync(root)) return null;
+  const entries = readdirSync(root)
+    .map((name) => ({ name, mtime: statSync(path.join(root, name)).mtimeMs }))
+    .sort((a, b) => b.mtime - a.mtime);
+  return entries[0]?.name ?? null;
+}
+
+async function resumeRun(options: {
+  runId: string;
+  repoRoot: string;
+  apiKey?: string;
+  baseUrl?: string;
+  port?: string;
+  cleanup: boolean;
+}): Promise<number> {
+  const paths = createRunPaths(options.repoRoot, options.runId);
+  const machine = RunMachine.resume(paths.root);
+  const store = new ArtifactStore(paths);
+  const log = new Logger((line) => store.appendLog(line));
+  const request = machine.state.request;
+  const status = store.readJson("run-status.json") as { reusable?: boolean } | null;
+  if (status?.reusable === false) {
+    console.error(
+      `Run ${options.runId} is not resumable (failed and marked non-reusable). Start a new audit or improve run.`,
+    );
+    return 1;
+  }
+  const isolation = await attachIsolation(machine.state.isolation as IsolatedWorkspace);
+  process.env.PAGE_HARNESS_ACTIVE = "1";
+  process.env.PAGE_HARNESS_RUN_DIR = paths.root;
+  process.env.PAGE_HARNESS_WORKTREE = isolation.agentCwd;
+  process.env.PAGE_HARNESS_AGENT_CWD = isolation.agentCwd;
+
+  const sandboxPolicy = resolveSandboxPolicy({
+    needsBuilder: !request.auditOnly,
+    allowNoSandbox: request.allowNoSandbox === true,
+    cwd: options.repoRoot,
+  });
+  store.writeJson("sandbox.json", sandboxPolicySnapshot(sandboxPolicy));
+  if (!sandboxPolicy.fallbackAllowed && sandboxPolicy.effective !== "enabled") {
+    const err = new SandboxRequiredError(sandboxPolicy);
+    log.error(err.message);
+    store.markUnreusable({ failedPhase: "PRECHECK", message: err.message });
+    return 1;
+  }
+
+  let model: Awaited<ReturnType<typeof listAndResolveGrok46Xhigh>>;
+  try {
+    model = await listAndResolveGrok46Xhigh(options.apiKey);
+  } catch (error) {
+    return failModel(error, log);
+  }
+
+  let serverStop: (() => Promise<void>) | null = null;
+  let baseUrl = options.baseUrl;
+  try {
+    if (!baseUrl) {
+      const server = await startDemoServer({
+        cwd: isolation.agentCwd,
+        port: Number(options.port ?? HARNESS_DEFAULTS.port),
+        logFile: path.join(paths.root, "next.log"),
+      });
+      baseUrl = server.baseUrl;
+      serverStop = server.stop;
+    }
+    const host = createCursorAgentHost({
+      apiKey: options.apiKey,
+      model,
+      store,
+      agentCwd: isolation.agentCwd,
+      baseUrl,
+      route: request.route,
+      inspectRole: request.inspectRole,
+      sandboxPolicy,
+      log,
+    });
+    const result = await runHarness(
+      { ...request, resumeRunId: options.runId },
+      { host, store, paths, isolation, baseUrl, log, machine, model: model.selection },
+    );
+    console.log(result.reportPath);
+    return result.status === "failed" ? 2 : 0;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log.error(redactSecrets(message));
+    try {
+      machine.fail(machine.state.currentPhase, redactSecrets(message));
+    } catch {
+      // ignore persist failures
+    }
+    store.markUnreusable({
+      failedPhase: machine.state.currentPhase,
+      message,
+    });
+    return 1;
+  } finally {
+    if (serverStop) await serverStop();
+    if (options.cleanup && isolation.worktreePath) {
+      await removeWorktree(options.repoRoot, isolation.worktreePath);
+    }
+  }
+}
+
+function failModel(error: unknown, log?: Logger): number {
+  if (error instanceof ModelUnavailableError) {
+    const message = `${error.message}\nCatalog:\n${error.catalogSummary}`;
+    log?.error(message);
+    console.error(message);
+    return 1;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  const authHint =
+    /401|unauthor|api key|not authenticated/i.test(message)
+      ? " Set CURSOR_API_KEY to a user or service-account key from https://cursor.com/dashboard/integrations. The harness will not print the value."
+      : "";
+  console.error(redactSecrets(message) + authHint);
+  return 1;
+}
