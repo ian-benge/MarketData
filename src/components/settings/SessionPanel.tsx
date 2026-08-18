@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Panel";
@@ -39,10 +39,12 @@ export function SessionPanel({
 }: SessionPanelProps) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
+  const pendingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
 
   async function signOut() {
-    if (pending) return;
+    if (pendingRef.current) return;
+    pendingRef.current = true;
     setPending(true);
     setError(null);
     try {
@@ -86,6 +88,7 @@ export function SessionPanel({
         ),
       );
     } finally {
+      pendingRef.current = false;
       setPending(false);
     }
   }

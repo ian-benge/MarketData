@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -23,6 +23,7 @@ export function OwnerUnlockResetPanel({
 }) {
   const router = useRouter();
   const [pending, setPending] = useState<"self" | "desk" | null>(null);
+  const pendingRef = useRef<"self" | "desk" | null>(null);
   const [confirmDesk, setConfirmDesk] = useState(false);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [grantCount, setGrantCount] = useState(unlockedGrantCount);
@@ -32,13 +33,14 @@ export function OwnerUnlockResetPanel({
   }, [unlockedGrantCount]);
 
   async function reset(scope: "self" | "desk") {
-    if (pending) return;
+    if (pendingRef.current) return;
     if (scope === "desk" && !confirmDesk) {
       setConfirmDesk(true);
       setFeedback(null);
       return;
     }
     if (scope === "self") setConfirmDesk(false);
+    pendingRef.current = scope;
     setPending(scope);
     setFeedback(null);
     try {
@@ -83,6 +85,7 @@ export function OwnerUnlockResetPanel({
             : "Unable to reset teammate access.",
       });
     } finally {
+      pendingRef.current = null;
       setPending(null);
     }
   }

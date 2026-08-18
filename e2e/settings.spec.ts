@@ -73,6 +73,14 @@ async function openSettings(page: Page) {
   await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible();
 }
 
+function settingsMain(page: Page) {
+  return page.locator("#main-content");
+}
+
+function pageAlert(page: Page, text: string | RegExp) {
+  return page.getByRole("alert").filter({ hasText: text });
+}
+
 test("unauthenticated /settings redirects to login with next=/settings", async ({
   page,
 }) => {
@@ -123,6 +131,9 @@ test.describe("settings member", () => {
     const session = page.getByRole("heading", { name: "Session", level: 2 });
     await expect(session).toBeVisible();
     const sessionPanel = page.locator("section").filter({ has: session });
+    await expect(
+      settingsMain(page).getByText("member@demo.local"),
+    ).toBeVisible();
     await expect(sessionPanel.getByText("member@demo.local")).toBeVisible();
     await expect(sessionPanel.getByText("member", { exact: true })).toBeVisible();
     await expect(sessionPanel.getByText("demo", { exact: true })).toBeVisible();
@@ -253,7 +264,9 @@ test.describe("settings member", () => {
     await expect(lock).toBeDisabled();
     await expect(lock).toHaveText("Locking...");
     await lock.click({ force: true });
-    await expect(page.getByRole("alert")).toContainText("Unlock reset failed");
+    await expect(
+      pageAlert(page, "Unlock reset failed"),
+    ).toBeVisible();
     expect(posts).toHaveLength(1);
     expect(JSON.parse(posts[0] ?? "{}")).toMatchObject({ scope: "self" });
   });
@@ -330,12 +343,12 @@ test.describe("settings member", () => {
       });
     });
 
-    const signOut = page.getByRole("button", { name: "Sign out" });
+    const signOut = settingsMain(page).getByRole("button", { name: "Sign out" });
     await signOut.click();
     await expect(signOut).toHaveAttribute("aria-busy", "true");
     await expect(signOut).toBeDisabled();
     await signOut.click({ force: true });
-    await expect(page.getByRole("alert")).toContainText("Demo sign-out failed");
+    await expect(pageAlert(page, "Demo sign-out failed")).toBeVisible();
     await expect(page).toHaveURL(/\/settings/);
     expect(deletes).toHaveLength(1);
   });
@@ -344,13 +357,16 @@ test.describe("settings member", () => {
     await demoLogin(page, "member");
     await openSettings(page);
 
+    await expect(
+      settingsMain(page).getByText("member@demo.local"),
+    ).toBeVisible();
     const deleted = page.waitForResponse(
       (response) =>
         response.request().method() === "DELETE" &&
         response.url().includes("/api/auth/demo") &&
         response.ok(),
     );
-    await page.getByRole("button", { name: "Sign out" }).click();
+    await settingsMain(page).getByRole("button", { name: "Sign out" }).click();
     await deleted;
     await expect(page).toHaveURL(/\/login/);
   });
@@ -376,9 +392,9 @@ test.describe("settings admin", () => {
     await page.locator("#team-password").fill("desk-pass-1");
     await page.locator("#team-confirm").fill("other-pass");
     await page.getByRole("button", { name: "Add user" }).click();
-    await expect(page.getByRole("alert")).toContainText(
-      "Passwords do not match",
-    );
+    await expect(
+      pageAlert(page, "Passwords do not match"),
+    ).toBeVisible();
 
     await page.locator("#team-confirm").fill("desk-pass-1");
     const created = page.waitForRequest(
