@@ -12,6 +12,7 @@ import {
   Menu,
   MessageSquareText,
   Newspaper,
+  ScanSearch,
   Search,
   Settings2,
   ShieldCheck,
@@ -50,6 +51,13 @@ const WORKBENCH_NAV: NavItem[] = [
     shortLabel: "News",
     description: "Headline search, event clusters, and why it’s moving",
     icon: Newspaper,
+  },
+  {
+    href: "/scanner",
+    label: "Scanner Center",
+    shortLabel: "Scanner",
+    description: "Ross · Warrior Trading and Desk Intelligence, server-side",
+    icon: ScanSearch,
   },
   {
     href: "/positions",

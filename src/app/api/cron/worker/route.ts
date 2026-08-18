@@ -11,6 +11,8 @@ import {
   shouldAttemptRefresh,
 } from "@/lib/market-data/refresh-service";
 import { advanceActiveReportRuns } from "@/lib/reports/enqueue";
+import { runScannerTick } from "@/lib/scanner/engine";
+import { isScannerMonitorWindow } from "@/lib/scanner/session";
 
 export async function GET(request: Request) {
   return POST(request);
@@ -29,6 +31,20 @@ export async function POST(request: Request) {
       marketRefresh = await runMarketDataRefresh({ env, force: false });
     }
 
+    let scannerTick: { skipped: string | null; symbolsReceived?: number } | null =
+      null;
+    if (!fixturesEnabled() && isScannerMonitorWindow(new Date())) {
+      try {
+        const tick = await runScannerTick({ env, force: false });
+        scannerTick = {
+          skipped: tick.skippedReason,
+          symbolsReceived: tick.snapshot.coverage.symbolsReceived,
+        };
+      } catch {
+        scannerTick = { skipped: "failed" };
+      }
+    }
+
     const jobs = await advanceActiveReportRuns(new Date());
 
     return jsonOk({
@@ -39,6 +55,7 @@ export async function POST(request: Request) {
       failed: jobs.failed,
       heldForPublish: jobs.heldForPublish,
       notes: jobs.notes,
+      scannerTick,
       marketRefresh: marketRefresh
         ? {
             status: marketRefresh.status,

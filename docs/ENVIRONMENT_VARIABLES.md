@@ -71,6 +71,12 @@ Seeded Research Desk firm id: `a0000000-0000-4000-8000-000000000001` (`supabase/
 | `MARKET_DATA_REFRESH_CLOSED_SECONDS` | Closed/overnight cadence (default `300`) | No | No | ○ | ○ | ○ | You | |
 | `MARKET_DATA_STALE_AFTER_SECONDS` | Age before observations labeled stale (default `180`) | No | No | ○ | ○ | ○ | You | Stale banners |
 | `MARKET_DATA_MAX_UNIVERSE_SIZE` | Cap on refresh universe size (default `80`) | No | No | ○ | ○ | ○ | You | Universe builder |
+| `SCANNER_MAX_UNIVERSE_SIZE` | Scanner universe cap, independent of the dashboard 80-name tape (default `400`) | No | No | ○ | ○ | ○ | You | Scanner ingest |
+| `SCANNER_REFRESH_OPEN_SECONDS` | Scanner worker cadence in regular session (default `20`) | No | No | ○ | ○ | ○ | You | `/api/cron/scanner` |
+| `SCANNER_REFRESH_EXTENDED_SECONDS` | Premarket / after-hours scanner cadence (default `30`) | No | No | ○ | ○ | ○ | You | |
+| `SCANNER_REFRESH_CLOSED_SECONDS` | Closed-session scanner cadence (default `120`) | No | No | ○ | ○ | ○ | You | Monitor window is 4:00 a.m.–8:00 p.m. ET |
+| `SCANNER_DEEP_PASS_SIZE` | Names that receive 1-minute bars on each tick (default `40`) | No | No | ○ | ○ | ○ | You | |
+| `SCANNER_LIST_LIMIT` | Ranked rows persisted per strategy (default `25`) | No | No | ○ | ○ | ○ | You | |
 
 \* Shared Production realtime: acknowledgement expected **after** written authorization and owner checklist — still not a substitute for a license.
 

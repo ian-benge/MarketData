@@ -36,7 +36,8 @@ Use these display labels where they match the existing capability:
 | -------------------------------- | -------------------- |
 | `/dashboard`                     | Market Overview      |
 | `/archive` and `/reports/[id]`   | Research Archive     |
-| `/watchlists`                    | Watchlists & Sectors |
+| `/news`                           | Material News        |
+| `/scanner`                        | Scanner Center       |
 | Existing on-demand report action | Generate Brief       |
 | `/proposals`                     | Proposals            |
 | `/settings`                      | Settings             |

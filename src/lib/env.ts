@@ -80,6 +80,16 @@ export const envSchema = z.object({
     .default(300),
   MARKET_DATA_STALE_AFTER_SECONDS: z.coerce.number().int().positive().default(180),
   MARKET_DATA_MAX_UNIVERSE_SIZE: z.coerce.number().int().positive().default(80),
+  SCANNER_MAX_UNIVERSE_SIZE: z.coerce.number().int().positive().default(400),
+  SCANNER_REFRESH_OPEN_SECONDS: z.coerce.number().int().positive().default(20),
+  SCANNER_REFRESH_EXTENDED_SECONDS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(30),
+  SCANNER_REFRESH_CLOSED_SECONDS: z.coerce.number().int().positive().default(120),
+  SCANNER_DEEP_PASS_SIZE: z.coerce.number().int().positive().default(40),
+  SCANNER_LIST_LIMIT: z.coerce.number().int().positive().default(25),
 
   ALPACA_DATA_KEY_ID: optionalString,
   ALPACA_DATA_SECRET_KEY: optionalString,

@@ -25,6 +25,8 @@ import { saveBrief } from "@/lib/desk-intel/store";
 import { loadDashboardCatalystCalendar } from "@/lib/market-data/catalyst-calendar-load";
 import { loadOpenPositionTickers } from "@/lib/positions/store";
 import { DEFAULT_FIRM_UUID } from "@/lib/reports/editions";
+import { runScannerTick } from "@/lib/scanner/engine";
+import { isScannerMonitorWindow } from "@/lib/scanner/session";
 
 export async function GET(request: Request) {
   return POST(request);
@@ -122,6 +124,20 @@ export async function POST(request: Request) {
       }
     }
 
+    let scannerTick: { skipped: string | null; symbolsReceived?: number } | null =
+      null;
+    if (!fixturesEnabled() && isScannerMonitorWindow(new Date())) {
+      try {
+        const tick = await runScannerTick({ env, force: false });
+        scannerTick = {
+          skipped: tick.skippedReason,
+          symbolsReceived: tick.snapshot.coverage.symbolsReceived,
+        };
+      } catch {
+        scannerTick = { skipped: "failed" };
+      }
+    }
+
     const enqueue = await enqueueDueReportRuns(new Date());
     let instrumentResolve: Awaited<ReturnType<typeof resolveStaleInstruments>> | null =
       null;
@@ -163,6 +179,7 @@ export async function POST(request: Request) {
       newsPersistNote,
       deskBrief,
       instrumentResolve,
+      scannerTick,
       marketRefresh: marketRefresh
         ? {
             status: marketRefresh.status,
