@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { canonicalJson, sha256Json } from "./util";
+import { persistableContract, normativeContractHash } from "./canonical";
+import { canonicalJson } from "./util";
 import {
   isEvidenceFresh,
   type EvidenceMeta,
@@ -389,13 +390,88 @@ export const EvaluationSchema = z.object({
 
 export type Evaluation = z.infer<typeof EvaluationSchema>;
 
+export const ConstraintPathSchema = z.enum([
+  "page",
+  "objective",
+  "intendedOutcomes",
+  "traderWorkflows",
+  "implementationBoundaries.mayChange",
+  "implementationBoundaries.mustPreserve",
+  "implementationBoundaries.mustNot",
+  "testableBehavior",
+  "dataCorrectness",
+  "performanceExpectations.preserveOrImprove",
+  "performanceExpectations.budgets",
+  "performanceExpectations.repeatSamples",
+  "shallowFeatureBan",
+]);
+
+export type ConstraintPath = z.infer<typeof ConstraintPathSchema>;
+
+export const ContractOpSchema = z.discriminatedUnion("op", [
+  z.object({
+    op: z.literal("accept_all"),
+  }),
+  z.object({
+    op: z.literal("accept_gate"),
+    id: z.string().min(1),
+  }),
+  z.object({
+    op: z.literal("replace_gate"),
+    id: z.string().min(1),
+    gate: AcceptanceGateSchema,
+  }),
+  z.object({
+    op: z.literal("add_gate"),
+    gate: AcceptanceGateSchema,
+  }),
+  z.object({
+    op: z.literal("remove_gate"),
+    id: z.string().min(1),
+  }),
+  z.object({
+    op: z.literal("dispute_gate"),
+    id: z.string().min(1),
+    competing: AcceptanceGateSchema,
+  }),
+  z.object({
+    op: z.literal("accept_constraint"),
+    path: ConstraintPathSchema,
+  }),
+  z.object({
+    op: z.literal("replace_constraint"),
+    path: ConstraintPathSchema,
+    value: z.unknown(),
+  }),
+  z.object({
+    op: z.literal("add_constraint"),
+    path: ConstraintPathSchema,
+    value: z.unknown(),
+  }),
+  z.object({
+    op: z.literal("remove_constraint"),
+    path: ConstraintPathSchema,
+    value: z.unknown().optional(),
+  }),
+  z.object({
+    op: z.literal("dispute_constraint"),
+    path: ConstraintPathSchema,
+    competing: z.unknown(),
+  }),
+]);
+
+export type ContractOp = z.infer<typeof ContractOpSchema>;
+
 export const ContractDecisionSchema = z
   .object({
-    decision: z.enum(["accept", "amend"]),
+    decision: z.enum(["accept", "amend", "ops"]),
+    proposalHash: z.string().min(16).optional(),
     acceptedHash: z.string().min(16).optional(),
     contract: PageContractSchema.optional(),
+    operations: z.array(ContractOpSchema).optional(),
     amendments: z.array(z.string()).default([]),
     rationale: z.string().min(1),
+    repairNotes: z.string().min(1).optional(),
   })
   .superRefine((value, ctx) => {
     if (value.decision === "accept" && !value.acceptedHash) {
@@ -405,11 +481,18 @@ export const ContractDecisionSchema = z
         path: ["acceptedHash"],
       });
     }
-    if (value.decision === "amend" && !value.contract) {
+    if (value.decision === "amend" && !value.contract && !value.operations?.length) {
       ctx.addIssue({
         code: "custom",
-        message: "amend requires a complete replacement contract",
-        path: ["contract"],
+        message: "amend requires operations against the proposal, or a legacy complete replacement contract",
+        path: ["operations"],
+      });
+    }
+    if (value.decision === "ops" && !value.operations?.length) {
+      ctx.addIssue({
+        code: "custom",
+        message: "ops requires a non-empty operations array",
+        path: ["operations"],
       });
     }
   });
@@ -609,11 +692,12 @@ export function canonicalizeContract(contract: PageContract): {
     ...contract,
     acceptanceGates: contract.acceptanceGates.map((gate) => normalizeAcceptanceGate(gate)),
   });
-  const json = canonicalJson(parsed);
+  const persisted = persistableContract(parsed);
+  const json = canonicalJson(persisted);
   return {
     contract: JSON.parse(json) as PageContract,
     json,
-    hash: sha256Json(parsed),
+    hash: normativeContractHash(persisted),
   };
 }
 

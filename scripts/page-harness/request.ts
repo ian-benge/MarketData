@@ -17,6 +17,8 @@ export type HarnessRequest = {
   maxTotalTokens: number;
   inspectRole: PageRole;
   risk: RiskLevel;
+  /** Explicit CLI reviewer-count override. Null/undefined means use the risk workflow default. */
+  reviewers?: 1 | 2 | null;
   fromAudit: string | null;
   resumeRunId: string | null;
   allowNoSandbox: boolean;

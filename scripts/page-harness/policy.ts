@@ -40,6 +40,16 @@ export type RiskPolicy = {
   inspectViewports: "baseline" | "full";
   unrelatedSuiteBlocksPass: boolean;
   restorationAgentGrace: number;
+  independentReviewers: 1 | 2;
+  disputeReviewers: 1 | 2;
+  plannerCount: 1;
+  evaluatorCount: 1;
+};
+
+export type WorkflowPolicy = RiskPolicy & {
+  requestedReviewers: 1 | 2 | null;
+  effectiveReviewers: 1 | 2;
+  source: "risk-default" | "cli-override";
 };
 
 const RISK_POLICY_BY_LEVEL: Record<RiskLevel, Omit<RiskPolicy, "risk">> = {
@@ -53,6 +63,10 @@ const RISK_POLICY_BY_LEVEL: Record<RiskLevel, Omit<RiskPolicy, "risk">> = {
     inspectViewports: "baseline",
     unrelatedSuiteBlocksPass: false,
     restorationAgentGrace: 1,
+    independentReviewers: 1,
+    disputeReviewers: 1,
+    plannerCount: 1,
+    evaluatorCount: 1,
   },
   medium: {
     requireSkeptic: false,
@@ -64,6 +78,10 @@ const RISK_POLICY_BY_LEVEL: Record<RiskLevel, Omit<RiskPolicy, "risk">> = {
     inspectViewports: "full",
     unrelatedSuiteBlocksPass: false,
     restorationAgentGrace: 1,
+    independentReviewers: 1,
+    disputeReviewers: 1,
+    plannerCount: 1,
+    evaluatorCount: 1,
   },
   critical: {
     requireSkeptic: true,
@@ -75,6 +93,10 @@ const RISK_POLICY_BY_LEVEL: Record<RiskLevel, Omit<RiskPolicy, "risk">> = {
     inspectViewports: "full",
     unrelatedSuiteBlocksPass: false,
     restorationAgentGrace: 2,
+    independentReviewers: 2,
+    disputeReviewers: 2,
+    plannerCount: 1,
+    evaluatorCount: 1,
   },
 };
 
@@ -88,6 +110,30 @@ export function parseRiskLevel(
 
 export function resolveRiskPolicy(risk: RiskLevel): RiskPolicy {
   return { risk, ...RISK_POLICY_BY_LEVEL[risk] };
+}
+
+export function resolveWorkflowPolicy(input: {
+  risk: RiskLevel;
+  reviewers?: 1 | 2 | null;
+}): WorkflowPolicy {
+  const base = resolveRiskPolicy(input.risk);
+  const requested = input.reviewers ?? null;
+  if (requested === 1 || requested === 2) {
+    return {
+      ...base,
+      independentReviewers: requested,
+      disputeReviewers: requested,
+      requestedReviewers: requested,
+      effectiveReviewers: requested,
+      source: "cli-override",
+    };
+  }
+  return {
+    ...base,
+    requestedReviewers: null,
+    effectiveReviewers: base.independentReviewers,
+    source: "risk-default",
+  };
 }
 
 export function defaultObjectiveFor(route: string, title?: string | null): string {
@@ -160,6 +206,7 @@ export function buildHarnessRequest(input: {
   maxAgentRuns: number;
   maxTotalTokens: number;
   inspectRole: HarnessRequest["inspectRole"];
+  reviewers?: 1 | 2 | null;
   fromAudit: string | null;
   resumeRunId: string | null;
   allowNoSandbox: boolean;
@@ -186,6 +233,7 @@ export function buildHarnessRequest(input: {
     maxTotalTokens: input.maxTotalTokens,
     inspectRole: input.inspectRole,
     risk,
+    reviewers: input.reviewers ?? null,
     fromAudit: input.fromAudit,
     resumeRunId: input.resumeRunId,
     allowNoSandbox: input.allowNoSandbox,
