@@ -65,7 +65,9 @@ describe("SessionPanel sign out", () => {
     );
 
     renderSession(true);
-    fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    const signOut = screen.getByRole("button", { name: "Sign out" });
+    fireEvent.click(signOut);
+    fireEvent.click(signOut);
 
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
     expect(fetch).toHaveBeenCalledWith("/api/auth/demo", { method: "DELETE" });

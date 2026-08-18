@@ -92,7 +92,7 @@ export function ThemePreferenceControl() {
               onClick={() => selectAt(index)}
               onKeyDown={(event) => onRadioKeyDown(event, index)}
               className={cn(
-                "flex min-h-[6.5rem] flex-col items-start gap-2 rounded-[4px] border px-3 py-3 text-left transition-colors",
+                "flex min-h-[6.5rem] min-w-0 flex-col items-start gap-2 rounded-[4px] border px-3 py-3 text-left transition-colors",
                 selected
                   ? "border-[var(--ib-border-control)] bg-[var(--ib-surface-selected)]"
                   : "border-[var(--ib-border-subtle)] bg-[var(--ib-surface-inset)] hover:border-[var(--ib-border-control)] hover:bg-[var(--ib-surface-hover)]",

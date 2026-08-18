@@ -60,11 +60,6 @@ export default async function SettingsPage() {
       <ThemePreferenceControl />
       {user ? (
         <OwnerUnlockResetPanel
-          key={
-            unlockInventoryAvailable
-              ? `grants-${unlockedGrantCount}`
-              : "grants-unavailable"
-          }
           isAdmin={isAdmin}
           demo={user.isDemo}
           unlockInventoryAvailable={unlockInventoryAvailable}

@@ -153,4 +153,33 @@ describe("OwnerUnlockResetPanel", () => {
       expect(screen.getByRole("alert")).toHaveTextContent("Unlock reset failed"),
     );
   });
+
+  it("does not POST desk reset until Confirm reset is activated", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, demo: true, scope: "desk" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    render(
+      <OwnerUnlockResetPanel
+        isAdmin
+        demo
+        unlockInventoryAvailable={false}
+        unlockedGrantCount={0}
+        unlockTtlHours={8}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Reset all unlocks" }));
+    expect(fetch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm reset" }));
+
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(fetch).mock.calls[0]?.[1]).toMatchObject({
+      method: "POST",
+      body: JSON.stringify({ scope: "desk" }),
+    });
+  });
 });

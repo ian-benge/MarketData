@@ -76,12 +76,15 @@ async function openSettings(page: Page) {
 test("unauthenticated /settings redirects to login with next=/settings", async ({
   page,
 }) => {
+  test.setTimeout(60_000);
   await page.goto("/settings", { waitUntil: "load", timeout: 45_000 });
   await expect(page).toHaveURL(/\/login/);
   expect(new URL(page.url()).searchParams.get("next")).toBe("/settings");
 });
 
 test.describe("settings member", () => {
+  test.describe.configure({ timeout: 60_000 });
+
   test("exposes one Settings heading and critical semantics", async ({
     page,
   }) => {
@@ -282,11 +285,20 @@ test.describe("settings member", () => {
     expect(response.status()).toBe(403);
   });
 
-  test("does not overflow on a phone viewport", async ({ page }) => {
+  test("does not overflow on phone, tablet, laptop, or desktop", async ({
+    page,
+  }) => {
     await demoLogin(page, "member");
-    await page.setViewportSize({ width: 375, height: 812 });
-    await openSettings(page);
-    await expectNoPageHorizontalOverflow(page);
+    for (const viewport of [
+      { width: 375, height: 812 },
+      { width: 768, height: 1024 },
+      { width: 1024, height: 768 },
+      { width: 1440, height: 900 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await openSettings(page);
+      await expectNoPageHorizontalOverflow(page);
+    }
   });
 
   test("Sign out DELETE is pending-once and stays on settings on error", async ({
@@ -345,6 +357,8 @@ test.describe("settings member", () => {
 });
 
 test.describe("settings admin", () => {
+  test.describe.configure({ timeout: 60_000 });
+
   test("adds a user through POST /api/admin/users and requires desk reset confirm", async ({
     page,
   }) => {
