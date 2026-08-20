@@ -86,7 +86,6 @@ function TapeQuote({
   asOf,
   onSelectSymbol,
   onActiveDriver,
-  inert,
 }: {
   item: TapeItem;
   groupLabel?: string | null;
@@ -95,7 +94,6 @@ function TapeQuote({
   asOf?: string | null;
   onSelectSymbol?: (ticker: string) => void;
   onActiveDriver?: (driver: MarketPulseDriverId | null) => void;
-  inert?: boolean;
 }) {
   const { config, quote } = item;
   return (
@@ -113,8 +111,7 @@ function TapeQuote({
       ) : null}
       <button
         type="button"
-        tabIndex={inert ? -1 : undefined}
-        aria-pressed={inert ? undefined : selected}
+        aria-pressed={selected}
         aria-label={`Select ${quote.ticker}`}
         title={`${quote.ticker} · ${config.short} · ${config.name}`}
         onClick={() => onSelectSymbol?.(quote.ticker)}
@@ -176,7 +173,6 @@ function TapeQuote({
 
 function TapeSequence({
   items,
-  clone = false,
   selectedSymbol,
   activeDriver,
   asOf,
@@ -184,7 +180,6 @@ function TapeSequence({
   onActiveDriver,
 }: {
   items: TapeItem[];
-  clone?: boolean;
   selectedSymbol?: string;
   activeDriver?: MarketPulseDriverId | null;
   asOf?: string | null;
@@ -192,18 +187,12 @@ function TapeSequence({
   onActiveDriver?: (driver: MarketPulseDriverId | null) => void;
 }) {
   return (
-    <ul
-      aria-hidden={clone || undefined}
-      className={cn(
-        "flex shrink-0 items-center gap-1 pr-8",
-        clone && "tape-marquee-clone",
-      )}
-    >
+    <ul className="flex w-max min-w-full items-center gap-1 px-1">
       {items.map((item, index) => {
         const showGroup = index === 0 || item.group.id !== items[index - 1]?.group.id;
         return (
           <TapeQuote
-            key={`${clone ? "clone" : "live"}-${item.quote.ticker}`}
+            key={item.quote.ticker}
             item={item}
             groupLabel={showGroup ? item.group.label : null}
             selected={selectedSymbol === item.quote.ticker}
@@ -211,7 +200,6 @@ function TapeSequence({
             asOf={asOf}
             onSelectSymbol={onSelectSymbol}
             onActiveDriver={onActiveDriver}
-            inert={clone}
           />
         );
       })}
@@ -255,37 +243,21 @@ export function CrossAssetTape({
     );
   }
 
-  const durationSec = Math.max(32, items.length * 3.6);
-
   return (
     <div
-      className="tape-marquee-viewport min-w-0 flex-1 overflow-hidden"
+      className="terminal-scroll min-w-0 flex-1 overflow-x-auto overscroll-x-contain"
       role="region"
       aria-label="Cross-asset tape"
-      title="Hover to pause · click a proxy to highlight it"
+      title="Scroll to inspect each proxy · click a ticker to focus it"
     >
-      <div
-        className="tape-marquee flex w-max items-center"
-        style={{ animationDuration: `${durationSec}s` }}
-      >
-        <TapeSequence
-          items={items}
-          selectedSymbol={selectedSymbol}
-          activeDriver={activeDriver}
-          asOf={asOf}
-          onSelectSymbol={onSelectSymbol}
-          onActiveDriver={onActiveDriver}
-        />
-        <TapeSequence
-          items={items}
-          clone
-          selectedSymbol={selectedSymbol}
-          activeDriver={activeDriver}
-          asOf={asOf}
-          onSelectSymbol={onSelectSymbol}
-          onActiveDriver={onActiveDriver}
-        />
-      </div>
+      <TapeSequence
+        items={items}
+        selectedSymbol={selectedSymbol}
+        activeDriver={activeDriver}
+        asOf={asOf}
+        onSelectSymbol={onSelectSymbol}
+        onActiveDriver={onActiveDriver}
+      />
     </div>
   );
 }

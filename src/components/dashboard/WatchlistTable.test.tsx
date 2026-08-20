@@ -228,6 +228,8 @@ describe("WatchlistTable", () => {
     expect(screen.getByText(/Quoted 1 of 3/)).toBeTruthy();
     expect(screen.getByText(/1 unknown symbol/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Select NBIS" })).toBeTruthy();
+    expect(screen.getByText("No session print")).toBeTruthy();
+    expect(screen.getByText("Quote provider returned no row for this symbol.")).toBeTruthy();
     expect(screen.getAllByText("—").length).toBeGreaterThan(3);
   });
 });

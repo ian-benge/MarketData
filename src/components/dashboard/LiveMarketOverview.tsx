@@ -16,6 +16,9 @@ import { SectorHeatmap } from "@/components/dashboard/SectorHeatmap";
 import { ThemeTape } from "@/components/dashboard/ThemeTape";
 import { WatchlistTable } from "@/components/dashboard/WatchlistTable";
 import { DashboardMarketBoard } from "@/components/dashboard/DashboardMarketBoard";
+import { RegimeSpectrum } from "@/components/dashboard/market-pulse/RegimeSpectrum";
+import { RiskWatch } from "@/components/dashboard/market-pulse/RiskWatch";
+import { SignalDrivers } from "@/components/dashboard/market-pulse/SignalDrivers";
 import { SessionIntelligence } from "@/components/intel/SessionIntelligence";
 import { StaleBanner } from "@/components/ui/StaleBanner";
 import {
@@ -37,7 +40,7 @@ import {
 import { joinMaterialMovers } from "@/lib/market-data/overview-movers";
 import { attributeMoves } from "@/lib/intelligence/attribution";
 import { detectSignificantMove } from "@/lib/intelligence/move-detect";
-import { calculateMarketPulse } from "@/lib/market-data/market-pulse";
+import { calculateMarketPulse, type MarketPulseDriverId } from "@/lib/market-data/market-pulse";
 import {
   initialCoveragePick,
   sameCoveragePick,
@@ -74,6 +77,9 @@ export function LiveMarketOverview({
   );
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [focusSymbol, setFocusSymbol] = useState(selectedSymbol);
+  const [activePulseDriver, setActivePulseDriver] = useState<MarketPulseDriverId | null>(
+    null,
+  );
   const [listOverride, setListOverride] = useState<DashboardWatchlistSnapshot | null>(
     null,
   );
@@ -403,12 +409,6 @@ export function LiveMarketOverview({
         onSelectSymbol={selectSymbol}
       />
 
-      <SessionIntelligence
-        key="desk-intelligence"
-        compact
-        onSelectSymbol={selectSymbol}
-      />
-
       {data.stale && data.latencyClass !== "unavailable" ? (
         <StaleBanner asOf={data.asOf} />
       ) : null}
@@ -427,17 +427,7 @@ export function LiveMarketOverview({
         calendar={data.calendar}
         pulse={pulse}
         loading={pulseLoading}
-      >
-        <FactorTape tiles={factors} onSelectSymbol={selectSymbol} />
-        <ThemeTape
-          sectors={data.coverage?.deskSectors ?? []}
-          selectedSectorId={pick?.type === "sector" ? pick.id : undefined}
-          onSelectSymbol={selectSymbol}
-          onSelectSector={(sectorId) => {
-            void selectCollection({ type: "sector", id: sectorId });
-          }}
-        />
-      </DashboardMarketBoard>
+      />
 
       <div className="grid min-w-0 gap-3 xl:grid-cols-12">
         <div id="market-chart" className="min-w-0 scroll-mt-3 xl:col-span-8">
@@ -478,6 +468,35 @@ export function LiveMarketOverview({
           <DivergenceNotes notes={divergence} />
         </div>
       </div>
+
+      <FactorTape tiles={factors} onSelectSymbol={selectSymbol} />
+      <ThemeTape
+        sectors={data.coverage?.deskSectors ?? []}
+        selectedSectorId={pick?.type === "sector" ? pick.id : undefined}
+        onSelectSymbol={selectSymbol}
+        onSelectSector={(sectorId) => {
+          void selectCollection({ type: "sector", id: sectorId });
+        }}
+      />
+      <SessionIntelligence
+        key="desk-intelligence"
+        compact
+        onSelectSymbol={selectSymbol}
+      />
+      <div className="grid min-w-0 gap-3 lg:grid-cols-12">
+        <div className="min-w-0 lg:col-span-8">
+          <RegimeSpectrum result={pulse} />
+        </div>
+        <div className="min-w-0 lg:col-span-4">
+          <SignalDrivers
+            drivers={pulse.drivers}
+            activeDriver={activePulseDriver}
+            onActiveDriver={setActivePulseDriver}
+            onSelectSymbol={selectSymbol}
+          />
+        </div>
+      </div>
+      <RiskWatch events={data.calendar ?? []} asOf={data.asOf} result={pulse} />
 
       <div className="grid min-w-0 gap-3 xl:grid-cols-12">
         <div id="watchlist" className="min-w-0 scroll-mt-3 xl:col-span-8">

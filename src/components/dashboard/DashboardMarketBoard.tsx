@@ -34,7 +34,7 @@ export function DashboardMarketBoard({
   calendar?: NormalizedCalendarEvent[];
   pulse?: MarketPulseResult;
   loading?: boolean;
-  children: ReactNode;
+  children?: ReactNode;
 }) {
   return (
     <div className="space-y-3">
@@ -52,6 +52,7 @@ export function DashboardMarketBoard({
         onSelectSymbol={onSelectSymbol}
         loading={loading}
         pulse={pulse}
+        compact
       />
       {children}
     </div>

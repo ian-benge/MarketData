@@ -204,6 +204,7 @@ A normal conflict-free critical audit is about five model calls: planner, two re
 | Next fails in a worktree | `next.log`; Turbopack symlink — webpack fallback or `HARNESS_TURBOPACK_ROOT` |
 | Contract will not lock | `contract-disagreement.json` / `contract-conflict-*.json`; unresolved gates only. `contract_exhausted` is not `unknown_fatal` and does not BUILD |
 | Token cap after a finished reviewer | Role artifact should exist. Resume with a strictly higher `--max-total-tokens`. Consumed totals are not reset |
+| `[resource_exhausted]` or PowerShell `ENOENT` crash | Retryable. The CLI crash guard writes `fatal.json` / `run-status.json`. Wait, then `page:resume` or a new `--from-audit` improve. |
 | Resume cannot find worktree | Isolation was `none` or `--cleanup-worktree` ran; start a new run |
 | `page:resume` says not resumable | Failed runs can still be resumable. Check `resumable` separately from `reusable`. `budget_exhausted` needs a higher cap. Permission, provenance, corrupted artifacts, contract-round exhaustion (unless `--max-contract-rounds` is raised), security-policy, and worktree/SHA mismatch stay non-resumable. |
 | Audit reuse refused | `from-audit-rejected.json` — invalid provenance, pending hash, missing target-route verification, aliased after-evidence, or fingerprint mismatch. The run does not start a planner. |

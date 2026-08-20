@@ -28,6 +28,7 @@ export type MarketPulseProps = {
   onSelectSymbol?: (ticker: string) => void;
   loading?: boolean;
   pulse?: MarketPulseResult;
+  compact?: boolean;
 };
 
 export function MarketPulseSkeleton() {
@@ -47,8 +48,12 @@ export function MarketPulseSkeleton() {
 }
 
 function freshnessTone(freshness: string) {
-  if (freshness === "Fresh") return "text-[var(--market-positive)] border-[color-mix(in_oklab,var(--market-positive)_30%,var(--ib-border-subtle))]";
-  if (freshness === "Stale") return "text-[var(--market-negative)] border-[color-mix(in_oklab,var(--market-negative)_30%,var(--ib-border-subtle))]";
+  if (freshness === "Fresh") {
+    return "text-[var(--state-info)] border-[color-mix(in_oklab,var(--state-info)_30%,var(--ib-border-subtle))]";
+  }
+  if (freshness === "Stale") {
+    return "text-[var(--state-warning)] border-[color-mix(in_oklab,var(--state-warning)_30%,var(--ib-border-subtle))]";
+  }
   return "text-[var(--state-warning)] border-[color-mix(in_oklab,var(--state-warning)_30%,var(--ib-border-subtle))]";
 }
 
@@ -111,14 +116,10 @@ export function MarketPulse(props: MarketPulseProps) {
       <div
         className={cn(
           "h-0.5 rounded-t-[6px]",
-          degraded
-            ? result.freshness === "Stale"
-              ? "bg-[var(--market-negative)]"
-              : "bg-[var(--state-warning)]"
-            : "bg-[var(--ib-maroon-800)]",
+          degraded ? "bg-[var(--state-warning)]" : "bg-[var(--ib-maroon-800)]",
         )}
       />
-      <header className="border-b border-[var(--ib-border-subtle)] px-3 py-2.5 sm:px-4">
+      <div className="border-b border-[var(--ib-border-subtle)] px-3 py-2 sm:px-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
@@ -128,23 +129,16 @@ export function MarketPulse(props: MarketPulseProps) {
               <span className="font-mono text-[11px] tabular-nums text-[var(--ib-text-secondary)]">{result.score == null ? "Score withheld" : `${result.score} / 100`}</span>
             </div>
             <h2 className="mt-1 text-[18px] font-semibold tracking-[-0.025em] text-[var(--ib-text-primary)] sm:text-[20px]">{result.regime}</h2>
+            {props.compact ? null : (
             <p className="mt-1 max-w-3xl text-[12px] leading-4 text-[var(--ib-text-secondary)]">{result.explanation}</p>
+            )}
           </div>
-          <p data-testid="tape-feed-label" className="max-w-xs text-right font-mono text-[10px] leading-4 text-[var(--ib-text-muted)]">
-            {result.dataQualityLabel}
-            <span className="mt-0.5 block">{formatMarketTime(result.calculatedAt, true)}</span>
-          </p>
-        </div>
-      </header>
-
-      <div className="grid min-w-0 gap-3 border-b border-[var(--ib-border-subtle)] p-3 sm:p-4 lg:grid-cols-12">
-        <div className="flex min-h-0 min-w-0 flex-col lg:col-span-8">
-          <div className="mb-2.5 flex items-start justify-between gap-3">
-            <div>
-              <p className="font-mono text-[9px] uppercase tracking-[0.14em] text-[var(--ib-text-muted)]">Composite regime instrument</p>
-              <p className="mt-1 text-[11px] text-[var(--ib-text-secondary)]">{Math.round(result.coverage * 100)}% weighted signal coverage · {result.session.toUpperCase()} observations only</p>
-            </div>
-            <div className="relative shrink-0" ref={methodologyRef}>
+          <div className="flex shrink-0 flex-col items-end gap-2">
+            <p data-testid="tape-feed-label" className="max-w-xs text-right font-mono text-[10px] leading-4 text-[var(--ib-text-muted)]">
+              {result.dataQualityLabel}
+              <span className="mt-0.5 block">{formatMarketTime(result.calculatedAt, true)}</span>
+            </p>
+            <div className="relative" ref={methodologyRef}>
               <ChipToggle
                 pressed={methodologyOpen}
                 aria-expanded={methodologyOpen}
@@ -174,6 +168,18 @@ export function MarketPulse(props: MarketPulseProps) {
               ) : null}
             </div>
           </div>
+        </div>
+      </div>
+
+      {props.compact ? null : (
+      <div className="grid min-w-0 gap-3 border-b border-[var(--ib-border-subtle)] p-3 sm:p-4 lg:grid-cols-12">
+        <div className="flex min-h-0 min-w-0 flex-col lg:col-span-8">
+          <div className="mb-2.5 flex items-start justify-between gap-3">
+            <div>
+              <p className="font-mono text-[9px] uppercase tracking-[0.14em] text-[var(--ib-text-muted)]">Composite regime instrument</p>
+              <p className="mt-1 text-[11px] text-[var(--ib-text-secondary)]">{Math.round(result.coverage * 100)}% weighted signal coverage · {result.session.toUpperCase()} observations only</p>
+            </div>
+          </div>
           <RegimeSpectrum result={result} />
           {result.excludedSessionCount ? <p className="mt-2.5 flex items-center gap-1.5 text-[10px] text-[var(--state-warning)]"><AlertTriangle className="size-3" /> {result.excludedSessionCount} observation{result.excludedSessionCount === 1 ? " was" : "s were"} excluded because its session did not match.</p> : null}
         </div>
@@ -181,6 +187,7 @@ export function MarketPulse(props: MarketPulseProps) {
           <SignalDrivers drivers={result.drivers} activeDriver={activeDriver} onActiveDriver={setActiveDriver} onSelectSymbol={props.onSelectSymbol} />
         </div>
       </div>
+      )}
 
       <div className="flex min-h-9 items-stretch border-t border-[var(--ib-border-subtle)]">
         <div className="flex shrink-0 items-center border-r border-[var(--ib-border-subtle)] bg-[var(--ib-surface-2)] px-3">
@@ -191,7 +198,9 @@ export function MarketPulse(props: MarketPulseProps) {
         <CrossAssetTape quotes={props.quotes} asOf={props.asOf} marketSession={props.marketSession} selectedSymbol={props.selectedSymbol} onSelectSymbol={props.onSelectSymbol} activeDriver={activeDriver} onActiveDriver={setActiveDriver} />
       </div>
 
-      <RiskWatch events={props.calendar ?? []} asOf={props.asOf} result={result} />
+      {props.compact ? null : (
+        <RiskWatch events={props.calendar ?? []} asOf={props.asOf} result={result} />
+      )}
     </section>
   );
 }

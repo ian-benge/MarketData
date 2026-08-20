@@ -288,47 +288,4 @@ textarea::placeholder {
     animation: none;
     opacity: 0.62;
   }
-
-  .tape-marquee {
-    animation: none !important;
-    transform: none !important;
-  }
-
-  .tape-marquee-clone {
-    display: none !important;
-  }
-
-  .tape-marquee-viewport {
-    overflow-x: auto;
-    mask-image: none;
-  }
-}
-
-@keyframes tape-marquee {
-  from {
-    transform: translate3d(0, 0, 0);
-  }
-  to {
-    transform: translate3d(-50%, 0, 0);
-  }
-}
-
-.tape-marquee {
-  animation: tape-marquee 42s linear infinite;
-  will-change: transform;
-}
-
-.tape-marquee-viewport {
-  mask-image: linear-gradient(
-    to right,
-    transparent,
-    #000 16px,
-    #000 calc(100% - 16px),
-    transparent
-  );
-}
-
-.tape-marquee-viewport:hover .tape-marquee,
-.tape-marquee-viewport:focus-within .tape-marquee {
-  animation-play-state: paused;
 }

@@ -32,10 +32,10 @@ export class InfrastructureFailure extends Error {
 }
 
 const RETRYABLE_NETWORK =
-  /connection failed|econnreset|etimedout|enotfound|enetunreach|socket hang up|fetch failed|network|disconnected|und_err_|econnaborted|ehostunreach|temporarily unavailable/i;
+  /connection failed|econnreset|etimedout|enotfound|enetunreach|socket hang up|fetch failed|network|disconnected|und_err_|econnaborted|ehostunreach|temporarily unavailable|resource_exhausted|resource exhausted|rate.?limit|quota exceeded/i;
 
 const RETRYABLE_PROCESS =
-  /sigterm|sigkill|killed|process terminated|uv_handle_closing|ePIPE|broken pipe|stdin.*end/i;
+  /sigterm|sigkill|killed|process terminated|uv_handle_closing|ePIPE|broken pipe|stdin.*end|spawn .*powershell.*enoent|enoent.*powershell/i;
 
 const INFRASTRUCTURE =
   /econnrefused|err_connection_refused|timed out waiting for demo server|does not match harness origin|server-readiness|infrastructure failure|base-url mismatch/i;

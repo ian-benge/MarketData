@@ -31,6 +31,7 @@ import {
 } from "./sandbox";
 import { InspectAuthError } from "./inspect-auth";
 import { classifyFailure } from "./failure";
+import { installHarnessCrashGuard } from "./crash-guard";
 import {
   applyResumeBudgetExtension,
   formatRunStatus,
@@ -100,6 +101,7 @@ Safety:
 `;
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
+  installHarnessCrashGuard();
   const script = process.env.npm_lifecycle_event ?? "";
   const implied = impliedFlags(script);
   const parsed = parseArgs({

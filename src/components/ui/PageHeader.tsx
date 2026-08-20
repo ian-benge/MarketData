@@ -16,7 +16,7 @@ export function PageHeader({
   compact?: boolean;
 }) {
   return (
-    <header
+    <div
       className={cn(
         "flex flex-wrap items-end justify-between gap-3 border-b border-[var(--ib-border-subtle)]",
         compact ? "mb-0 pb-2.5" : "mb-4 pb-3.5",
@@ -51,6 +51,6 @@ export function PageHeader({
       {actions ? (
         <div className="flex flex-wrap items-center gap-2">{actions}</div>
       ) : null}
-    </header>
+    </div>
   );
 }

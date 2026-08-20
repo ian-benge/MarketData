@@ -228,7 +228,7 @@ function SessionColumn({
 }) {
   return (
     <section className="min-w-0 rounded-[4px] border border-[var(--ib-border-subtle)]">
-      <header className="flex items-center justify-between gap-2 border-b border-[var(--ib-border-subtle)] bg-[var(--ib-surface-inset)] px-3 py-2">
+      <div className="flex items-center justify-between gap-2 border-b border-[var(--ib-border-subtle)] bg-[var(--ib-surface-inset)] px-3 py-2">
         <div className="flex items-center gap-2 text-[12px] font-semibold text-[var(--ib-text-primary)]">
           {icon}
           {title}
@@ -236,7 +236,7 @@ function SessionColumn({
         <span className="font-mono text-[10px] tabular-nums text-[var(--ib-text-muted)]">
           {events.length}
         </span>
-      </header>
+      </div>
       {events.length ? (
         <ul className="max-h-[420px] divide-y divide-[var(--ib-border-subtle)] overflow-y-auto">
           {events.map((event) => (
@@ -269,6 +269,7 @@ export function EarningsCalendar({
 }) {
   const [data, setData] = useState<EarningsCalendarSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [weekStart, setWeekStart] = useState(() =>
     earningsDefaultWeekStart(new Date()),
   );
@@ -288,11 +289,23 @@ export function EarningsCalendar({
     async function pull() {
       try {
         const response = await fetch("/api/market/earnings", { cache: "no-store" });
-        if (!response.ok || cancelled) return;
+        if (cancelled) return;
+        if (!response.ok) {
+          setFetchError(
+            `Earnings calendar unavailable (${response.status}). No fixture values were substituted.`,
+          );
+          return;
+        }
         const next = (await response.json()) as EarningsCalendarSnapshot;
-        if (!cancelled) setData(next);
+        if (cancelled) return;
+        setData(next);
+        setFetchError(null);
       } catch {
-        /* keep last */
+        if (!cancelled) {
+          setFetchError(
+            "Earnings calendar unavailable. Status unknown. No fixture values were substituted.",
+          );
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -555,6 +568,14 @@ export function EarningsCalendar({
             <p className="py-6 text-center text-[13px] text-[var(--ib-text-muted)]">
               Loading earnings calendar…
             </p>
+          ) : null}
+          {!loading && fetchError && !data ? (
+            <p className="py-6 text-center text-[12px] text-[var(--state-warning)]">
+              {fetchError}
+            </p>
+          ) : null}
+          {fetchError && data ? (
+            <p className="text-[11px] text-[var(--state-warning)]">{fetchError}</p>
           ) : null}
           {riskRows.length ? (
             <ul className="divide-y divide-[var(--ib-border-subtle)] border-y border-[var(--ib-border-subtle)]">

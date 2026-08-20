@@ -78,6 +78,13 @@ function listLabel(list: { name: string; visibility: "shared" | "personal" }) {
   return list.visibility === "personal" ? `${list.name} · personal` : list.name;
 }
 
+function missingVisibleLabel(row: DashboardWatchlistRow) {
+  if (row.quoteError) return row.quoteError;
+  if (row.quoteSource === "none" || row.last == null) return "No session print";
+  if (row.missing.length) return "Partial quote";
+  return undefined;
+}
+
 function missingTitle(row: DashboardWatchlistRow) {
   const parts = [...row.missing];
   if (row.quoteError) return `${row.quoteError} Missing: ${parts.join(", ") || "session print"}.`;
@@ -381,6 +388,7 @@ function WatchlistRow({
   selected?: boolean;
   explanation?: MoveExplanation;
 }) {
+  const missingLabel = missingVisibleLabel(row);
   const abnormalRvol =
     row.relativeVolume != null && row.relativeVolume >= RVOL_FLAG_THRESHOLD;
   return (
@@ -418,6 +426,11 @@ function WatchlistRow({
         >
           {formatPrice(row.last, row.ticker)}
         </span>
+        {missingLabel ? (
+          <span className="mt-0.5 block text-[10px] font-sans font-normal leading-3 text-[var(--ib-text-muted)]">
+            {missingLabel}
+          </span>
+        ) : null}
       </td>
       {percentCell(row.change1dPercent)}
       {percentCell(row.changeFromOpenPercent)}

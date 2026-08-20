@@ -238,6 +238,7 @@ export function FedWatchPanel() {
   const [data, setData] = useState<FedWatchSnapshot | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
@@ -246,10 +247,17 @@ export function FedWatchPanel() {
     async function pull() {
       try {
         const response = await fetch("/api/market/fedwatch", { cache: "no-store" });
-        if (!response.ok || cancelled) return;
+        if (cancelled) return;
+        if (!response.ok) {
+          setFetchError(
+            `FedWatch unavailable (${response.status}). No fixture values were substituted.`,
+          );
+          return;
+        }
         const next = (await response.json()) as FedWatchSnapshot;
         if (cancelled) return;
         setData(next);
+        setFetchError(null);
         setSelected((current) => {
           if (current && next.meetings.some((meeting) => meeting.date === current)) {
             return current;
@@ -257,7 +265,11 @@ export function FedWatchPanel() {
           return next.meetings[0]?.date ?? null;
         });
       } catch {
-        /* keep last valid snapshot */
+        if (!cancelled) {
+          setFetchError(
+            "FedWatch unavailable. Status unknown. No fixture values were substituted.",
+          );
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -332,6 +344,14 @@ export function FedWatchPanel() {
           </div>
           <Skeleton className="h-40" />
         </div>
+      ) : null}
+
+      {!loading && fetchError && !data ? (
+        <p className="text-[12px] text-[var(--state-warning)]">{fetchError}</p>
+      ) : null}
+
+      {fetchError && data ? (
+        <p className="text-[11px] text-[var(--state-warning)]">{fetchError}</p>
       ) : null}
 
       {data && !data.meetings.length ? (

@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, BarChart3, ChevronRight, RefreshCw } from "lucide-react";
+import { AlertTriangle, BarChart3, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MarketChartCanvas } from "@/components/dashboard/chart/MarketChartCanvas";
 import { MarketChartToolbar } from "@/components/dashboard/chart/MarketChartToolbar";
@@ -141,10 +141,6 @@ export function MarketChart({
   const [fitNonce, setFitNonce] = useState(0);
   const [panelOpen, setPanelOpen] = useState(true);
 
-  useEffect(() => {
-    const mq = window.matchMedia("(min-width: 1280px)");
-    if (!mq.matches) setPanelOpen(false);
-  }, []);
   const loadedKeys = useRef(
     new Set(Object.keys(hydrateInitialSeries(initialSeries))),
   );
@@ -386,20 +382,8 @@ export function MarketChart({
       id="primary-market-chart-panel"
       className="min-w-0 rounded-[6px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-1)]"
     >
-      <details
-        className="group"
-        open={panelOpen}
-        onToggle={(event) => {
-          const next = event.currentTarget.open;
-          setPanelOpen(next);
-          if (next) setFitNonce((value) => value + 1);
-        }}
-      >
-        <summary className="flex cursor-pointer list-none items-start gap-2 px-3 py-2 marker:hidden sm:px-4 [&::-webkit-details-marker]:hidden">
-          <ChevronRight
-            aria-hidden="true"
-            className="mt-0.5 size-4 shrink-0 text-[var(--ib-text-muted)] transition-transform group-open:rotate-90"
-          />
+      <div>
+        <div className="flex items-start gap-2 px-3 py-2 sm:px-4">
           <div className="flex min-w-0 flex-1 flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
@@ -438,7 +422,7 @@ export function MarketChart({
               <p>As of {formatMarketDateTime(asOf, { seconds: true })}</p>
             </div>
           </div>
-        </summary>
+        </div>
 
         <div className="border-t border-[var(--ib-border-subtle)]">
           <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 sm:px-4">
@@ -699,7 +683,7 @@ export function MarketChart({
             </div>
           </details>
         </div>
-      </details>
+      </div>
     </section>
   );
 }

@@ -169,6 +169,16 @@ describe("retryable failure classification", () => {
     const budget = classifyFailure("max-total-tokens exceeded (26301234 > 25000000)");
     expect(budget.category).toBe("budget_exhausted");
     expect(budget.retryable).toBe(true);
+    const exhausted = classifyFailure(
+      "builder run failed (run-d39a0888-5873-49dd-8b14-c190c4f6e967): [resource_exhausted] Error",
+    );
+    expect(exhausted.category).toBe("retryable_network");
+    expect(exhausted.retryable).toBe(true);
+    const powershell = classifyFailure(
+      "spawn C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe ENOENT",
+    );
+    expect(powershell.category).toBe("retryable_process");
+    expect(powershell.retryable).toBe(true);
   });
 });
 
