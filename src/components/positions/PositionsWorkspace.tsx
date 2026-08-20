@@ -24,6 +24,7 @@ import { PositionsBookTabs } from "@/components/positions/PositionsBookTabs";
 import { PositionsTable } from "@/components/positions/PositionsTable";
 import { PositionsPrivacyProvider } from "@/components/positions/privacy-context";
 import { PositionsValuePrivacyToggle } from "@/components/positions/PositionsPrivacy";
+import { TradeEmailsToggle } from "@/components/positions/TradeEmailsToggle";
 import { BookRiskPanel } from "@/components/intel/BookRiskPanel";
 import {
   applyAccountValueToSnapshot,
@@ -89,6 +90,7 @@ export function PositionsWorkspace({
     () => ({ [initial.ownerId]: initial.bookId }),
   );
   const [savingAccountValue, setSavingAccountValue] = useState(false);
+  const [savingTradeEmails, setSavingTradeEmails] = useState(false);
   const [bookBusy, setBookBusy] = useState(false);
   const [query, setQuery] = useState("");
   const [side, setSide] = useState<SideFilter>("all");
@@ -357,6 +359,63 @@ export function PositionsWorkspace({
       });
     } finally {
       setSavingAccountValue(false);
+    }
+  }
+
+  async function handleTradeEmails(enabled: boolean) {
+    const previous = snapshot.tradeEmails !== false;
+    setSavingTradeEmails(true);
+    setFeedback(null);
+    setSnapshot((current) => ({ ...current, tradeEmails: enabled }));
+    try {
+      const response = await fetch("/api/positions/trade-emails", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          enabled,
+          ownerId: snapshot.ownerId,
+          bookId: snapshot.bookId,
+        }),
+      });
+      const payload = (await response.json()) as {
+        tradeEmails?: boolean;
+        snapshot?: PositionsSnapshot;
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(
+          payload.error ?? "Unable to update trade email notifications.",
+        );
+      }
+      const next = payload.snapshot;
+      if (next && snapshotBelongsToView(next, viewedOwnerRef.current)) {
+        setSnapshot({
+          ...next,
+          tradeEmails: payload.tradeEmails ?? next.tradeEmails,
+        });
+      } else {
+        setSnapshot((current) => ({
+          ...current,
+          tradeEmails: payload.tradeEmails ?? enabled,
+        }));
+      }
+      setFeedback({
+        tone: "success",
+        message: enabled
+          ? "Desk email will send for trades in this account."
+          : "Desk email is off for trades in this account.",
+      });
+    } catch (error) {
+      setSnapshot((current) => ({ ...current, tradeEmails: previous }));
+      setFeedback({
+        tone: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Unable to update trade email notifications.",
+      });
+    } finally {
+      setSavingTradeEmails(false);
     }
   }
 
@@ -970,6 +1029,15 @@ export function PositionsWorkspace({
           unassignedLocked ? undefined : (
           <div className="flex flex-wrap items-center gap-2">
             <PositionsValuePrivacyToggle />
+            {snapshot.ownerId === snapshot.viewerId ? (
+              <TradeEmailsToggle
+                enabled={snapshot.tradeEmails !== false}
+                busy={savingTradeEmails}
+                onToggle={(next) => {
+                  void handleTradeEmails(next);
+                }}
+              />
+            ) : null}
             <BrokerageConnect
               ref={brokerageRef}
               brokerage={

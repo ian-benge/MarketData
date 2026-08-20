@@ -11,6 +11,11 @@ test.describe("positions visual", () => {
     await expect(page.getByText("Portfolio").first()).toBeVisible();
     await expect(page.getByText("Account value").first()).toBeVisible();
     await expect(page.getByRole("tab", { name: /^Main/ })).toBeVisible();
+    await expect(
+      page.getByRole("button", {
+        name: "Turn off email notifications for trades in this account",
+      }),
+    ).toBeVisible();
     await expect(page.getByRole("tab", { name: /^IRA/ })).toBeVisible();
     await page.getByRole("tab", { name: /^IRA/ }).click();
     await expect(

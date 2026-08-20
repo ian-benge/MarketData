@@ -258,6 +258,8 @@ export type PositionsSnapshot = {
   books: PositionBook[];
   bookId: string;
   viewerId: string;
+  /** Desk email for open/close alerts on this owner's books. Default true. */
+  tradeEmails: boolean;
   canEdit: boolean;
   /** True when the viewer must enter this owner's password to see account value, P&L, and closed lots. */
   ownerLocked: boolean;

@@ -35,6 +35,7 @@ import {
 } from "./store";
 import { loadBrokerageSnapshot } from "@/lib/brokerage/sync";
 import { EMPTY_BROKERAGE_SNAPSHOT } from "@/lib/brokerage/types";
+import { ownerTradeEmailsEnabled } from "./trade-emails";
 import type { PositionBook, PositionRecord, PositionsSnapshot } from "./types";
 
 export async function buildPositionsSnapshot(options: {
@@ -269,6 +270,7 @@ export async function buildPositionsSnapshot(options: {
     books,
     bookId,
     viewerId: options.user.id,
+    tradeEmails: await ownerTradeEmailsEnabled(options.user, ownerId),
     canEdit: metricsLocked ? false : canEditPositionBook(options.user, ownerId),
     ownerLocked: metricsLocked,
     brokerage,

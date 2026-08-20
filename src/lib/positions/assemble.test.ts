@@ -66,6 +66,7 @@ describe("assemblePositionsSnapshot", () => {
     expect(snapshot.series.at(-1)?.date).toBe("2026-08-13");
     expect(snapshot.series.at(-1)?.dayPnl).toBe(20);
     expect(snapshot.series.at(-1)?.cumulativePnl).toBe(20);
+    expect(snapshot.tradeEmails).toBe(true);
   });
 
   it("keeps empty snapshots fixture-free", () => {

@@ -66,6 +66,7 @@ export type AssemblePositionsInput = {
   books?: PositionBook[];
   bookId?: string;
   viewerId?: string;
+  tradeEmails?: boolean;
   canEdit?: boolean;
   ownerLocked?: boolean;
   brokerage?: PositionsSnapshot["brokerage"];
@@ -145,6 +146,7 @@ export function assemblePositionsSnapshot(
     books: input.books ?? [],
     bookId: input.bookId ?? "",
     viewerId: input.viewerId ?? "",
+    tradeEmails: input.tradeEmails !== false,
     canEdit: input.canEdit ?? false,
     ownerLocked: input.ownerLocked ?? false,
     accountValueKind: input.accountValueKind ?? null,
@@ -181,6 +183,7 @@ export function emptyPositionsSnapshot(
     books: extra?.books ?? [],
     bookId: extra?.bookId ?? "",
     viewerId: extra?.viewerId ?? "",
+    tradeEmails: extra?.tradeEmails ?? true,
     canEdit: extra?.canEdit ?? false,
     ownerLocked: extra?.ownerLocked ?? false,
     accountValueKind: extra?.accountValueKind ?? null,

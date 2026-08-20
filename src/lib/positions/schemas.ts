@@ -84,6 +84,12 @@ export const PositionBookPatchSchema = z.object({
   title: z.string().min(1).max(80),
 });
 
+export const PositionTradeEmailsSchema = z.object({
+  enabled: z.boolean(),
+  ownerId: z.string().trim().min(1).max(64).optional(),
+  bookId: z.string().trim().min(1).max(64).optional(),
+});
+
 export const PositionBookReorderSchema = z.object({
   ownerId: z.string().trim().min(1).max(64).optional(),
   bookIds: z.array(z.string().trim().min(1).max(64)).min(1).max(50),

@@ -9,6 +9,7 @@ import type {
   TransactionalEmailRequest,
 } from "@/lib/providers/types";
 import { loadFirmRecipients, type FirmRecipient } from "@/lib/email/recipients";
+import { loadOwnerTradeEmailsById } from "@/lib/positions/trade-emails";
 import {
   formatCurrency,
   formatPrice,
@@ -70,6 +71,7 @@ export type PositionAlertNotifyResult = {
 
 export type PositionAlertDeps = {
   loadRecipients?: (firmId: string) => Promise<FirmRecipient[]>;
+  ownerAllowsTradeEmails?: (ownerId: string | null) => Promise<boolean>;
   send?: (request: TransactionalEmailRequest) => Promise<DeliveryResult>;
   appUrl?: string;
   emailConfigured?: boolean;
@@ -348,6 +350,11 @@ export async function notifyPositionChange(
     deps.emailConfigured ??
     Boolean(env.RESEND_API_KEY || mocksAllowed(env));
   if (!emailConfigured) return { skipped: "email-unconfigured" };
+
+  const ownerAllows =
+    deps.ownerAllowsTradeEmails ?? loadOwnerTradeEmailsById;
+  const tradeEmailsOn = await ownerAllows(input.position.createdBy);
+  if (!tradeEmailsOn) return { skipped: "trade-emails-off" };
 
   const loadRecipients = deps.loadRecipients ?? loadFirmRecipients;
   const recipients = uniqueRecipients(await loadRecipients(input.firmId));

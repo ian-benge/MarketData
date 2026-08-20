@@ -15,6 +15,10 @@ vi.mock("@/lib/api/http", async (importOriginal) => {
   return { ...actual, fixturesEnabled: () => false };
 });
 
+vi.mock("@/lib/positions/trade-emails", () => ({
+  loadOwnerTradeEmailsById: vi.fn(async () => true),
+}));
+
 function lot(
   overrides: Partial<PositionRecord> = {},
 ): PositionRecord {
@@ -264,6 +268,20 @@ describe("position alerts", () => {
       send,
     });
     expect(result.skipped).toBe("no-recipients");
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("skips when the account owner turned off trade emails", async () => {
+    const send = vi.fn();
+    const result = await notifyPositionChange(openedAlert(), {
+      emailConfigured: true,
+      ownerAllowsTradeEmails: async () => false,
+      loadRecipients: async () => [
+        { userId: "user-ian", email: "ian@example.com" },
+      ],
+      send,
+    });
+    expect(result.skipped).toBe("trade-emails-off");
     expect(send).not.toHaveBeenCalled();
   });
 });
