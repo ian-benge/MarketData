@@ -23,8 +23,10 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { BrandMark } from "@/components/brand/BrandMark";
+import { PageTransitionOverlay } from "@/components/layout/PageTransitionOverlay";
+import { beginPageTransitionTo } from "@/lib/navigation/page-transition";
 import { cn } from "@/lib/utils/cn";
 import type { UserRole } from "@/lib/domain/permissions";
 
@@ -404,6 +406,7 @@ export function AppShell({
   }, [commandOpen, drawerOpen]);
 
   function goTo(item: { href: string }) {
+    beginPageTransitionTo(item.href);
     router.push(item.href);
     closeCommand();
   }
@@ -516,8 +519,11 @@ export function AppShell({
         <main
           id="main-content"
           tabIndex={-1}
-          className="mx-auto w-full max-w-[1720px] px-3 py-4 pb-24 sm:px-4 sm:py-5 lg:px-5 lg:pb-8 xl:px-6"
+          className="relative mx-auto w-full max-w-[1720px] px-3 py-4 pb-24 sm:px-4 sm:py-5 lg:px-5 lg:pb-8 xl:px-6"
         >
+          <Suspense fallback={null}>
+            <PageTransitionOverlay />
+          </Suspense>
           {children}
         </main>
       </div>

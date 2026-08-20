@@ -264,6 +264,19 @@ textarea::placeholder {
   animation: ib-skeleton 1.4s ease-in-out infinite;
 }
 
+@keyframes ib-page-progress {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(420%);
+  }
+}
+
+.ib-page-progress {
+  animation: ib-page-progress 1.15s ease-in-out infinite;
+}
+
 @media (max-width: 639px) {
   .field-control {
     min-height: 44px;
