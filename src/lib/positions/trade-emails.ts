@@ -33,6 +33,49 @@ function asEnabled(value: unknown): boolean {
   return value !== false;
 }
 
+type FlagError = { code?: string; message?: string } | null;
+type FlagRow = { position_trade_emails?: boolean | null } | null;
+
+export function isMissingTradeEmailsColumn(error: FlagError): boolean {
+  if (!error) return false;
+  const message = error.message ?? "";
+  return (
+    error.code === "42703" ||
+    error.code === "PGRST204" ||
+    /position_trade_emails/i.test(message)
+  );
+}
+
+function failOpen(ownerId: string, error: FlagError): true {
+  console.error("[positions] trade-emails lookup failed; sending desk email", {
+    ownerId,
+    code: error?.code ?? "no-row",
+    message: error?.message ?? "profile not found",
+  });
+  return true;
+}
+
+function readFlag(ownerId: string, data: FlagRow, error: FlagError): boolean {
+  if (error || !data) return failOpen(ownerId, error);
+  return asEnabled(data.position_trade_emails);
+}
+
+function persistedFlag(data: FlagRow, error: FlagError): boolean {
+  if (isMissingTradeEmailsColumn(error)) {
+    throw new PositionBookError(
+      "Trade email preference is not available on this database.",
+      503,
+    );
+  }
+  if (error || data == null) {
+    throw new PositionBookError(
+      "Unable to update trade email preference.",
+      500,
+    );
+  }
+  return asEnabled(data.position_trade_emails);
+}
+
 export async function ownerTradeEmailsEnabled(
   user: SessionUser,
   ownerId: string,
@@ -41,19 +84,25 @@ export async function ownerTradeEmailsEnabled(
   if (usesFixtures(user)) {
     return demoOwnerTradeEmails(ownerId);
   }
-  if (!canCreateServerClient() || !user.firmId) return true;
   try {
+    if (canCreateAdminClient()) {
+      const { data, error } = await createAdminClient()
+        .from("profiles")
+        .select("position_trade_emails")
+        .eq("id", ownerId)
+        .maybeSingle();
+      return readFlag(ownerId, data, error);
+    }
+    if (!canCreateServerClient() || !user.firmId) return true;
     const supabase = await createClient();
     const { data, error } = await supabase
       .from("profiles")
       .select("position_trade_emails")
       .eq("id", ownerId)
       .maybeSingle();
-    if (error || !data) return true;
-    return asEnabled(
-      (data as { position_trade_emails?: boolean | null }).position_trade_emails,
-    );
-  } catch {
+    return readFlag(ownerId, data, error);
+  } catch (error) {
+    console.error("[positions] trade-emails lookup threw; sending desk email", error);
     return true;
   }
 }
@@ -65,17 +114,14 @@ export async function loadOwnerTradeEmailsById(
   if (demoFlags.has(ownerId)) return demoOwnerTradeEmails(ownerId);
   if (!canCreateAdminClient()) return true;
   try {
-    const admin = createAdminClient();
-    const { data, error } = await admin
+    const { data, error } = await createAdminClient()
       .from("profiles")
       .select("position_trade_emails")
       .eq("id", ownerId)
       .maybeSingle();
-    if (error || !data) return true;
-    return asEnabled(
-      (data as { position_trade_emails?: boolean | null }).position_trade_emails,
-    );
-  } catch {
+    return readFlag(ownerId, data, error);
+  } catch (error) {
+    console.error("[positions] trade-emails lookup threw; sending desk email", error);
     return true;
   }
 }
@@ -88,6 +134,15 @@ export async function setViewerTradeEmails(
     setDemoOwnerTradeEmails(user.id, enabled);
     return enabled;
   }
+  if (canCreateAdminClient()) {
+    const { data, error } = await createAdminClient()
+      .from("profiles")
+      .update({ position_trade_emails: enabled })
+      .eq("id", user.id)
+      .select("position_trade_emails")
+      .maybeSingle();
+    return persistedFlag(data, error);
+  }
   if (!canCreateServerClient()) {
     throw new PositionBookError(
       "Position persistence is not connected in this environment.",
@@ -95,15 +150,11 @@ export async function setViewerTradeEmails(
     );
   }
   const supabase = await createClient();
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("profiles")
     .update({ position_trade_emails: enabled })
-    .eq("id", user.id);
-  if (error) {
-    throw new PositionBookError(
-      "Unable to update trade email preference.",
-      500,
-    );
-  }
-  return enabled;
+    .eq("id", user.id)
+    .select("position_trade_emails")
+    .maybeSingle();
+  return persistedFlag(data, error);
 }

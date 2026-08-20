@@ -6,3 +6,6 @@ alter table public.profiles
 
 comment on column public.profiles.position_trade_emails is
   'When false, IB Market Data does not send desk email for position open/close alerts on this member''s books.';
+
+-- PostgREST must see the new column or live PATCH/SELECT keep sending mail.
+notify pgrst, 'reload schema';

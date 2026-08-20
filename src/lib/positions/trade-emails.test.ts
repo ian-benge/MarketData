@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   demoOwnerTradeEmails,
+  isMissingTradeEmailsColumn,
   resetDemoTradeEmails,
   setDemoOwnerTradeEmails,
   setViewerTradeEmails,
@@ -23,6 +24,24 @@ const demoUser: SessionUser = {
 describe("trade email preference", () => {
   it("defaults to sending desk email", () => {
     expect(demoOwnerTradeEmails("demo-member")).toBe(true);
+  });
+
+  it("detects a missing preference column so the toggle can fail closed", () => {
+    expect(
+      isMissingTradeEmailsColumn({
+        code: "42703",
+        message: "column profiles.position_trade_emails does not exist",
+      }),
+    ).toBe(true);
+    expect(
+      isMissingTradeEmailsColumn({
+        code: "PGRST204",
+        message: "Could not find the 'position_trade_emails' column of 'profiles' in the schema cache",
+      }),
+    ).toBe(true);
+    expect(isMissingTradeEmailsColumn({ code: "42501", message: "forbidden" })).toBe(
+      false,
+    );
   });
 
   it("persists a demo mute on the member account", async () => {
