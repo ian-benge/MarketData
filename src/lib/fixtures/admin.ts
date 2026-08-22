@@ -40,8 +40,8 @@ export const fixtureAdmin = {
     { id: "rss", name: "Configured RSS", enabled: false, health: "disabled" },
   ],
   aiRouting: {
-    defaultProvider: "openai",
-    fallbackOrder: ["openai", "anthropic", "gemini"],
+    defaultProvider: "anthropic",
+    fallbackOrder: ["anthropic", "gemini"],
     promptVersion: "v1-demo",
   },
   jobs: [

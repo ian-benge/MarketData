@@ -32,10 +32,9 @@ const testEnv = {
   NEXT_PUBLIC_APP_URL: "http://localhost:3000",
   ALLOW_MOCK_PROVIDERS: true,
   DEMO_MODE: true,
-  OPENAI_MODEL: "gpt-test",
   ANTHROPIC_MODEL: "claude-test",
   GEMINI_MODEL: "gemini-test",
-  AI_DEFAULT_PROVIDER: "openai",
+  AI_DEFAULT_PROVIDER: "anthropic",
   STORAGE_BUCKET: "reports",
 } as Env;
 

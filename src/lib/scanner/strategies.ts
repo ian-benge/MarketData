@@ -565,14 +565,16 @@ export const SCANNER_STRATEGIES: ScannerStrategyDef[] = [
     kind: "ranked",
     title: "After-hours movers",
     shortTitle: "AH",
-    description: "Largest after-hours moves through 8:00 p.m. ET.",
-    sessions: ["afterhours"],
+    description: "Largest after-hours moves, including names still printing after the official close.",
+    sessions: ["afterhours", "closed"],
     oncePerSession: false,
     cooldownSeconds: 180,
     consolidateSeconds: 60,
     audioKey: "ah",
     match: (f) =>
-      hasPrint(f) && f.session === "afterhours" && absChange(f) >= 3,
+      hasPrint(f) &&
+      (f.session === "afterhours" || f.session === "closed") &&
+      absChange(f) >= 3,
     rank: (f) => absChange(f),
   }),
   strategy({
@@ -650,7 +652,7 @@ export const SCANNER_STRATEGIES: ScannerStrategyDef[] = [
     title: "Premarket / AH gaps",
     shortTitle: "Gaps",
     description: "Institutional-liquidity gaps in premarket and after-hours.",
-    sessions: ["premarket", "afterhours", "overnight"],
+    sessions: ["premarket", "afterhours", "overnight", "closed"],
     oncePerSession: false,
     cooldownSeconds: 300,
     consolidateSeconds: 90,

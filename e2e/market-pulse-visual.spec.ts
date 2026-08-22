@@ -21,9 +21,9 @@ test("Market Pulse is composed and interactive at desktop width", async ({
   await demoLogin(page, "member");
   await page.goto("/dashboard?state=fresh");
   await expect(page.getByRole("heading", { name: "Constructive" })).toBeVisible();
-  await expect(page.getByText("Signal Drivers", { exact: true })).toBeVisible();
+  await expect(page.getByText("Pulse history", { exact: true })).toBeVisible();
   await expect(
-    page.getByRole("button", { name: /Configured proxy breadth/ }),
+    page.getByRole("button", { name: "Signal methodology" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Signal methodology" }).click();
   await expect(
@@ -48,7 +48,7 @@ test("Market Pulse preserves hierarchy without page overflow on mobile", async (
   await demoLogin(page, "member");
   await page.goto("/dashboard?state=fresh");
   await expect(page.getByRole("heading", { name: "Constructive" })).toBeVisible();
-  await expect(page.getByText("Signal Drivers", { exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Watchlists, themes, and tape" })).toBeVisible();
   await expectNoPageHorizontalOverflow(page);
   await page.screenshot({
     path: path.join(outputDir, "mobile-375-dashboard.png"),

@@ -55,8 +55,9 @@ test.describe("research workspace interactions", () => {
     await expect(
       page.getByRole("heading", { name: "Market Overview" }),
     ).toBeVisible();
+    await expect(page.getByText("Pulse history", { exact: true })).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "Primary market chart" }),
+      page.getByRole("heading", { name: "Name in focus" }),
     ).toBeVisible();
     await expect(
       page.getByRole("region", { name: "Material movers" }),
@@ -230,7 +231,7 @@ test.describe("research workspace interactions", () => {
     ).toBeVisible();
     await expect(
       page.getByLabel("Past positions per page"),
-    ).toHaveValue("10");
+    ).toHaveValue("50");
     await expect(
       page.getByRole("region", { name: "Past positions table" }),
     ).toContainText("−$122.00");

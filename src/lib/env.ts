@@ -108,15 +108,14 @@ export const envSchema = z.object({
    */
   MASSIVE_API_BASE_URL: z.string().url().default("https://api.massive.com"),
 
-  OPENAI_API_KEY: optionalString,
-  OPENAI_MODEL: z.string().default("gpt-4.1-mini"),
   ANTHROPIC_API_KEY: optionalString,
   ANTHROPIC_MODEL: z.string().default("claude-sonnet-4-20250514"),
   GOOGLE_GENERATIVE_AI_API_KEY: optionalString,
   GEMINI_MODEL: z.string().default("gemini-2.0-flash"),
-  AI_DEFAULT_PROVIDER: z
-    .enum(["openai", "anthropic", "gemini"])
-    .default("openai"),
+  AI_DEFAULT_PROVIDER: z.preprocess(
+    (value) => (value === "openai" || value === "" || value == null ? "anthropic" : value),
+    z.enum(["anthropic", "gemini"]).default("anthropic"),
+  ),
   AI_GATEWAY_API_KEY: optionalString,
   DESK_INTEL_MODEL_FAST: z.string().default("google/gemini-3.7-flash"),
   DESK_INTEL_MODEL_STRONG: z.string().default("anthropic/claude-sonnet-5"),

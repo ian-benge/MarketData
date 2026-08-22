@@ -222,7 +222,7 @@ export function WatchlistTable({
 
   return (
     <Panel
-      title="Watchlist"
+      title="Coverage"
       description={
         selectedLabel
           ? `${selectedLabel} · price, 1d, from open, 1w, rvol, cap, volume`

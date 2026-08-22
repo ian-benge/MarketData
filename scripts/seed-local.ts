@@ -33,7 +33,7 @@ async function main() {
   console.log(`  RSS: ${Boolean(env.NEWS_RSS_FEEDS)}`);
   console.log(`  RESEND: ${Boolean(env.RESEND_API_KEY)}`);
   console.log(
-    `  AI: ${Boolean(env.OPENAI_API_KEY || env.ANTHROPIC_API_KEY || env.GOOGLE_GENERATIVE_AI_API_KEY)}`,
+    `  AI: ${Boolean(env.ANTHROPIC_API_KEY || env.GOOGLE_GENERATIVE_AI_API_KEY || env.AI_GATEWAY_API_KEY)}`,
   );
   console.log("");
   console.log("Ops scripts: npm run check:env · npm run bootstrap:admin");

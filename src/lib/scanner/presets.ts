@@ -100,17 +100,18 @@ export const DESK_PRESET_STRATEGIES: Record<ScannerSessionPreset, string[]> = {
     "desk_thematic",
   ],
   after_hours: [
-    "desk_gaps",
-    "desk_earnings",
-    "desk_filings",
+    "desk_abnormal_price",
+    "desk_watchlist_unexplained",
+    "desk_thematic",
     "desk_news_before_price",
     "desk_high_conviction",
+    "desk_gaps",
   ],
 };
 
 export const SESSION_PRESET_LABELS: Record<ScannerSessionPreset, string> = {
   premarket: "Premarket",
-  open: "Market Open",
+  open: "Open",
   midday: "Midday",
   power_hour: "Power Hour",
   after_hours: "After Hours",

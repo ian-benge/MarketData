@@ -241,11 +241,12 @@ export type RankedScannerRow = {
   spreadFraction: number | null;
   shortInterestPct: number | null;
   recentReverseSplit: boolean;
-  ipoAgeDays: number | null;
-  haltStatus: HaltStatus;
-  newsFreshness: NewsFreshnessBucket;
-  catalystKind: CatalystKind;
-  catalystSummary: string;
+    ipoAgeDays: number | null;
+    haltStatus: HaltStatus;
+    haltReason: string | null;
+    newsFreshness: NewsFreshnessBucket;
+    catalystKind: CatalystKind;
+    catalystSummary: string;
   inWatchlist: boolean;
   inPosition: boolean;
   themes: string[];

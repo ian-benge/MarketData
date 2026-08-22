@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { MarketPulse } from "@/components/dashboard/MarketPulse";
 import type { MarketPulseResult } from "@/lib/market-data/market-pulse";
+import type { TapeRow } from "@/lib/market-data/overview-analytics";
 import type { NormalizedCalendarEvent, NormalizedQuote } from "@/lib/providers/types";
 
 export function DashboardMarketBoard({
@@ -19,6 +20,7 @@ export function DashboardMarketBoard({
   calendar,
   pulse,
   loading,
+  factors,
   children,
 }: {
   quotes: NormalizedQuote[];
@@ -34,6 +36,7 @@ export function DashboardMarketBoard({
   calendar?: NormalizedCalendarEvent[];
   pulse?: MarketPulseResult;
   loading?: boolean;
+  factors?: TapeRow[];
   children?: ReactNode;
 }) {
   return (
@@ -52,6 +55,7 @@ export function DashboardMarketBoard({
         onSelectSymbol={onSelectSymbol}
         loading={loading}
         pulse={pulse}
+        factors={factors}
         compact
       />
       {children}

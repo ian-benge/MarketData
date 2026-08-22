@@ -2,14 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ChevronDown, Gauge } from "lucide-react";
-import { CrossAssetTape } from "@/components/dashboard/CrossAssetTape";
+import { FactorTape } from "@/components/dashboard/FactorTape";
 import { MarketPulseMethodology } from "@/components/dashboard/market-pulse/MarketPulseMethodology";
 import { RegimeSpectrum } from "@/components/dashboard/market-pulse/RegimeSpectrum";
 import { RiskWatch } from "@/components/dashboard/market-pulse/RiskWatch";
-import { SignalDrivers } from "@/components/dashboard/market-pulse/SignalDrivers";
 import { ChipToggle } from "@/components/ui/ChipToggle";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { calculateMarketPulse, filterPulseQuotes, type MarketPulseDriverId, type MarketPulseResult } from "@/lib/market-data/market-pulse";
+import { calculateMarketPulse, filterPulseQuotes, type MarketPulseResult } from "@/lib/market-data/market-pulse";
+import type { TapeRow } from "@/lib/market-data/overview-analytics";
 import type { NormalizedCalendarEvent, NormalizedQuote } from "@/lib/providers/types";
 import { cn } from "@/lib/utils/cn";
 import { formatMarketTime } from "@/lib/utils/format";
@@ -29,6 +29,7 @@ export type MarketPulseProps = {
   loading?: boolean;
   pulse?: MarketPulseResult;
   compact?: boolean;
+  factors?: TapeRow[];
 };
 
 export function MarketPulseSkeleton() {
@@ -58,7 +59,6 @@ function freshnessTone(freshness: string) {
 }
 
 export function MarketPulse(props: MarketPulseProps) {
-  const [activeDriver, setActiveDriver] = useState<MarketPulseDriverId | null>(null);
   const [methodologyOpen, setMethodologyOpen] = useState(false);
   const methodologyRef = useRef<HTMLDivElement>(null);
   const pulseQuotes = useMemo(
@@ -112,7 +112,7 @@ export function MarketPulse(props: MarketPulseProps) {
   const degraded = result.freshness !== "Fresh" || result.score == null;
 
   return (
-    <section aria-labelledby="market-pulse-title" className="min-w-0 rounded-[6px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-1)]">
+    <section id="market-pulse" aria-labelledby="market-pulse-title" className="min-w-0 scroll-mt-[11.5rem] rounded-[6px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-1)]">
       <div
         className={cn(
           "h-0.5 rounded-t-[6px]",
@@ -129,9 +129,7 @@ export function MarketPulse(props: MarketPulseProps) {
               <span className="font-mono text-[11px] tabular-nums text-[var(--ib-text-secondary)]">{result.score == null ? "Score withheld" : `${result.score} / 100`}</span>
             </div>
             <h2 className="mt-1 text-[18px] font-semibold tracking-[-0.025em] text-[var(--ib-text-primary)] sm:text-[20px]">{result.regime}</h2>
-            {props.compact ? null : (
-            <p className="mt-1 max-w-3xl text-[12px] leading-4 text-[var(--ib-text-secondary)]">{result.explanation}</p>
-            )}
+            <p className={cn("mt-1 max-w-3xl text-[12px] leading-4 text-[var(--ib-text-secondary)]", props.compact && "line-clamp-2")}>{result.explanation}</p>
           </div>
           <div className="flex shrink-0 flex-col items-end gap-2">
             <p data-testid="tape-feed-label" className="max-w-xs text-right font-mono text-[10px] leading-4 text-[var(--ib-text-muted)]">
@@ -171,36 +169,29 @@ export function MarketPulse(props: MarketPulseProps) {
         </div>
       </div>
 
-      {props.compact ? null : (
-      <div className="grid min-w-0 gap-3 border-b border-[var(--ib-border-subtle)] p-3 sm:p-4 lg:grid-cols-12">
-        <div className="flex min-h-0 min-w-0 flex-col lg:col-span-8">
-          <div className="mb-2.5 flex items-start justify-between gap-3">
-            <div>
-              <p className="font-mono text-[9px] uppercase tracking-[0.14em] text-[var(--ib-text-muted)]">Composite regime instrument</p>
-              <p className="mt-1 text-[11px] text-[var(--ib-text-secondary)]">{Math.round(result.coverage * 100)}% weighted signal coverage · {result.session.toUpperCase()} observations only</p>
-            </div>
-          </div>
-          <RegimeSpectrum result={result} />
-          {result.excludedSessionCount ? <p className="mt-2.5 flex items-center gap-1.5 text-[10px] text-[var(--state-warning)]"><AlertTriangle className="size-3" /> {result.excludedSessionCount} observation{result.excludedSessionCount === 1 ? " was" : "s were"} excluded because its session did not match.</p> : null}
-        </div>
-        <div className="min-w-0 lg:col-span-4">
-          <SignalDrivers drivers={result.drivers} activeDriver={activeDriver} onActiveDriver={setActiveDriver} onSelectSymbol={props.onSelectSymbol} />
-        </div>
-      </div>
-      )}
-
-      <div className="flex min-h-9 items-stretch border-t border-[var(--ib-border-subtle)]">
-        <div className="flex shrink-0 items-center border-r border-[var(--ib-border-subtle)] bg-[var(--ib-surface-2)] px-3">
-          <p className="font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-[var(--ib-text-muted)]">
-            Tape
+      <div className="min-w-0 border-b border-[var(--ib-border-subtle)] p-3 sm:p-4">
+        <div className="mb-2.5">
+          <p className="font-mono text-[9px] uppercase tracking-[0.14em] text-[var(--ib-text-muted)]">
+            Composite regime instrument
+          </p>
+          <p className="mt-1 text-[11px] text-[var(--ib-text-secondary)]">
+            {Math.round(result.coverage * 100)}% weighted signal coverage · {result.session.toUpperCase()} observations only
           </p>
         </div>
-        <CrossAssetTape quotes={props.quotes} asOf={props.asOf} marketSession={props.marketSession} selectedSymbol={props.selectedSymbol} onSelectSymbol={props.onSelectSymbol} activeDriver={activeDriver} onActiveDriver={setActiveDriver} />
+        <RegimeSpectrum result={result} />
+        {result.excludedSessionCount ? (
+          <p className="mt-2.5 flex items-center gap-1.5 text-[10px] text-[var(--state-warning)]">
+            <AlertTriangle className="size-3" /> {result.excludedSessionCount} observation
+            {result.excludedSessionCount === 1 ? " was" : "s were"} excluded because its session did not match.
+          </p>
+        ) : null}
       </div>
 
-      {props.compact ? null : (
-        <RiskWatch events={props.calendar ?? []} asOf={props.asOf} result={result} />
-      )}
+      {props.factors ? (
+        <FactorTape tiles={props.factors} onSelectSymbol={props.onSelectSymbol} inline />
+      ) : null}
+
+      <RiskWatch events={props.calendar ?? []} asOf={props.asOf} result={result} />
     </section>
   );
 }

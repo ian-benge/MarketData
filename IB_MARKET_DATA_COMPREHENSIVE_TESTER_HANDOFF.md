@@ -33,7 +33,7 @@ Do **not** generate a live brief, create users, sync brokerage, or reset unlocks
 
 ## 1. Executive assessment and production-readiness verdict
 
-IB Market Data is a Next.js 16 App Router workspace with a real hosted Supabase firm, live Alpaca IEX quotes, Finnhub/Massive/Yahoo news enrichment, SnapTrade brokerage history, and an OpenAI-backed Desk Intelligence overlay. Authenticated pages render. Search, watchlists, and one archived report are reachable. Cron secrets reject anonymous callers. Obvious prompt injection was refused.
+IB Market Data is a Next.js 16 App Router workspace with a real hosted Supabase firm, live Alpaca IEX quotes, Finnhub/Massive/Yahoo news enrichment, SnapTrade brokerage history, and a Desk Intelligence overlay (rules compilation plus optional Anthropic / Gemini / AI Gateway). Authenticated pages render. Search, watchlists, and one archived report are reachable. Cron secrets reject anonymous callers. Obvious prompt injection was refused.
 
 That is not enough.
 
@@ -93,7 +93,7 @@ Browser (App Router, AppShell)
   → Supabase Auth + RLS (firm-scoped)
   → Providers: Alpaca IEX (quotes), Finnhub, Massive news, Yahoo enrichment,
     Alpha Vantage (earnings secondary), FRED/CME FedWatch, EDGAR (empty in window),
-    SnapTrade (brokerage), OpenAI / optional Anthropic / Gemini / AI Gateway
+    SnapTrade (brokerage), Anthropic / Gemini / AI Gateway
   → In-process caches (market-data, intelligence bundle, desk-intel rate-limit Map)
   → Vercel Cron: /api/cron/tick @ 14:00 UTC daily, /api/cron/worker @ 14:05 UTC daily
   → /api/cron/intel exists in code, not in vercel.json

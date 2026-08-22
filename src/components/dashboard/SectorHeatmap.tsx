@@ -265,7 +265,7 @@ export function SectorHeatmap({
                 </h3>
                 <ul
                   aria-label={`${section.title} heatmap`}
-                  className="grid grid-cols-3 gap-1 sm:grid-cols-4"
+                  className="grid grid-cols-3 gap-1 sm:grid-cols-4 xl:grid-cols-6"
                 >
                   {section.rows.map((sector) => {
                     const ticker = focusTicker(sector);
@@ -335,7 +335,7 @@ export function SectorHeatmap({
           </p>
         )
       ) : sortedCells.length ? (
-        <ul className="grid grid-cols-3 gap-1 sm:grid-cols-4">
+        <ul className="grid grid-cols-3 gap-1 sm:grid-cols-4 xl:grid-cols-6">
           {sortedCells.map((cell) => {
             const mapped = deskSectorForHeatmapTicker(deskSectors, cell.key);
             const selected = mapped

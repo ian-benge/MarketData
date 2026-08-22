@@ -37,7 +37,7 @@ When demo fixtures are off and a service-role client is available (`NEXT_PUBLIC_
 
 Without a service-role client, live POST returns 503 `"Report generation is not connected in this environment."` GET list still returns `{ reports: [] }` (not 503).
 
-Until `AI_GATEWAY_API_KEY` (or `VERCEL_OIDC_TOKEN`) / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` are set, drafting uses mock AI with **live** prices. The API `message` says so. Desk intelligence on the dashboard still compiles a rules brief without keys.
+Until `AI_GATEWAY_API_KEY` (or `VERCEL_OIDC_TOKEN`) / `ANTHROPIC_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` are set, drafting uses mock AI with **live** prices. The API `message` says so. Desk intelligence on the dashboard still compiles a rules brief without keys.
 
 ### Generate brief smoke test (owner)
 
@@ -65,7 +65,7 @@ Required for scheduled live runs:
 | `CRON_SECRET` | Authorizes tick/worker (`Authorization: Bearer` or `x-cron-secret`) |
 | `NEXT_PUBLIC_APP_URL` | Archive links in email |
 | `RESEND_API_KEY` + `EMAIL_FROM` | Delivery; `EMAIL_FROM` domain must be verified |
-| At least one of `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` | Draft + prior-edition audit |
+| At least one of `ANTHROPIC_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` / `AI_GATEWAY_API_KEY` | Draft + prior-edition audit |
 | Market-data keys you intend to use (`ALPACA_*`, `FINNHUB_API_KEY`, …) | Collection; production must not rely on mocks |
 | `MARKET_DATA_LICENSE_SCOPE` + `MARKET_DATA_LICENSE_ACKNOWLEDGED` | PDF/email surfaces fail closed if scope forbids them |
 | `FIRM_ID` | Optional; default is seeded Research Desk UUID `a0000000-0000-4000-8000-000000000001` |

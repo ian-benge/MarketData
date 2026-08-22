@@ -3,6 +3,7 @@ import {
   displayPositionTicker,
   formatOccOptionSymbol,
   parseOccOptionSymbol,
+  positionUnderlying,
 } from "./option-symbol";
 
 describe("parseOccOptionSymbol", () => {
@@ -42,5 +43,12 @@ describe("parseOccOptionSymbol", () => {
     expect(parseOccOptionSymbol("/ES")).toBeNull();
     expect(displayPositionTicker("AAPL")).toBe("AAPL");
     expect(displayPositionTicker("BRK.B")).toBe("BRK.B");
+  });
+});
+
+describe("positionUnderlying", () => {
+  it("returns the OCC root for options and the ticker for cash names", () => {
+    expect(positionUnderlying("MSFT260202C00430000")).toBe("MSFT");
+    expect(positionUnderlying("AAPL")).toBe("AAPL");
   });
 });

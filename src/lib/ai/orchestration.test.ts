@@ -12,10 +12,9 @@ const baseEnv = {
   NEXT_PUBLIC_APP_URL: "http://localhost:3000",
   ALLOW_MOCK_PROVIDERS: true,
   DEMO_MODE: false,
-  OPENAI_MODEL: "gpt-test",
   ANTHROPIC_MODEL: "claude-test",
   GEMINI_MODEL: "gemini-test",
-  AI_DEFAULT_PROVIDER: "openai",
+  AI_DEFAULT_PROVIDER: "anthropic",
   STORAGE_BUCKET: "reports",
 } as Env;
 
@@ -42,7 +41,7 @@ function makeProvider(
 
 describe("AiOrchestration", () => {
   it("falls back to the next provider when the primary fails", async () => {
-    const primary = makeProvider("openai", async () => {
+    const primary = makeProvider("gemini", async () => {
       throw new Error("primary down");
     });
     const secondary = makeProvider("anthropic", async (request) => {
@@ -64,14 +63,11 @@ describe("AiOrchestration", () => {
       useMock: false,
       env: baseEnv,
       providers: {
-        openai: primary,
+        gemini: primary,
         anthropic: secondary,
-        gemini: makeProvider("gemini", async () => {
-          throw new Error("should not reach");
-        }),
       },
-      defaultProvider: "openai",
-      fallbackOrder: ["anthropic", "gemini"],
+      defaultProvider: "gemini",
+      fallbackOrder: ["anthropic"],
       maxAttemptsPerProvider: 1,
       timeoutMs: 5_000,
     });
@@ -89,18 +85,18 @@ describe("AiOrchestration", () => {
   });
 
   it("rejects responses that fail Zod schema validation", async () => {
-    const bad = makeProvider("openai", async () => ({
+    const bad = makeProvider("gemini", async () => ({
       data: { labels: [], confidence: 2 },
-      providerName: "openai",
-      model: "gpt-test",
+      providerName: "gemini",
+      model: "gemini-test",
       latencyMs: 5,
     }));
 
     const orch = new AiOrchestration({
       useMock: false,
       env: baseEnv,
-      providers: { openai: bad },
-      defaultProvider: "openai",
+      providers: { gemini: bad },
+      defaultProvider: "gemini",
       fallbackOrder: [],
       maxAttemptsPerProvider: 1,
       timeoutMs: 5_000,
@@ -117,7 +113,7 @@ describe("AiOrchestration", () => {
 
   it("retries the same provider before falling back", async () => {
     let calls = 0;
-    const flaky = makeProvider("openai", async (request) => {
+    const flaky = makeProvider("gemini", async (request) => {
       calls += 1;
       if (calls < 2) throw new Error("transient");
       return {
@@ -125,8 +121,8 @@ describe("AiOrchestration", () => {
           labels: ["macro"],
           confidence: 0.7,
         }),
-        providerName: "openai",
-        model: "gpt-test",
+        providerName: "gemini",
+        model: "gemini-test",
         latencyMs: 3,
       };
     });
@@ -134,8 +130,8 @@ describe("AiOrchestration", () => {
     const orch = new AiOrchestration({
       useMock: false,
       env: baseEnv,
-      providers: { openai: flaky },
-      defaultProvider: "openai",
+      providers: { gemini: flaky },
+      defaultProvider: "gemini",
       fallbackOrder: [],
       maxAttemptsPerProvider: 2,
       retryDelayMs: 1,
@@ -155,7 +151,7 @@ describe("AiOrchestration", () => {
 
   it("times out slow providers", async () => {
     const slow = makeProvider(
-      "openai",
+      "gemini",
       () =>
         new Promise(() => {
           /* never resolves */
@@ -165,8 +161,8 @@ describe("AiOrchestration", () => {
     const orch = new AiOrchestration({
       useMock: false,
       env: baseEnv,
-      providers: { openai: slow },
-      defaultProvider: "openai",
+      providers: { gemini: slow },
+      defaultProvider: "gemini",
       fallbackOrder: [],
       maxAttemptsPerProvider: 1,
       timeoutMs: 40,
@@ -182,19 +178,19 @@ describe("AiOrchestration", () => {
   });
 
   it("does not pass gateway model ids to direct providers", async () => {
-    let openaiModel: string | undefined = "unset";
+    let anthropicModel: string | undefined = "unset";
     const gateway = makeProvider("gateway", async () => {
       throw new Error("Unauthenticated request to AI Gateway.");
     });
-    const openai = makeProvider("openai", async (request) => {
-      openaiModel = request.model;
+    const anthropic = makeProvider("anthropic", async (request) => {
+      anthropicModel = request.model;
       return {
         data: request.schema.parse({
           labels: ["earnings"],
           confidence: 0.8,
         }),
-        providerName: "openai",
-        model: "gpt-test",
+        providerName: "anthropic",
+        model: "claude-test",
         latencyMs: 4,
       };
     });
@@ -202,8 +198,8 @@ describe("AiOrchestration", () => {
     const orch = new AiOrchestration({
       useMock: false,
       env: { ...baseEnv, AI_GATEWAY_API_KEY: "sk-test" },
-      providers: { gateway, openai },
-      defaultProvider: "openai",
+      providers: { gateway, anthropic },
+      defaultProvider: "anthropic",
       fallbackOrder: [],
       maxAttemptsPerProvider: 1,
       timeoutMs: 5_000,
@@ -216,7 +212,7 @@ describe("AiOrchestration", () => {
       model: "anthropic/claude-sonnet-5",
     });
 
-    expect(result.providerName).toBe("openai");
-    expect(openaiModel).toBeUndefined();
+    expect(result.providerName).toBe("anthropic");
+    expect(anthropicModel).toBeUndefined();
   });
 });

@@ -8,7 +8,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { ArrowDown, ArrowUp, ChevronRight } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronRight } from "lucide-react";
 import { PositionInspector } from "@/components/positions/PositionInspector";
 import {
   MoneyValue,
@@ -100,7 +100,14 @@ function SortButton({
       )}
     >
       {label}
-      {active ? <Icon aria-hidden="true" className="size-3" /> : null}
+      {active ? (
+        <Icon aria-hidden="true" className="size-3" />
+      ) : (
+        <ArrowUpDown
+          aria-hidden="true"
+          className="size-3 opacity-40 max-md:hidden"
+        />
+      )}
     </button>
   );
 }
@@ -236,6 +243,19 @@ export function PositionsTable({
     setPage(1);
   }, [pageSize, sortKey, descending, rows.length]);
 
+  useEffect(() => {
+    if (!closed || !selectedId) return;
+    const index = sortedGroups.findIndex(
+      (group) =>
+        group.id === selectedId ||
+        group.row.id === selectedId ||
+        group.fills.some((fill) => fill.id === selectedId),
+    );
+    if (index < 0) return;
+    const nextPage = Math.floor(index / pageSize) + 1;
+    setPage((current) => (current === nextPage ? current : nextPage));
+  }, [closed, pageSize, selectedId, sortedGroups]);
+
   function changePageSize(next: TablePageSize) {
     setPageSize(next);
     if (closed) {
@@ -321,7 +341,7 @@ export function PositionsTable({
     >
       <table
         className={cn(
-          "w-full min-w-[640px] border-collapse text-left text-[12px] tabular-nums",
+          "w-full min-w-[22rem] border-collapse text-left text-[12px] tabular-nums",
           tape ? "md:min-w-[680px]" : "md:min-w-[760px] xl:min-w-[1100px]",
         )}
       >
@@ -344,7 +364,7 @@ export function PositionsTable({
             {closed ? header("closeDate", "Date closed", "left") : null}
             {closed
               ? header("closePrice", "Exit")
-              : header("mark", "Last")}
+              : header("mark", "Last", "right", "hidden md:table-cell")}
             {tape || closed ? null : header("marketValue", "Mkt value", "right", "hidden md:table-cell")}
             {tape || closed ? null : header("weight", "Wt")}
             {closed ? null : header("dayPnl", "Day P&L")}
@@ -405,6 +425,7 @@ export function PositionsTable({
               return (
                 <Fragment key={group.id}>
                 <tr
+                  id={`position-row-${row.id}`}
                   tabIndex={0}
                   className={cn(
                     "cursor-pointer border-b border-[var(--ib-border-subtle)] hover:bg-[var(--ib-surface-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--ib-maroon-500)]",
@@ -441,6 +462,12 @@ export function PositionsTable({
                         <span className="block whitespace-nowrap text-[10px] text-[var(--ib-text-muted)]">
                           <span className="md:hidden">
                             {row.side === "short" ? "Short · " : "Long · "}
+                            {closed ? null : (
+                              <>
+                                <PriceValue value={row.last} ticker={row.ticker} />
+                                {" · "}
+                              </>
+                            )}
                           </span>
                           {fillCount > 1 ? `${fillCount} fills · ` : ""}
                           {row.source === "snaptrade"
@@ -505,7 +532,7 @@ export function PositionsTable({
                       />
                     </td>
                   ) : (
-                    <td className="px-2.5 text-right">
+                    <td className="hidden px-2.5 text-right md:table-cell">
                       <PriceValue value={row.last} ticker={row.ticker} />
                       {row.quoteStale ? (
                         <Badge tone="warn" className="ml-1">
@@ -579,7 +606,13 @@ export function PositionsTable({
                   {tape ? null : (
                     <td className="hidden px-2.5 xl:table-cell">
                       <Sparkline
-                        values={row.sparkline}
+                        values={
+                          row.sparkline.length >= 2
+                            ? row.sparkline
+                            : closed && row.realizedPnl != null
+                              ? [0, row.realizedPnl]
+                              : row.sparkline
+                        }
                         label={`${displayPositionTicker(row.ticker)} cumulative P&L path`}
                       />
                     </td>
@@ -625,7 +658,12 @@ export function PositionsTable({
                             {formatEntryDate(fill.closeDate)}
                           </td>
                         ) : null}
-                        <td className="px-2.5 text-right">
+                        <td
+                          className={cn(
+                            "px-2.5 text-right",
+                            closed ? null : "hidden md:table-cell",
+                          )}
+                        >
                           <PriceValue
                             value={
                               closed ? (fill.closePrice ?? fill.mark) : fill.last

@@ -16,7 +16,11 @@ function severityTone(severity: BookRisk["items"][number]["severity"]) {
   return "neutral" as const;
 }
 
-export function BookRiskPanel() {
+export function BookRiskPanel({
+  openTickers = [],
+}: {
+  openTickers?: string[];
+}) {
   const [envelope, setEnvelope] = useState<DeskIntelEnvelope<BookRisk> | null>(
     null,
   );
@@ -62,9 +66,25 @@ export function BookRiskPanel() {
   }
   if (!envelope) {
     return (
-      <Panel title="Book risk">
-        <p className="text-[12px] text-[var(--ib-text-muted)]">Scoring the book against this session…</p>
-      </Panel>
+      <p className="rounded-[6px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-1)] px-3 py-2 text-[12px] text-[var(--ib-text-muted)]">
+        Scoring the book against this session…
+      </p>
+    );
+  }
+
+  const symbols = new Set(
+    openTickers.map((ticker) => ticker.trim().toUpperCase()).filter(Boolean),
+  );
+  const items = envelope.data.items.filter((item) => {
+    if (item.ticker === "BOOK") return symbols.size === 0;
+    return symbols.has(item.ticker.toUpperCase());
+  });
+
+  if (!items.length) {
+    return (
+      <p className="rounded-[6px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-1)] px-3 py-2 text-[12px] text-[var(--ib-text-muted)]">
+        No significant tape overlap on this book's open lots.
+      </p>
     );
   }
 
@@ -80,56 +100,59 @@ export function BookRiskPanel() {
             Account metrics are locked. Scoring tape overlap only.
           </p>
         ) : null}
-        <p className="text-[13px] font-medium text-[var(--ib-text-primary)]">
-          {envelope.data.headline}
-        </p>
-        {envelope.data.items.length ? (
-          <ul className="space-y-2">
-            {envelope.data.items.map((item) => (
-              <li key={`${item.kind}-${item.ticker}`} className="space-y-1">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {item.ticker === "BOOK" ? (
-                    <span className="font-mono text-[12px] text-[var(--ib-text-primary)]">
-                      {item.ticker}
-                    </span>
-                  ) : (
-                    <Link
-                      href={`/news?q=${encodeURIComponent(`why is ${item.ticker} moving today`)}`}
-                      className="font-mono text-[12px] text-[var(--ib-maroon-300)] hover:underline"
-                    >
-                      {item.ticker}
-                    </Link>
-                  )}
-                  <Badge tone={severityTone(item.severity)}>{item.severity}</Badge>
-                  <Badge tone="neutral">{item.kind.replaceAll("_", " ")}</Badge>
-                  {item.changePercent != null ? (
-                    <span className="font-mono text-[11px] text-[var(--ib-text-muted)]">
-                      {formatSignedPercent(item.changePercent)}
-                    </span>
-                  ) : null}
-                  {item.dayPnl != null ? (
-                    <span className="font-mono text-[11px] text-[var(--ib-text-muted)]">
-                      {formatCurrency(item.dayPnl)}
-                    </span>
-                  ) : null}
-                </div>
-                <p className="text-[12px] text-[var(--ib-text-secondary)]">{item.note}</p>
-                <EvidenceChips sourceIds={item.sourceIds} sources={envelope.sources} />
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-[12px] text-[var(--ib-text-muted)]">
-            No open-book overlap with significant tape or catalysts in this window.
+        {envelope.data.headline &&
+        items.some((item) =>
+          envelope.data.headline.toUpperCase().includes(item.ticker),
+        ) ? (
+          <p className="text-[13px] font-medium text-[var(--ib-text-primary)]">
+            {envelope.data.headline}
           </p>
-        )}
-        {envelope.data.gaps.length ? (
-          <ul className="space-y-1 text-[11px] text-[var(--ib-text-muted)]">
-            {envelope.data.gaps.map((gap) => (
-              <li key={gap}>{gap}</li>
-            ))}
-          </ul>
+        ) : items.length ? (
+          <p className="text-[13px] font-medium text-[var(--ib-text-primary)]">
+            Tape overlap on open lots in this book.
+          </p>
         ) : null}
+        <ul className="space-y-2">
+          {items.map((item) => (
+            <li key={`${item.kind}-${item.ticker}`} className="space-y-1">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {item.ticker === "BOOK" ? (
+                  <span className="font-mono text-[12px] text-[var(--ib-text-primary)]">
+                    {item.ticker}
+                  </span>
+                ) : (
+                  <Link
+                    href={`/news?q=${encodeURIComponent(`why is ${item.ticker} moving today`)}`}
+                    className="font-mono text-[12px] text-[var(--ib-maroon-300)] hover:underline"
+                  >
+                    {item.ticker}
+                  </Link>
+                )}
+                <Badge tone={severityTone(item.severity)}>{item.severity}</Badge>
+                <Badge tone="neutral">{item.kind.replaceAll("_", " ")}</Badge>
+                {item.changePercent != null ? (
+                  <span className="font-mono text-[11px] text-[var(--ib-text-muted)]">
+                    {formatSignedPercent(item.changePercent)}
+                  </span>
+                ) : null}
+                {item.dayPnl != null ? (
+                  <span className="font-mono text-[11px] text-[var(--ib-text-muted)]">
+                    {formatCurrency(item.dayPnl)}
+                  </span>
+                ) : null}
+              </div>
+              <p className="text-[12px] text-[var(--ib-text-secondary)]">{item.note}</p>
+              <EvidenceChips sourceIds={item.sourceIds} sources={envelope.sources} />
+            </li>
+          ))}
+        </ul>
+          {envelope.data.gaps.length ? (
+            <ul className="space-y-1 text-[11px] text-[var(--ib-text-muted)]">
+              {envelope.data.gaps.map((gap) => (
+                <li key={gap}>{gap}</li>
+              ))}
+            </ul>
+          ) : null}
       </div>
     </Panel>
   );

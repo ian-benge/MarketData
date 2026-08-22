@@ -1,16 +1,19 @@
 "use client";
 
-import { Panel } from "@/components/ui/Panel";
-
 export function DivergenceNotes({ notes }: { notes: string[] }) {
   if (!notes.length) return null;
   return (
-    <Panel
-      title="Divergence notes"
-      description="Rule-based. Cites prints already on the tape. Not a forecast."
-      bodyClassName="space-y-2 p-3"
+    <section
+      aria-label="Divergence notes"
+      className="rounded-[6px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-1)] px-3 py-2"
     >
-      <ul className="space-y-2">
+      <h2 className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ib-text-muted)]">
+        Divergence notes
+      </h2>
+      <p className="mt-0.5 text-[10px] text-[var(--ib-text-muted)]">
+        Rule-based. Cites prints already on the tape. Not a forecast.
+      </p>
+      <ul className="mt-1.5 space-y-1.5">
         {notes.map((note) => (
           <li
             key={note.slice(0, 48)}
@@ -20,6 +23,6 @@ export function DivergenceNotes({ notes }: { notes: string[] }) {
           </li>
         ))}
       </ul>
-    </Panel>
+    </section>
   );
 }

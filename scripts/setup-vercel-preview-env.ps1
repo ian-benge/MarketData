@@ -47,9 +47,9 @@ $Keys = @(
   "ALPACA_DATA_SECRET_KEY",
   "ALPHA_VANTAGE_API_KEY",
   "FINNHUB_API_KEY",
-  "OPENAI_API_KEY",
+  "ANTHROPIC_API_KEY",
   "AI_DEFAULT_PROVIDER",
-  "OPENAI_MODEL",
+  "GOOGLE_GENERATIVE_AI_API_KEY",
   "FRED_API_KEY"
 )
 
@@ -64,8 +64,7 @@ $Defaults = @{
   MARKET_DATA_LICENSE_SCOPE        = "single_user_development"
   MARKET_DATA_LICENSE_ACKNOWLEDGED = "false"
   ALPACA_STOCK_FEED                = "iex"
-  AI_DEFAULT_PROVIDER              = "openai"
-  OPENAI_MODEL                     = "gpt-4.1-mini"
+  AI_DEFAULT_PROVIDER              = "anthropic"
 }
 
 $SecretHints = @("KEY", "SECRET", "TOKEN", "PASSWORD", "SERVICE_ROLE", "CRON")

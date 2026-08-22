@@ -59,7 +59,7 @@ Phases 1–12 are **code-complete for local demo**. The **affordable real-time m
 | 3 Providers / mocks / schemas | done | Interfaces + mock + Finnhub/FRED/EDGAR/RSS/Resend |
 | 4 Watchlists / dashboard | done | Seeded sectors; live dashboard UI + API |
 | 5 Movers / news / content domains | done | Thresholds, clustering, citations, content builder |
-| 6 AI adapters | done | OpenAI, Anthropic, Gemini + orchestration/fallback |
+| 6 AI adapters | done | Anthropic, Gemini, AI Gateway + orchestration/fallback |
 | 7 Job pipeline / quality gate | done | Resumable stages + MemoryReportJobStore |
 | 8 Archive / PDF / downloads | done | `@react-pdf/renderer`, archive search UI |
 | 9 Scheduling / email | done | Chicago schedule (07:30 / 11:30 / 16:00), Vercel cron tick/worker, `SupabaseReportJobStore`, Resend+console |

@@ -28,7 +28,7 @@ Next.js App Router (Vercel)
 | 3 | Provider interfaces, mocks, normalization, source registry | `src/lib/providers` | — | Free API quotas |
 | 4 | Watchlists/sectors seed + live dashboard | `src/app/(app)/dashboard`, services | Phase 3 | Stale data UX |
 | 5 | Movers, clustering, causal labels, content domains | `src/lib/domain` | Phase 3–4 | False causation |
-| 6 | AI adapters (OpenAI/Anthropic/Gemini) + orchestration | `src/lib/ai` | API keys | Schema drift |
+| 6 | AI adapters (Anthropic/Gemini/Gateway) + orchestration | `src/lib/ai` | API keys | Schema drift |
 | 7 | Job pipeline + quality gate | `src/lib/reports` | Phase 5–6 | Serverless timeouts |
 | 8 | Web reports, FTS archive, PDF, storage downloads | `src/app`, PDF module | Phase 7 | PDF layout bugs |
 | 9 | Chicago scheduler, email, idempotency | cron routes, email | Phase 7–8 | DST / dupes |

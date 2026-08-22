@@ -5,20 +5,16 @@ import { BookImpactStrip } from "@/components/dashboard/BookImpactStrip";
 import { CatalystCalendar } from "@/components/dashboard/CatalystCalendar";
 import { DivergenceNotes } from "@/components/dashboard/DivergenceNotes";
 import { EarningsCalendar } from "@/components/dashboard/EarningsCalendar";
-import { FactorTape } from "@/components/dashboard/FactorTape";
 import { FedWatchPanel } from "@/components/dashboard/FedWatchPanel";
 import { FocusContextPanel } from "@/components/dashboard/FocusContextPanel";
 import { HeadlineFeed } from "@/components/dashboard/HeadlineFeed";
-import { MarketChart } from "@/components/dashboard/MarketChart";
 import { MaterialMoversPanel } from "@/components/dashboard/MaterialMoversPanel";
+import { OverviewTicker } from "@/components/dashboard/OverviewTicker";
 import { OverviewStatusChrome } from "@/components/dashboard/OverviewStatusChrome";
 import { SectorHeatmap } from "@/components/dashboard/SectorHeatmap";
 import { ThemeTape } from "@/components/dashboard/ThemeTape";
 import { WatchlistTable } from "@/components/dashboard/WatchlistTable";
 import { DashboardMarketBoard } from "@/components/dashboard/DashboardMarketBoard";
-import { RegimeSpectrum } from "@/components/dashboard/market-pulse/RegimeSpectrum";
-import { RiskWatch } from "@/components/dashboard/market-pulse/RiskWatch";
-import { SignalDrivers } from "@/components/dashboard/market-pulse/SignalDrivers";
 import { SessionIntelligence } from "@/components/intel/SessionIntelligence";
 import { StaleBanner } from "@/components/ui/StaleBanner";
 import {
@@ -40,7 +36,7 @@ import {
 import { joinMaterialMovers } from "@/lib/market-data/overview-movers";
 import { attributeMoves } from "@/lib/intelligence/attribution";
 import { detectSignificantMove } from "@/lib/intelligence/move-detect";
-import { calculateMarketPulse, type MarketPulseDriverId } from "@/lib/market-data/market-pulse";
+import { calculateMarketPulse } from "@/lib/market-data/market-pulse";
 import {
   initialCoveragePick,
   sameCoveragePick,
@@ -48,6 +44,7 @@ import {
   type CoveragePick,
 } from "@/lib/dashboard/coverage-pick";
 import type { DashboardWatchlistSnapshot } from "@/lib/market-data/watchlist-types";
+import { cn } from "@/lib/utils/cn";
 
 const LIVE_POLL_MS = 15_000;
 const BOOK_POLL_MS = 30_000;
@@ -59,7 +56,6 @@ export function LiveMarketOverview({
   selectedListId,
   selectedSectorId,
   live,
-  chartMode,
   pulseLoading = false,
 }: {
   initial: DashboardSnapshot;
@@ -68,7 +64,6 @@ export function LiveMarketOverview({
   selectedListId?: string;
   selectedSectorId?: string;
   live: boolean;
-  chartMode: "mock" | "provider" | "unavailable";
   pulseLoading?: boolean;
 }) {
   const [data, setData] = useState(initial);
@@ -77,9 +72,6 @@ export function LiveMarketOverview({
   );
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [focusSymbol, setFocusSymbol] = useState(selectedSymbol);
-  const [activePulseDriver, setActivePulseDriver] = useState<MarketPulseDriverId | null>(
-    null,
-  );
   const [listOverride, setListOverride] = useState<DashboardWatchlistSnapshot | null>(
     null,
   );
@@ -386,6 +378,12 @@ export function LiveMarketOverview({
     ],
   );
 
+  const rotationAside =
+    divergence.length > 0 ||
+    (data.coverage?.deskSectors ?? []).some(
+      (row) => row.kind === "theme" && row.quotedCount > 0,
+    );
+
   return (
     <div className="space-y-3">
       <OverviewStatusChrome
@@ -403,11 +401,22 @@ export function LiveMarketOverview({
         onSelectSymbol={selectSymbol}
       />
 
-      <BookImpactStrip
-        key="book-impact"
-        book={bookDigest}
-        onSelectSymbol={selectSymbol}
-      />
+      <div className="grid min-w-0 gap-3 xl:grid-cols-12">
+        <div className="min-w-0 xl:col-span-7">
+          <BookImpactStrip
+            key="book-impact"
+            book={bookDigest}
+            onSelectSymbol={selectSymbol}
+          />
+        </div>
+        <div className="min-w-0 xl:col-span-5">
+          <SessionIntelligence
+            key="desk-intelligence"
+            compact
+            onSelectSymbol={selectSymbol}
+          />
+        </div>
+      </div>
 
       {data.stale && data.latencyClass !== "unavailable" ? (
         <StaleBanner asOf={data.asOf} />
@@ -427,29 +436,25 @@ export function LiveMarketOverview({
         calendar={data.calendar}
         pulse={pulse}
         loading={pulseLoading}
+        factors={factors}
       />
 
       <div className="grid min-w-0 gap-3 xl:grid-cols-12">
-        <div id="market-chart" className="min-w-0 scroll-mt-3 xl:col-span-8">
-          <MarketChart
-            initialSeries={{}}
-            initialSymbol={focusSymbol}
-            symbol={focusSymbol}
-            onSymbolChange={selectSymbol}
-            coverageLabel={data.latencyCoverageLabel ?? null}
-            asOf={data.asOf}
-            mode={chartMode}
-            marketSession={data.marketSession}
-          />
-        </div>
-        <div className="min-w-0 space-y-3 xl:col-span-4">
+        <div className="min-w-0 xl:col-span-5">
           <FocusContextPanel focus={focus} onSelectSymbol={selectSymbol} />
+        </div>
+        <div className="min-w-0 xl:col-span-7">
           <MaterialMoversPanel
             movers={movers}
             selectedSymbol={focusSymbol}
             onSelectSymbol={selectSymbol}
             latestReport={data.latestReport}
           />
+        </div>
+      </div>
+
+      <div className="grid min-w-0 gap-3 xl:grid-cols-12">
+        <div className={cn("min-w-0", rotationAside ? "xl:col-span-8" : "xl:col-span-12")}>
           <SectorHeatmap
             cells={sectors}
             deskSectors={data.coverage?.deskSectors}
@@ -465,41 +470,24 @@ export function LiveMarketOverview({
             tapeChangeByTicker={tapeChangeByTicker}
             spyChange={shared.spyChange}
           />
+        </div>
+        {rotationAside ? (
+        <div className="min-w-0 space-y-3 xl:col-span-4">
+          <ThemeTape
+            sectors={data.coverage?.deskSectors ?? []}
+            selectedSectorId={pick?.type === "sector" ? pick.id : undefined}
+            onSelectSymbol={selectSymbol}
+            onSelectSector={(sectorId) => {
+              void selectCollection({ type: "sector", id: sectorId });
+            }}
+          />
           <DivergenceNotes notes={divergence} />
         </div>
+        ) : null}
       </div>
-
-      <FactorTape tiles={factors} onSelectSymbol={selectSymbol} />
-      <ThemeTape
-        sectors={data.coverage?.deskSectors ?? []}
-        selectedSectorId={pick?.type === "sector" ? pick.id : undefined}
-        onSelectSymbol={selectSymbol}
-        onSelectSector={(sectorId) => {
-          void selectCollection({ type: "sector", id: sectorId });
-        }}
-      />
-      <SessionIntelligence
-        key="desk-intelligence"
-        compact
-        onSelectSymbol={selectSymbol}
-      />
-      <div className="grid min-w-0 gap-3 lg:grid-cols-12">
-        <div className="min-w-0 lg:col-span-8">
-          <RegimeSpectrum result={pulse} />
-        </div>
-        <div className="min-w-0 lg:col-span-4">
-          <SignalDrivers
-            drivers={pulse.drivers}
-            activeDriver={activePulseDriver}
-            onActiveDriver={setActivePulseDriver}
-            onSelectSymbol={selectSymbol}
-          />
-        </div>
-      </div>
-      <RiskWatch events={data.calendar ?? []} asOf={data.asOf} result={pulse} />
 
       <div className="grid min-w-0 gap-3 xl:grid-cols-12">
-        <div id="watchlist" className="min-w-0 scroll-mt-3 xl:col-span-8">
+        <div id="watchlist" className="min-w-0 scroll-mt-[11.5rem] xl:col-span-8">
           <WatchlistTable
             data={watchlist}
             onSelectSymbol={selectSymbol}
@@ -523,20 +511,32 @@ export function LiveMarketOverview({
       </div>
 
       <div className="grid min-w-0 gap-3 xl:grid-cols-12">
-        <div id="fedwatch" className="min-w-0 scroll-mt-3 xl:col-span-4">
+        <div id="fedwatch" className="min-w-0 scroll-mt-[11.5rem] xl:col-span-4">
           <FedWatchPanel />
         </div>
-        <div id="earnings-calendar" className="min-w-0 scroll-mt-3 xl:col-span-4">
+        <div id="earnings-calendar" className="min-w-0 scroll-mt-[11.5rem] xl:col-span-4">
           <EarningsCalendar
             onSelectSymbol={selectSymbol}
             coverageTickers={data.coverage?.coverageSymbolSet}
             inBookTickers={inBookTickers}
           />
         </div>
-        <div id="catalyst-calendar" className="min-w-0 scroll-mt-3 xl:col-span-4">
+        <div id="catalyst-calendar" className="min-w-0 scroll-mt-[11.5rem] xl:col-span-4">
           <CatalystCalendar events={data.calendar} />
         </div>
       </div>
+
+      <div aria-hidden="true" className="h-10" />
+      <OverviewTicker
+        watchlistRows={watchlist?.rows}
+        deskSectors={data.coverage?.deskSectors}
+        quotes={data.tape}
+        selectedSymbol={focusSymbol}
+        onSelectSymbol={selectSymbol}
+        onSelectTheme={(sectorId) => {
+          void selectCollection({ type: "sector", id: sectorId });
+        }}
+      />
     </div>
   );
 }

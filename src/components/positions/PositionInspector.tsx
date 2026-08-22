@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -15,7 +16,7 @@ import {
 } from "@/components/positions/display";
 import { ClientMarketTime } from "@/components/ui/ClientMarketTime";
 import { formatQuantity } from "@/lib/utils/format";
-import { displayPositionTicker, parseOccOptionSymbol } from "@/lib/positions/option-symbol";
+import { displayPositionTicker, formatOccStrike, parseOccOptionSymbol, positionUnderlying } from "@/lib/positions/option-symbol";
 import type { DailyClose, EnrichedPosition } from "@/lib/positions/types";
 
 function Metric({
@@ -31,6 +32,50 @@ function Metric({
         {label}
       </p>
       <div className="mt-0.5 font-mono text-[12px] tabular-nums">{children}</div>
+    </div>
+  );
+}
+
+function ClosedFillPath({ row }: { row: EnrichedPosition }) {
+  const exit = row.closePrice ?? row.mark;
+  return (
+    <div className="grid min-h-[168px] place-items-center rounded-[4px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-1)] px-4 py-5">
+      <div className="w-full max-w-sm space-y-3">
+        <div className="flex items-end justify-between gap-3">
+          <div>
+            <p className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
+              Entry
+            </p>
+            <p className="mt-0.5 font-mono text-[16px] tabular-nums">
+              <PriceValue value={row.entryPrice} ticker={row.ticker} />
+            </p>
+            <p className="mt-0.5 font-mono text-[11px] text-[var(--ib-text-muted)]">
+              {formatEntryDate(row.entryDate)}
+            </p>
+          </div>
+          <span
+            aria-hidden="true"
+            className="mb-6 flex-1 border-t border-dashed border-[var(--ib-border-control)]"
+          />
+          <div className="text-right">
+            <p className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
+              Exit
+            </p>
+            <p className="mt-0.5 font-mono text-[16px] tabular-nums">
+              <PriceValue value={exit} ticker={row.ticker} />
+            </p>
+            <p className="mt-0.5 font-mono text-[11px] text-[var(--ib-text-muted)]">
+              {formatEntryDate(row.closeDate)}
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-baseline justify-between gap-2 border-t border-[var(--ib-border-subtle)] pt-2">
+          <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
+            Realized
+          </span>
+          <SignedValue value={row.realizedPnl} compact />
+        </div>
+      </div>
     </div>
   );
 }
@@ -129,6 +174,8 @@ export function PositionInspector({
 
   const closes = tape ? [] : liveHistory.filter((bar) => Number.isFinite(bar.close));
   const exitPrice = row.closePrice ?? row.mark;
+  const fillPath =
+    closed && (closedOption || closes.length < 2) && !loadingBars;
 
   return (
     <section
@@ -154,6 +201,22 @@ export function PositionInspector({
               {!tape && row.holdingDays != null ? ` · ${row.holdingDays}d held` : ""}
             </span>
           </h3>
+          {tape ? null : (
+            <p className="mt-1 flex flex-wrap gap-x-3 text-[11px]">
+              <Link
+                href={`/news?ticker=${encodeURIComponent(positionUnderlying(row.ticker))}`}
+                className="text-[var(--ib-maroon-300)] hover:underline"
+              >
+                News
+              </Link>
+              <Link
+                href={`/scanner?ticker=${encodeURIComponent(positionUnderlying(row.ticker))}`}
+                className="text-[var(--ib-maroon-300)] hover:underline"
+              >
+                Scanner
+              </Link>
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {row.status === "open" && canEdit ? (
@@ -198,10 +261,8 @@ export function PositionInspector({
       >
         {tape ? null : (
         <div className="min-w-0">
-          {closedOption ? (
-            <div className="grid h-[168px] place-items-center rounded-[4px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-1)] px-4 text-center text-[12px] text-[var(--ib-text-muted)]">
-              No live series for a closed option fill.
-            </div>
+          {closed && fillPath ? (
+            <ClosedFillPath row={row} />
           ) : closes.length >= 2 ? (
             <PositionPriceChart
               ticker={row.ticker}
@@ -223,18 +284,28 @@ export function PositionInspector({
         )}
         <div className="min-w-0">
           <div className="grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3">
-            {closed ? (
+            {occ ? (
+              <>
+                <Metric label="Underlying">{occ.underlying}</Metric>
+                <Metric label="Expiry">{formatEntryDate(occ.expiry)}</Metric>
+                <Metric label="Strike">{formatOccStrike(occ.strike)}</Metric>
+                <Metric label="Right">{occ.right === "C" ? "Call" : "Put"}</Metric>
+              </>
+            ) : null}
+            {closed && !fillPath ? (
               <Metric label="Exit">
                 <PriceValue value={exitPrice} ticker={row.ticker} />
               </Metric>
-            ) : (
+            ) : closed ? null : (
               <Metric label="Last">
                 <PriceValue value={row.last} ticker={row.ticker} />
               </Metric>
             )}
+            {fillPath ? null : (
             <Metric label="Entry">
               <PriceValue value={row.entryPrice} ticker={row.ticker} />
             </Metric>
+            )}
             <Metric label="Qty">
               {formatQuantity(row.quantity)}
               {row.multiplier !== 1 ? ` × ${formatQuantity(row.multiplier)}` : ""}
@@ -328,11 +399,13 @@ export function PositionInspector({
             )}
           </div>
           <dl className="mt-3 space-y-1 text-[12px]">
+            {fillPath ? null : (
             <div className="flex justify-between gap-3">
               <dt className="text-[var(--ib-text-muted)]">Opened</dt>
               <dd className="font-mono">{formatEntryDate(row.entryDate)}</dd>
             </div>
-            {tape || !closed ? null : (
+            )}
+            {tape || !closed || fillPath ? null : (
               <div className="flex justify-between gap-3">
                 <dt className="text-[var(--ib-text-muted)]">Closed</dt>
                 <dd className="font-mono">

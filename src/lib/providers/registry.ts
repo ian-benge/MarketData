@@ -193,18 +193,6 @@ export function createDefaultSourceRegistry(): SourceRegistryEntry[] {
       notes: "DEMO only — forbidden in production",
     },
     {
-      id: "openai",
-      name: "OpenAI",
-      category: "ai",
-      enabled: true,
-      priority: 10,
-      sourceClass: "secondary",
-      health: "unknown",
-      rateLimit: { maxRequestsPerMinute: 60 },
-      retry: DEFAULT_RETRY,
-      requiresEnv: ["OPENAI_API_KEY"],
-    },
-    {
       id: "ai-gateway",
       name: "Vercel AI Gateway",
       category: "ai",
@@ -415,11 +403,10 @@ export function createProviders(
   const hasFred = Boolean(env.FRED_API_KEY);
   // Default RSS feeds always resolve — optional NEWS_RSS_FEEDS overrides them.
   const hasRss = true;
-  const hasOpenAi = Boolean(env.OPENAI_API_KEY);
   const hasAnthropic = Boolean(env.ANTHROPIC_API_KEY);
   const hasGemini = Boolean(env.GOOGLE_GENERATIVE_AI_API_KEY);
   const hasGateway = gatewayConfigured(env);
-  const hasAi = hasOpenAi || hasAnthropic || hasGemini || hasGateway;
+  const hasAi = hasAnthropic || hasGemini || hasGateway;
   const hasResend = Boolean(env.RESEND_API_KEY);
   // EDGAR needs no API key; prefer live outside mock mode or when User-Agent set
   const hasEdgar = Boolean(env.EDGAR_USER_AGENT?.trim()) || !mocksAllowed(env);
@@ -537,11 +524,6 @@ export function createProviders(
     if (e) e.health = "disabled";
   }
 
-  if (hasOpenAi) registry.recordSuccess("openai");
-  else {
-    const e = registry.get("openai");
-    if (e) e.health = "disabled";
-  }
   if (hasAnthropic) registry.recordSuccess("anthropic");
   else {
     const e = registry.get("anthropic");
@@ -550,6 +532,11 @@ export function createProviders(
   if (hasGemini) registry.recordSuccess("gemini");
   else {
     const e = registry.get("gemini");
+    if (e) e.health = "disabled";
+  }
+  if (hasGateway) registry.recordSuccess("ai-gateway");
+  else {
+    const e = registry.get("ai-gateway");
     if (e) e.health = "disabled";
   }
 

@@ -130,7 +130,11 @@ export function SessionIntelligence({
     <Panel
       id="desk-intelligence"
       title="Desk intelligence"
-      description="Material headlines joined to coverage and the book. Unexplained tape stays unexplained."
+      description={
+        compact
+          ? "Material headlines vs coverage and the book."
+          : "Material headlines joined to coverage and the book. Unexplained tape stays unexplained."
+      }
       actions={
         <div className="flex flex-wrap items-center justify-end gap-1.5">
           {compact ? (

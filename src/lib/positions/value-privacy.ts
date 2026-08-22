@@ -128,24 +128,42 @@ function percentOfBase(
   return (pnl / base) * 100;
 }
 
+/** Flat leftover cash is not a return base — use closed premium/cost instead. */
+function closedBookPercentBase(
+  summary: PortfolioSummary,
+): Pick<WindowedBookPnl, "percentBase"> & { base: number | null } {
+  if (summary.closedCostBasis != null && summary.closedCostBasis > 0) {
+    return {
+      base: summary.closedCostBasis,
+      percentBase: summary.closedAllOptions ? "premium" : "cost",
+    };
+  }
+  return { base: null, percentBase: null };
+}
+
 function maxReturn(
   summary: PortfolioSummary,
 ): Pick<WindowedBookPnl, "percent" | "percentBase"> {
   const pnl = summary.totalPnl;
   if (pnl == null) return { percent: null, percentBase: null };
+  if (summary.openCount === 0) {
+    const closed = closedBookPercentBase(summary);
+    return {
+      percent: percentOfBase(pnl, closed.base),
+      percentBase: closed.percentBase,
+    };
+  }
   if (summary.accountValue != null && summary.accountValue > 0) {
     return {
       percent: percentOfBase(pnl, summary.accountValue),
       percentBase: "nav",
     };
   }
-  if (summary.closedCostBasis != null && summary.closedCostBasis > 0) {
-    return {
-      percent: percentOfBase(pnl, summary.closedCostBasis),
-      percentBase: summary.closedAllOptions ? "premium" : "cost",
-    };
-  }
-  return { percent: null, percentBase: null };
+  const closed = closedBookPercentBase(summary);
+  return {
+    percent: percentOfBase(pnl, closed.base),
+    percentBase: closed.percentBase,
+  };
 }
 
 export function bookPnlForWindow(
@@ -175,17 +193,12 @@ export function bookPnlForWindow(
     const realizedToday = summary.realizedTodayPnl;
     if (flat) {
       const missing = realizedToday == null;
+      const closed = closedBookPercentBase(summary);
       return {
         beforeFees: missing ? null : realizedToday,
         afterFees: missing ? null : realizedToday,
-        percent: percentOfBase(
-          realizedToday,
-          summary.accountValue != null && summary.accountValue > 0
-            ? summary.accountValue
-            : summary.closedCostBasis,
-        ),
-        percentBase:
-          summary.accountValue != null && summary.accountValue > 0 ? "nav" : "cost",
+        percent: percentOfBase(realizedToday, closed.base),
+        percentBase: closed.percentBase,
         hint: missing ? "Flat · no closes today" : "Chicago today · realized after fees",
       };
     }
@@ -214,17 +227,18 @@ export function bookPnlForWindow(
         ? summary.change1mPnl
         : null;
   const pnl = fromSeries ?? fallback;
+  const flat = summary.openCount === 0;
+  const closed = closedBookPercentBase(summary);
+  const liveBase =
+    summary.accountValue != null && summary.accountValue > 0
+      ? { base: summary.accountValue, percentBase: "nav" as const }
+      : { base: summary.grossExposure, percentBase: null };
+  const { base, percentBase } = flat ? closed : liveBase;
   return {
     beforeFees: pnl,
     afterFees: pnl,
-    percent: percentOfBase(
-      pnl,
-      summary.accountValue != null && summary.accountValue > 0
-        ? summary.accountValue
-        : summary.grossExposure,
-    ),
-    percentBase:
-      summary.accountValue != null && summary.accountValue > 0 ? "nav" : null,
+    percent: percentOfBase(pnl, base),
+    percentBase,
     hint: bookPnlWindowHint(window),
   };
 }

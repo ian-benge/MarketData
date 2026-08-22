@@ -50,7 +50,7 @@ flowchart TB
     FRED[FRED]
     RSS[Allowlisted RSS]
     EDGAR[SEC EDGAR]
-    LLM[OpenAI / Anthropic / Gemini]
+    LLM[Anthropic / Gemini / AI Gateway]
     Resend[Resend]
     SB[(Supabase Auth / DB / Storage)]
   end
@@ -93,7 +93,7 @@ Interfaces live in [`src/lib/providers/interfaces.ts`](../src/lib/providers/inte
 | News | Finnhub + RSS composite | `FINNHUB_API_KEY` and/or `NEWS_RSS_FEEDS` |
 | Macro | FRED observations | `FRED_API_KEY` |
 | Corporate | EDGAR filings (+ Finnhub / Alpha Vantage earnings when keyed) | EDGAR always in non-mock; optional calendar keys |
-| AI | Orchestrated OpenAI / Anthropic / Gemini | any AI key |
+| AI | Orchestrated Anthropic / Gemini / AI Gateway | any AI key |
 | Email | Resend | `RESEND_API_KEY` |
 | Scheduler | In-process Chicago due-edition enqueue | live outside mocks |
 

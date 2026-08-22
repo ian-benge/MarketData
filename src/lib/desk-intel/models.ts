@@ -4,7 +4,6 @@ export const DEFAULT_GATEWAY_FAST = "google/gemini-3.7-flash";
 export const DEFAULT_GATEWAY_STRONG = "anthropic/claude-sonnet-5";
 export const DEFAULT_GATEWAY_FALLBACKS = [
   "anthropic/claude-sonnet-5",
-  "openai/gpt-5.4",
   "google/gemini-3.7-flash",
 ] as const;
 
@@ -26,11 +25,7 @@ export function strongGatewayModel(env: Env): string {
 }
 
 export function hasProviderAiKeys(env: Env): boolean {
-  return Boolean(
-    env.OPENAI_API_KEY ||
-      env.ANTHROPIC_API_KEY ||
-      env.GOOGLE_GENERATIVE_AI_API_KEY,
-  );
+  return Boolean(env.ANTHROPIC_API_KEY || env.GOOGLE_GENERATIVE_AI_API_KEY);
 }
 
 export function hasAnyAiCredentials(env: Env): boolean {

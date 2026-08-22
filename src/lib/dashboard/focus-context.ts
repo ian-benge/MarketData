@@ -27,8 +27,20 @@ export type FocusContext = {
   name: string | null;
   last: number | null;
   changePercent: number | null;
+  changeFromOpenPercent: number | null;
+  change1wPercent: number | null;
+  preMarketChangePercent: number | null;
+  afterHoursChangePercent: number | null;
   relativeVolume: number | null;
+  volume: number | null;
+  marketCap: number | null;
+  dayHigh: number | null;
+  dayLow: number | null;
   inBook: boolean;
+  bookSide: "long" | "short" | null;
+  bookDayPnl: number | null;
+  bookDayPercent: number | null;
+  bookUnexplained: boolean;
   membership: FocusMembership[];
   explanation: MoveExplanation | null;
   headlines: FocusHeadline[];
@@ -44,16 +56,39 @@ function quoteFor(
   name: string | null;
   last: number | null;
   changePercent: number | null;
+  changeFromOpenPercent: number | null;
+  change1wPercent: number | null;
+  preMarketChangePercent: number | null;
+  afterHoursChangePercent: number | null;
   relativeVolume: number | null;
+  volume: number | null;
+  marketCap: number | null;
+  dayHigh: number | null;
+  dayLow: number | null;
 } {
   const upper = ticker.toUpperCase();
   const row = watchlist?.rows.find((item) => item.ticker.toUpperCase() === upper);
   const quote = tape.find((item) => item.ticker.toUpperCase() === upper);
+  const fromOpen =
+    row?.changeFromOpenPercent ??
+    (quote?.open != null && quote.last != null && quote.open !== 0
+      ? ((quote.last - quote.open) / quote.open) * 100
+      : null);
   return {
     name: row?.name ?? null,
     last: row?.last ?? quote?.last ?? null,
     changePercent: row?.change1dPercent ?? quote?.changePercent ?? null,
+    changeFromOpenPercent: fromOpen,
+    change1wPercent: row?.change1wPercent ?? null,
+    preMarketChangePercent:
+      row?.preMarketChangePercent ?? quote?.preMarketChangePercent ?? null,
+    afterHoursChangePercent:
+      row?.afterHoursChangePercent ?? quote?.afterHoursChangePercent ?? null,
     relativeVolume: row?.relativeVolume ?? null,
+    volume: row?.volume ?? quote?.volume ?? null,
+    marketCap: row?.marketCap ?? null,
+    dayHigh: row?.dayHigh ?? quote?.high ?? null,
+    dayLow: row?.dayLow ?? quote?.low ?? null,
   };
 }
 
@@ -131,17 +166,36 @@ export function buildFocusContext(input: {
     }),
   ];
   const relatedTickers = [...new Set(related.map((tag) => tag.toUpperCase()))].slice(0, 6);
+  const lot = input.book?.contributors.find(
+    (row) => row.ticker.toUpperCase() === ticker,
+  );
+  const inBook = Boolean(
+    input.coverage?.inBookTickers?.some((item) => item.toUpperCase() === ticker) ||
+      input.book?.openTickers?.some((item) => item.toUpperCase() === ticker) ||
+      Boolean(lot),
+  );
 
   return {
     ticker,
     name: quote.name && quote.name !== ticker ? quote.name : mover?.name ?? quote.name,
     last: quote.last ?? mover?.last ?? null,
     changePercent: quote.changePercent ?? mover?.changePercent ?? null,
+    changeFromOpenPercent: quote.changeFromOpenPercent,
+    change1wPercent: quote.change1wPercent,
+    preMarketChangePercent: quote.preMarketChangePercent,
+    afterHoursChangePercent: quote.afterHoursChangePercent,
     relativeVolume: quote.relativeVolume ?? mover?.relativeVolume ?? null,
-    inBook: Boolean(
-      input.coverage?.inBookTickers.some((item) => item.toUpperCase() === ticker) ||
-        input.book?.openTickers?.some((item) => item.toUpperCase() === ticker) ||
-        input.book?.contributors.some((item) => item.ticker.toUpperCase() === ticker),
+    volume: quote.volume ?? mover?.volume ?? null,
+    marketCap: quote.marketCap,
+    dayHigh: quote.dayHigh,
+    dayLow: quote.dayLow,
+    inBook,
+    bookSide: lot?.side ?? null,
+    bookDayPnl: lot?.dayPnl ?? null,
+    bookDayPercent: lot?.dayPercent ?? null,
+    bookUnexplained: Boolean(
+      lot?.unexplained ||
+        input.book?.unexplainedTickers?.some((item) => item.toUpperCase() === ticker),
     ),
     membership,
     explanation,

@@ -232,9 +232,8 @@ export default async function DashboardPage({
     <div className="min-w-0 space-y-3">
       <PageHeader
         compact
-        eyebrow="IB Market Data"
         title="Market Overview"
-        description="Regime, tape, coverage, book, and the next catalysts. Research only — no order entry."
+        description="Session, book, regime, coverage, and the next catalysts. Research only."
         actions={
           <OnDemandReportButton
             key={params.generate === "1" ? "auto-open" : "manual"}
@@ -269,13 +268,6 @@ export default async function DashboardPage({
         selectedListId={params.listId}
         selectedSectorId={params.sectorId}
         live={!fixturesEnabled() && !data.unavailableReason}
-        chartMode={
-          fixturesEnabled()
-            ? "mock"
-            : data.unavailableReason
-              ? "unavailable"
-              : "provider"
-        }
         pulseLoading={previewState === "loading"}
       />
     </div>

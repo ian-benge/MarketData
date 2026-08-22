@@ -31,7 +31,7 @@ Runtime:
 - **Rules first, model overlay second.** Every product has a deterministic compilation. Missing keys, fixture mode, model errors, and failed grounding all show that compilation.
 - **No causal story for `unknown`.** Those names never go to the model.
 - **Evidence packs, not RAG chat.** The model sees a hashed, sanitized JSON bundle. Untrusted headlines are wrapped in `BEGIN_UNTRUSTED_EVIDENCE`. Instruction-like questions are not sent to the model.
-- **Gateway preferred, direct keys as fallback.** Fast tasks: Gemini Flash. Strong tasks: Claude Sonnet. Existing OpenAI/Anthropic/Gemini adapters remain.
+- **Gateway preferred, direct keys as fallback.** Fast tasks: Gemini Flash. Strong tasks: Claude Sonnet. Direct adapters: Anthropic and Gemini.
 - **No streaming.** Answers are grounded before display so a trader never watches a hallucination get walked back.
 - **Query interpret is optional.** Natural-language Material News queries can pick up extra tickers/types from the model; tests and missing credentials skip it. Lexical `parseNewsQuery` still owns the default path.
 
@@ -42,7 +42,7 @@ No dashboard SQL is required. The `desk_intelligence` migration is already appli
 For live model overlay (rules still work without this):
 
 1. Prefer Vercel AI Gateway: set `AI_GATEWAY_API_KEY`, or `vercel env pull` so `VERCEL_OIDC_TOKEN` is present on the deployment.
-2. Or set at least one of `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`.
+2. Or set at least one of `ANTHROPIC_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`.
 3. Optional: `DESK_INTEL_MODEL_FAST`, `DESK_INTEL_MODEL_STRONG`, `DESK_INTEL_ENABLED` (default true), `DESK_INTEL_IN_FIXTURES` (default false).
 4. Copy from `.env.example`. Do not commit secrets.
 

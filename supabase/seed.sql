@@ -335,21 +335,11 @@ providers as (
       '{"demo_only":true,"requires_allow_mock_providers":true}'::jsonb
     ),
     (
-      'openai',
-      'OpenAI',
-      'ai'::public.source_class,
-      true,
-      true,
-      40,
-      60,
-      '{"default_model":"gpt-4.1-mini","structured_outputs":true}'::jsonb
-    ),
-    (
       'anthropic',
       'Anthropic',
       'ai'::public.source_class,
       true,
-      false,
+      true,
       50,
       60,
       '{"default_model":"claude-sonnet-4-20250514"}'::jsonb

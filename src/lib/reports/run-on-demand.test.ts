@@ -55,7 +55,7 @@ describe("shouldUseMockAi", () => {
     fixtureMode.enabled = true;
     expect(
       shouldUseMockAi(
-        env({ OPENAI_API_KEY: "sk-test" }),
+        env({ ANTHROPIC_API_KEY: "ak-test" }),
         false,
       ),
     ).toBe(true);
@@ -71,7 +71,7 @@ describe("shouldUseMockAi", () => {
   it("is true when providers are using mock AI", () => {
     fixtureMode.enabled = false;
     expect(
-      shouldUseMockAi(env({ OPENAI_API_KEY: "sk-test" }), true),
+      shouldUseMockAi(env({ ANTHROPIC_API_KEY: "ak-test" }), true),
     ).toBe(true);
   });
 

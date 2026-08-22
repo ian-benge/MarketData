@@ -52,7 +52,7 @@ describe("book P&L windows", () => {
     expect(sumSeriesPnl([point(null), point(null)], 5)).toBeNull();
   });
 
-  it("uses realized-today for 1D on a flat book and NAV for Max percent", () => {
+  it("uses realized-today for 1D on a flat book and premium/cost for Max percent", () => {
     const snap = snapshot({
       openCount: 0,
       closedCount: 4,
@@ -62,6 +62,8 @@ describe("book P&L windows", () => {
       pnlBeforeFees: 100,
       totalPnl: -4594.48,
       accountValue: 1.28,
+      closedCostBasis: 283_800,
+      closedAllOptions: true,
       bookReturnPercent: 4,
     });
     expect(bookPnlForWindow(snap, "1d")).toMatchObject({
@@ -71,8 +73,24 @@ describe("book P&L windows", () => {
     });
     const max = bookPnlForWindow(snap, "max");
     expect(max.afterFees).toBeCloseTo(-4594.48);
-    expect(max.percentBase).toBe("nav");
-    expect(max.percent).toBeCloseTo((-4594.48 / 1.28) * 100);
+    expect(max.percentBase).toBe("premium");
+    expect(max.percent).toBeCloseTo((-4594.48 / 283_800) * 100);
+  });
+
+  it("does not express 1D percent versus leftover NAV on a flat book", () => {
+    const snap = snapshot({
+      openCount: 0,
+      closedCount: 4,
+      realizedTodayPnl: -75.6,
+      accountValue: 1.28,
+      closedCostBasis: 283_800,
+      closedAllOptions: true,
+    });
+    const day = bookPnlForWindow(snap, "1d");
+    expect(day.afterFees).toBeCloseTo(-75.6);
+    expect(day.percentBase).toBe("premium");
+    expect(day.percent).toBeCloseTo((-75.6 / 283_800) * 100);
+    expect(Math.abs(day.percent ?? 0)).toBeLessThan(1);
   });
 
   it("labels Max percent vs premium when NAV is missing and the book is options", () => {
@@ -90,13 +108,14 @@ describe("book P&L windows", () => {
 
   it("windows 1W from the series and falls back to open-lot 1W", () => {
     const fromSeries = snapshot({
+      openCount: 1,
       series: [point(1), point(2), point(3), point(4), point(5), point(6)],
       grossExposure: 100,
     });
     expect(bookPnlForWindow(fromSeries, "1w").beforeFees).toBe(20);
     expect(bookPnlForWindow(fromSeries, "1w").percent).toBe(20);
 
-    const fallback = snapshot({ change1wPnl: 15, accountValue: 150 });
+    const fallback = snapshot({ openCount: 1, change1wPnl: 15, accountValue: 150 });
     expect(bookPnlForWindow(fallback, "1w").beforeFees).toBe(15);
     expect(bookPnlForWindow(fallback, "1w").percent).toBe(10);
   });

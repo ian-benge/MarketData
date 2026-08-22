@@ -71,7 +71,7 @@ See [`.env.example`](.env.example) and [docs/ENVIRONMENT_VARIABLES.md](docs/ENVI
 - **Supabase:** URL, anon key, service role, `BOOTSTRAP_ADMIN_EMAIL`, optional `FIRM_ID`
 - **Market routing:** `MARKET_DATA_*`, `ALPACA_*`, `MASSIVE_*`
 - **Market / news / macro:** `FINNHUB_API_KEY`, `ALPHA_VANTAGE_API_KEY` (secondary earnings calendar), `FRED_API_KEY`, `NEWS_RSS_FEEDS` (comma-separated allowlisted URLs), optional `EDGAR_USER_AGENT`
-- **AI:** OpenAI / Anthropic / Gemini keys + models, `AI_DEFAULT_PROVIDER`
+- **AI:** Anthropic / Gemini keys + models, `AI_DEFAULT_PROVIDER`, or Vercel AI Gateway
 - **Email:** `RESEND_API_KEY`, `EMAIL_FROM`
 - **Storage:** `STORAGE_BUCKET` (default `reports`)
 - **Brokerage (optional):** `SNAPTRADE_CLIENT_ID`, `SNAPTRADE_CONSUMER_KEY` (server-only; read-only SnapTrade linking, live holdings sync, and Import past trades)

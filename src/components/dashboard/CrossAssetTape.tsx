@@ -136,6 +136,9 @@ function TapeQuote({
           <ToneIcon value={quote.changePercent} />
           {formatSignedPercent(quote.changePercent)}
         </span>
+        <span className="hidden tabular-nums text-[10px] text-[var(--ib-text-muted)] xl:inline">
+          {formatPrice(quote.last, quote.ticker)}
+        </span>
       </button>
       <div
           role="tooltip"
@@ -207,6 +210,18 @@ function TapeSequence({
   );
 }
 
+export function listCrossAssetTapeItems(quotes: NormalizedQuote[]): TapeItem[] {
+  const byTicker = new Map(quotes.map((quote) => [quote.ticker.toUpperCase(), quote]));
+  return TAPE_GROUPS.flatMap((group) =>
+    group.tiles
+      .map((config) => {
+        const quote = config.symbols.map((symbol) => byTicker.get(symbol)).find(Boolean);
+        return quote ? { group, config, quote } : null;
+      })
+      .filter((item): item is TapeItem => Boolean(item)),
+  );
+}
+
 export function CrossAssetTape({
   quotes,
   asOf,
@@ -223,15 +238,7 @@ export function CrossAssetTape({
   activeDriver?: MarketPulseDriverId | null;
   onActiveDriver?: (driver: MarketPulseDriverId | null) => void;
 }) {
-  const byTicker = new Map(quotes.map((quote) => [quote.ticker.toUpperCase(), quote]));
-  const items = TAPE_GROUPS.flatMap((group) =>
-    group.tiles
-      .map((config) => {
-        const quote = config.symbols.map((symbol) => byTicker.get(symbol)).find(Boolean);
-        return quote ? { group, config, quote } : null;
-      })
-      .filter((item): item is TapeItem => Boolean(item)),
-  );
+  const items = listCrossAssetTapeItems(quotes);
 
   if (!items.length) {
     return (

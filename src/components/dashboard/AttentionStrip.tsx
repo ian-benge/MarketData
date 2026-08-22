@@ -49,6 +49,7 @@ export function AttentionStrip({
   if (!items.length) return null;
   return (
     <section
+      id="attention"
       aria-label="Attention"
       className="overflow-hidden rounded-[6px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-1)]"
     >

@@ -39,6 +39,7 @@ export function toRankedRow(
     recentReverseSplit: feature.recentReverseSplit,
     ipoAgeDays: feature.ipoAgeDays,
     haltStatus: feature.haltStatus,
+    haltReason: feature.haltReason ?? null,
     newsFreshness: feature.newsFreshness,
     catalystKind: feature.catalystKind,
     catalystSummary: feature.explanation.headline,

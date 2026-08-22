@@ -189,7 +189,7 @@ export function PulseHistoryChart({
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
           <p className="font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--ib-text-muted)]">
-            Pulse path
+            Pulse history
           </p>
           <p className="mt-0.5 font-mono text-[10px] text-[var(--ib-text-secondary)]">
             {active?.score != null

@@ -75,7 +75,7 @@ There is **no** `supabase/config.toml` required in-repo; migrations and seed liv
 | Auth invitations & member access | Account owner / admin | Ops | Invite-only intended; see [invitations gap](#f-auth-bootstrap-admin-invitations-gap) |
 | Market-data vendor plans & written authorization | Account owner | — | **STOP** — app does not purchase plans |
 | `MARKET_DATA_LICENSE_*` flags | Account owner | Ops sets env after owner approval | Acknowledgement is a **guardrail only**, not a license |
-| AI provider keys (OpenAI / Anthropic / Google) | Account owner | Ops | At least one for live drafting |
+| AI provider keys (Anthropic / Google) or AI Gateway | Account owner | Ops | At least one for live drafting |
 | Resend + sending domain DNS | Account owner | Ops | **STOP** — DNS / billing |
 | Vercel project, domains, cron | Account owner | Ops | Cron every 5 minutes per `vercel.json` |
 | Production flag cutover (`DEMO_MODE`, mocks) | Account owner + ops | Ops | Production must be mocks/demo **off** |
@@ -190,7 +190,7 @@ Auth is **invite-only** by product intent (no public signup). `BOOTSTRAP_ADMIN_E
 
 ## G. Provider accounts and API keys
 
-Adapters present in this repo: **Finnhub**, **FRED**, **EDGAR**, **RSS**, **Alpaca**, **Massive**, **Resend**, and AI trio (**OpenAI**, **Anthropic**, **Google Generative AI**).
+Adapters present in this repo: **Finnhub**, **FRED**, **EDGAR**, **RSS**, **Alpaca**, **Massive**, **Resend**, and AI (**Anthropic**, **Google Generative AI**, **Vercel AI Gateway**).
 
 There are **no** BLS / BEA / Treasury / EIA adapters.
 
@@ -207,7 +207,6 @@ Each vendor account, plan purchase, and domain verification is owner-owned.
 | FRED | `FRED_API_KEY` | [fred.stlouisfed.org](https://fred.stlouisfed.org/docs/api/api_key.html) |
 | RSS | `NEWS_RSS_FEEDS` (comma-separated allowlisted https URLs) | Publisher feed URLs only |
 | EDGAR | `EDGAR_USER_AGENT` (else derived from app URL) | [SEC fair access](https://www.sec.gov/os/webmaster-faq#developers) |
-| OpenAI | `OPENAI_API_KEY`, `OPENAI_MODEL` | [platform.openai.com](https://platform.openai.com/docs) |
 | Anthropic | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | [docs.anthropic.com](https://docs.anthropic.com/) |
 | Google AI | `GOOGLE_GENERATIVE_AI_API_KEY`, `GEMINI_MODEL` | [ai.google.dev](https://ai.google.dev/) |
 | Resend | `RESEND_API_KEY`, `EMAIL_FROM` | [resend.com/docs](https://resend.com/docs) |
@@ -216,7 +215,7 @@ Each vendor account, plan purchase, and domain verification is owner-owned.
 
 - [ ] Create keys for the providers you will actually use.
 - [ ] Put secrets in `.env.local` / Vercel — **never** in `provider_configs` DB rows.
-- [ ] Set `AI_DEFAULT_PROVIDER` to `openai` | `anthropic` | `gemini` matching an available key.
+- [ ] Set `AI_DEFAULT_PROVIDER` to `anthropic` | `gemini` matching an available key.
 - [ ] For email: verify sending domain in Resend (**STOP — DNS**). Without Resend in non-prod + mocks, delivery writes to `tmp/email-outbox/`.
 - [ ] `npm run check:env` to confirm required keys for your intended configuration.
 - [ ] Optional live market smoke: `MARKET_DATA_SMOKE=1 npm run test:market-smoke` (read-only; not CI-default).
@@ -331,7 +330,7 @@ Vercel project linking, custom domain / DNS, and Production env promotion.
 | `MARKET_DATA_LICENSE_ACKNOWLEDGED` | Guardrail only — needs written authorization for shared prod |
 | No BLS/BEA/Treasury/EIA | Macro beyond FRED / calendar placeholders not covered |
 | Production mocks/demo | Forbidden; `mocksAllowed` fail-closed |
-| AI keys optional | Generate brief / worker mock-draft until OpenAI / Anthropic / Gemini keys are set; prices still live |
+| AI keys optional | Generate brief / worker mock-draft until Anthropic / Gemini / AI Gateway keys are set; prices still live |
 
 ---
 
@@ -344,7 +343,6 @@ Vercel project linking, custom domain / DNS, and Production env promotion.
 | Vercel | [https://vercel.com/docs](https://vercel.com/docs) |
 | Vercel Cron | [https://vercel.com/docs/cron-jobs](https://vercel.com/docs/cron-jobs) |
 | Resend | [https://resend.com/docs](https://resend.com/docs) |
-| OpenAI | [https://platform.openai.com/docs](https://platform.openai.com/docs) |
 | Anthropic | [https://docs.anthropic.com/](https://docs.anthropic.com/) |
 | Google AI / Gemini | [https://ai.google.dev/](https://ai.google.dev/) |
 | Alpaca docs | [https://docs.alpaca.markets/](https://docs.alpaca.markets/) |

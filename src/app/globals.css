@@ -277,6 +277,26 @@ textarea::placeholder {
   animation: ib-page-progress 1.15s ease-in-out infinite;
 }
 
+@keyframes ib-ticker {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+.ib-ticker-track {
+  display: flex;
+  width: max-content;
+  animation: ib-ticker var(--ib-ticker-duration, 40s) linear infinite;
+}
+
+.ib-ticker-row:hover .ib-ticker-track,
+.ib-ticker-row:focus-within .ib-ticker-track {
+  animation-play-state: paused;
+}
+
 @media (max-width: 639px) {
   .field-control {
     min-height: 44px;
@@ -300,5 +320,9 @@ textarea::placeholder {
   .ib-skeleton {
     animation: none;
     opacity: 0.62;
+  }
+
+  .ib-ticker-track {
+    animation: none !important;
   }
 }

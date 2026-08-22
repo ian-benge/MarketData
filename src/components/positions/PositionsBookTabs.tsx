@@ -189,8 +189,8 @@ export function PositionsBookTabs({
                 draggingId === book.id ? "opacity-50" : null,
                 dragOverId === book.id && draggingId && draggingId !== book.id
                   ? "border-[var(--ib-maroon-300)]"
-                  : selectedBook
-                    ? "border-[var(--ib-border-strong)] bg-[var(--ib-surface-inset)] text-[var(--ib-text-primary)]"
+                  :                 selectedBook
+                    ? "border-[var(--ib-maroon-500)] bg-[var(--ib-surface-selected)] text-[var(--ib-text-primary)]"
                     : "border-transparent bg-transparent text-[var(--ib-text-secondary)] hover:border-[var(--ib-border-strong)] hover:bg-[var(--ib-surface-2)]",
               )}
             >
@@ -207,6 +207,11 @@ export function PositionsBookTabs({
               <span className="font-mono text-[10px] text-[var(--ib-text-muted)]">
                 {book.openCount}
               </span>
+              {book.connectionStatus === "reconnect_required" ? (
+                <span className="font-mono text-[10px] text-[var(--state-warning)]">
+                  reconnect
+                </span>
+              ) : null}
             </button>
           );
         })}

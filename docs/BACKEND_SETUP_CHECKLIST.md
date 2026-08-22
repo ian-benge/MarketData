@@ -41,7 +41,7 @@ Canonical walkthrough: [`MANUAL_BACKEND_SETUP.md`](./MANUAL_BACKEND_SETUP.md). E
 | **STOP:** Alpaca / Massive account + plan | done | Owner | Local | Paper IEX keys; smoke OK | Not licensed for team share |
 | Set `ALPACA_*` and/or `MASSIVE_*` | done | Owner | Local | check:env present; smoke 5 IEX quotes | Massive unset |
 | Set Finnhub / FRED / RSS / EDGAR as needed | pending | Ops | Preview / Prod | | No BLS/BEA/Treasury/EIA adapters |
-| **STOP:** AI provider account(s) | pending | Owner | — | | OpenAI / Anthropic / Google |
+| **STOP:** AI provider account(s) | pending | Owner | — | | Anthropic / Google / AI Gateway |
 | Set AI keys + `AI_DEFAULT_PROVIDER` | pending | Ops | Preview / Prod | | |
 | **STOP:** Resend account + domain DNS | pending | Owner | — | | Billing + DNS |
 | Set `RESEND_API_KEY` + `EMAIL_FROM` | pending | Ops | Preview / Prod | | |

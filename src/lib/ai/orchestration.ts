@@ -5,7 +5,6 @@ import type { AiResult, AiStructuredRequest } from "@/lib/providers/types";
 import { MockAiProvider } from "@/lib/providers/mock";
 import { AnthropicProvider } from "@/lib/ai/anthropic-adapter";
 import { GeminiProvider } from "@/lib/ai/gemini-adapter";
-import { OpenAiProvider } from "@/lib/ai/openai-adapter";
 import { GatewayAiProvider } from "@/lib/ai/gateway-adapter";
 import { gatewayConfigured } from "@/lib/desk-intel/models";
 import {
@@ -14,7 +13,7 @@ import {
   promptVersionFor,
 } from "@/lib/ai/prompt-versions";
 
-export type AiProviderId = "gateway" | "openai" | "anthropic" | "gemini" | "mock";
+export type AiProviderId = "gateway" | "anthropic" | "gemini" | "mock";
 
 export type AiUsageEvent = {
   providerName: string;
@@ -51,25 +50,21 @@ export type AiOrchestrationConfig = {
   retryDelayMs?: number;
 };
 
-const DEFAULT_FALLBACKS: AiProviderId[] = [
-  "openai",
-  "anthropic",
-  "gemini",
-];
+const DEFAULT_FALLBACKS: AiProviderId[] = ["anthropic", "gemini"];
 
 const TASK_PROVIDER_DEFAULTS: Record<PromptTask, AiProviderId> = {
-  headline_classification: "openai",
-  event_clustering: "openai",
+  headline_classification: "gemini",
+  event_clustering: "gemini",
   causal_synthesis: "anthropic",
-  section_drafting: "openai",
+  section_drafting: "anthropic",
   editorial_pass: "anthropic",
   prior_edition_audit: "anthropic",
   session_brief: "anthropic",
-  move_narrative: "openai",
+  move_narrative: "gemini",
   book_risk: "anthropic",
-  news_digest: "openai",
+  news_digest: "gemini",
   grounded_ask: "anthropic",
-  query_parse: "openai",
+  query_parse: "gemini",
 };
 
 function sleep(ms: number): Promise<void> {
@@ -132,12 +127,6 @@ function tryCreateProvider(id: AiProviderId, env: Env): AiProvider | null {
       case "gateway":
         if (!gatewayConfigured(env)) return null;
         return new GatewayAiProvider();
-      case "openai":
-        if (!env.OPENAI_API_KEY) return null;
-        return new OpenAiProvider({
-          apiKey: env.OPENAI_API_KEY,
-          defaultModel: env.OPENAI_MODEL,
-        });
       case "anthropic":
         if (!env.ANTHROPIC_API_KEY) return null;
         return new AnthropicProvider({
@@ -181,8 +170,6 @@ function modelFor(
   switch (id) {
     case "gateway":
       return env.DESK_INTEL_MODEL_STRONG;
-    case "openai":
-      return env.OPENAI_MODEL;
     case "anthropic":
       return env.ANTHROPIC_MODEL;
     case "gemini":

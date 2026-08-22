@@ -25,4 +25,4 @@ Safe, reversible decisions made where the master prompt left room for interpreta
 - Editions at 7:30 / 11:30 / 4:00 America/Chicago (`close_postmarket`; collect may start at 3:00 p.m. CT). No separate 3:30 close report.
 - Invite-only auth with admin/member roles
 - Firm-wide reports (not per-user)
-- OpenAI + Anthropic + Gemini adapters at launch
+- Anthropic + Gemini adapters at launch (OpenAI removed)

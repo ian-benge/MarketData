@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildFeatureSnapshot } from "@/lib/scanner/features";
 import { evaluateScan } from "@/lib/scanner/evaluate";
-import { fivePillarsMatch, hodMomentumMatch, HOD_REGIMES } from "@/lib/scanner/strategies";
+import { fivePillarsMatch, hodMomentumMatch, HOD_REGIMES, SCANNER_STRATEGIES } from "@/lib/scanner/strategies";
 import { replaySyntheticSequence } from "@/lib/scanner/replay";
 import type { FeatureBuildInput } from "@/lib/scanner/features";
 
@@ -122,5 +122,24 @@ describe("momentum strategies", () => {
         (item) => item.strategyId === "desk_watchlist_unexplained" && item.ticker === "IREN",
       ),
     ).toBe(true);
+  });
+});
+
+describe("after-hours coverage after the official close", () => {
+  it("still ranks after-hours movers when the tape is closed", () => {
+    const ah = SCANNER_STRATEGIES.find((item) => item.id === "after_hours_movers");
+    const gaps = SCANNER_STRATEGIES.find((item) => item.id === "desk_gaps");
+    expect(ah?.sessions).toEqual(expect.arrayContaining(["afterhours", "closed"]));
+    expect(gaps?.sessions).toEqual(expect.arrayContaining(["closed"]));
+    const closedMover = feature({
+      session: "closed",
+      last: 12,
+      priorClose: 10,
+      open: 11,
+      volume: 8_000_000,
+      avgVolume20d: 3_000_000,
+    });
+    expect(ah?.match(closedMover)).toBe(true);
+    expect(gaps?.match(closedMover)).toBe(true);
   });
 });

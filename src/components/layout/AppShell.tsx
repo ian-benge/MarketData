@@ -58,7 +58,7 @@ const WORKBENCH_NAV: NavItem[] = [
     href: "/scanner",
     label: "Scanner Center",
     shortLabel: "Scanner",
-    description: "Ross · Warrior Trading and Desk Intelligence, server-side",
+    description: "Server-side momentum and desk scans with catalysts",
     icon: ScanSearch,
   },
   {
@@ -412,7 +412,7 @@ export function AppShell({
   }
 
   const primaryMobileItems = items.filter((item) =>
-    ["/dashboard", "/news", "/positions", "/watchlists"].includes(item.href),
+    ["/dashboard", "/news", "/scanner", "/positions"].includes(item.href),
   );
 
   return (
@@ -530,7 +530,7 @@ export function AppShell({
 
       <nav
         aria-label="Mobile primary"
-        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-[var(--ib-border-strong)] bg-[var(--ib-surface-1)] pb-[env(safe-area-inset-bottom)] lg:hidden"
+        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-[var(--ib-border-strong)] bg-[var(--ib-surface-1)] pb-[env(safe-area-inset-bottom)] lg:hidden"
       >
         {primaryMobileItems.map((item) => {
           const Icon = item.icon;

@@ -1,18 +1,12 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState, type KeyboardEvent } from "react";
+import { useId, useMemo, useState, type KeyboardEvent } from "react";
 import { cn } from "@/lib/utils/cn";
 import { formatSignedCurrency, marketTone } from "@/lib/utils/format";
 import { formatEntryDate, SignedValue } from "@/components/positions/display";
-import { BookPnlWindowToggle } from "@/components/positions/PositionsPrivacy";
-import { useHideValues } from "@/components/positions/privacy-context";
+import { useHideValues, usePositionsPrivacy } from "@/components/positions/privacy-context";
 import { sliceSeriesForBookWindow } from "@/lib/positions/pnl-range";
-import {
-  BOOK_PNL_WINDOW_LABELS,
-  readStoredChartPnlWindow,
-  storeChartPnlWindow,
-  type BookPnlWindow,
-} from "@/lib/positions/value-privacy";
+import { BOOK_PNL_WINDOW_LABELS } from "@/lib/positions/value-privacy";
 import type {
   PortfolioEvent,
   PortfolioPoint,
@@ -48,23 +42,15 @@ function plotX(index: number, count: number) {
   return PAD_X + (index / (count - 1)) * (WIDTH - PAD_X * 2);
 }
 
-function ChartHeading({
-  chartWindow,
-  onWindowChange,
-}: {
-  chartWindow: BookPnlWindow;
-  onWindowChange: (next: BookPnlWindow) => void;
-}) {
+function ChartHeading({ windowLabel }: { windowLabel: string }) {
   return (
     <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
       <p className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
-        Cumulative book P&L · {BOOK_PNL_WINDOW_LABELS[chartWindow]}
+        Cumulative book P&L · {windowLabel}
       </p>
-      <BookPnlWindowToggle
-        value={chartWindow}
-        onChange={onWindowChange}
-        aria-label="Chart P&L timeframe"
-      />
+      <p className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
+        Follows book window
+      </p>
     </div>
   );
 }
@@ -120,27 +106,19 @@ export function PortfolioPnlChart({
 }) {
   const gradientId = useId().replaceAll(":", "");
   const hideValues = useHideValues();
-  const [chartWindow, setChartWindowState] = useState<BookPnlWindow>("max");
+  const { pnlWindow } = usePositionsPrivacy();
   const [hover, setHover] = useState<number | null>(null);
-
-  useEffect(() => {
-    setChartWindowState(readStoredChartPnlWindow());
-  }, []);
-
-  function setChartWindow(next: BookPnlWindow) {
-    setChartWindowState(next);
-    storeChartPnlWindow(next);
-  }
+  const windowLabel = BOOK_PNL_WINDOW_LABELS[pnlWindow];
 
   const windowed = useMemo(
     () =>
       sliceSeriesForBookWindow(
         series,
-        chartWindow,
+        pnlWindow,
         asOf ?? series.at(-1)?.date ?? "",
         positions,
       ),
-    [asOf, chartWindow, positions, series],
+    [asOf, pnlWindow, positions, series],
   );
   const points = useMemo(
     () =>
@@ -154,7 +132,7 @@ export function PortfolioPnlChart({
   if (!layout) {
     return (
       <div className={cn("min-w-0", className)}>
-        <ChartHeading chartWindow={chartWindow} onWindowChange={setChartWindow} />
+        <ChartHeading windowLabel={windowLabel} />
         <div className="grid h-[208px] place-items-center rounded-[4px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-inset)] text-[12px] text-[var(--ib-text-muted)]">
           Not enough history to plot book P&L.
         </div>
@@ -165,7 +143,7 @@ export function PortfolioPnlChart({
   if (hideValues) {
     return (
       <div className={cn("min-w-0", className)}>
-        <ChartHeading chartWindow={chartWindow} onWindowChange={setChartWindow} />
+        <ChartHeading windowLabel={windowLabel} />
         <div className="grid h-[208px] place-items-center rounded-[4px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-inset)] text-[12px] text-[var(--ib-text-muted)]">
           P&L path hidden
         </div>
@@ -230,7 +208,7 @@ export function PortfolioPnlChart({
 
   return (
     <figure className={cn("min-w-0", className)}>
-      <ChartHeading chartWindow={chartWindow} onWindowChange={setChartWindow} />
+      <ChartHeading windowLabel={windowLabel} />
       <div
         aria-live="polite"
         className="mb-1.5 min-h-[34px] font-mono text-[11px] leading-snug text-[var(--ib-text-secondary)]"
@@ -264,7 +242,7 @@ export function PortfolioPnlChart({
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         role="img"
         tabIndex={0}
-        aria-label={`${BOOK_PNL_WINDOW_LABELS[chartWindow]} cumulative book P&L from ${formatEntryDate(coords[0]!.point.date)} to ${formatEntryDate(last.point.date)}, ending at ${formatSignedCurrency(last.value)}. Use arrow keys to inspect sessions. Markers show when lots were opened or closed.`}
+        aria-label={`${windowLabel} cumulative book P&L from ${formatEntryDate(coords[0]!.point.date)} to ${formatEntryDate(last.point.date)}, ending at ${formatSignedCurrency(last.value)}. Use arrow keys to inspect sessions. Markers show when lots were opened or closed.`}
         className="h-[208px] w-full rounded-[4px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-inset)] outline-none focus-visible:ring-1 focus-visible:ring-[var(--ib-border-control)]"
         onPointerLeave={() => setHover(null)}
         onPointerMove={(event) =>

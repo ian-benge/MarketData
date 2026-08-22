@@ -228,7 +228,7 @@ No dashboard SQL. `desk_intelligence` migration is already on the hosted project
 For overlay + email:
 
 1. Prefer `AI_GATEWAY_API_KEY`, or Vercel OIDC (`VERCEL=1`).
-2. Or `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY`.
+2. Or `ANTHROPIC_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY`.
 3. `RESEND_API_KEY` for SURG-class emails. Demo / fixtures skip send.
 4. Optional: `DESK_INTEL_MODEL_FAST`, `DESK_INTEL_MODEL_STRONG`, `DESK_INTEL_ENABLED`, `DESK_INTEL_IN_FIXTURES`.
 5. Leftover local `VERCEL_OIDC_TOKEN` is still ignored on purpose.

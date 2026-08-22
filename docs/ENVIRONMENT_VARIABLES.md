@@ -110,13 +110,11 @@ Seeded Research Desk firm id: `a0000000-0000-4000-8000-000000000001` (`supabase/
 
 | Variable | Purpose | Secret? | Public? | L | Pr | P | Source | Verification |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `OPENAI_API_KEY` | OpenAI API access | **Yes** | No | ○ | ○ | ○ | OpenAI | At least one AI key or AI Gateway for live drafting |
-| `OPENAI_MODEL` | Default `gpt-4.1-mini` | No | No | ○ | ○ | ○ | You | |
-| `ANTHROPIC_API_KEY` | Anthropic API access | **Yes** | No | ○ | ○ | ○ | Anthropic | |
+| `ANTHROPIC_API_KEY` | Anthropic API access | **Yes** | No | ○ | ○ | ○ | Anthropic | At least one AI key or AI Gateway for live drafting |
 | `ANTHROPIC_MODEL` | Default `claude-sonnet-4-20250514` | No | No | ○ | ○ | ○ | You | |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | Google Generative AI / Gemini | **Yes** | No | ○ | ○ | ○ | Google AI | |
 | `GEMINI_MODEL` | Default `gemini-2.0-flash` | No | No | ○ | ○ | ○ | You | |
-| `AI_DEFAULT_PROVIDER` | `openai` \| `anthropic` \| `gemini` (default `openai`) | No | No | ○ | ○ | ○ | You | Must match a configured key |
+| `AI_DEFAULT_PROVIDER` | `anthropic` \| `gemini` (default `anthropic`) | No | No | ○ | ○ | ○ | You | Must match a configured key |
 | `AI_GATEWAY_API_KEY` | Vercel AI Gateway key (optional if `VERCEL_OIDC_TOKEN` is present) | **Yes** | No | ○ | ○ | ○ | Vercel | Preferred LLM router |
 | `DESK_INTEL_MODEL_FAST` | Gateway model for move/digest/parse. Default `google/gemini-3.7-flash` | No | No | ○ | ○ | ○ | You | |
 | `DESK_INTEL_MODEL_STRONG` | Gateway model for session/ask/risk. Default `anthropic/claude-sonnet-5` | No | No | ○ | ○ | ○ | You | |

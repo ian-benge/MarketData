@@ -93,28 +93,24 @@ export function SessionControlStrip({
       aria-label="Market session and data trust"
       className="rounded-[6px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-1)]"
     >
-      <div className="grid divide-y divide-[var(--ib-border-subtle)] md:grid-cols-2 md:divide-x md:divide-y-0 xl:grid-cols-[1fr_1.45fr_1fr_1fr]">
-        <div className="flex min-h-11 items-center gap-2.5 px-3 py-1.5">
-          <span className="grid size-7 shrink-0 place-items-center rounded-[4px] bg-[var(--ib-surface-2)] text-[var(--state-info)]">
-            <Clock3 aria-hidden="true" className="size-3.5" />
-          </span>
+      <div className="grid divide-y divide-[var(--ib-border-subtle)] md:grid-cols-2 md:divide-x md:divide-y-0 xl:grid-cols-[1.1fr_1.6fr_1.2fr_1fr]">
+        <div className="flex min-h-10 items-center gap-2 px-3 py-1.5">
+          <Clock3 aria-hidden="true" className="size-3.5 shrink-0 text-[var(--state-info)]" />
           <div className="min-w-0">
-            <p className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
+            <p className="font-mono text-[9px] uppercase tracking-[0.1em] text-[var(--ib-text-muted)]">
               Market session
             </p>
-            <p className="mt-0.5 truncate text-[12px] font-medium capitalize text-[var(--ib-text-primary)]">
+            <p className="truncate text-[12px] font-medium capitalize leading-4 text-[var(--ib-text-primary)]">
               {session ? `${session} session` : "Session unavailable"}
             </p>
           </div>
         </div>
 
-        <div className="flex min-h-11 items-center gap-2.5 px-3 py-1.5">
-          <span className="grid size-7 shrink-0 place-items-center rounded-[4px] bg-[var(--ib-surface-2)] text-[var(--ib-text-secondary)]">
-            <Database aria-hidden="true" className="size-3.5" />
-          </span>
+        <div className="flex min-h-10 items-center gap-2 px-3 py-1.5">
+          <Database aria-hidden="true" className="size-3.5 shrink-0 text-[var(--ib-text-secondary)]" />
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-1.5">
-              <p className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
+              <p className="font-mono text-[9px] uppercase tracking-[0.1em] text-[var(--ib-text-muted)]">
                 Data trust
               </p>
               <StatusIndicator
@@ -122,7 +118,7 @@ export function SessionControlStrip({
                 label={coverageLabel ?? "Unknown coverage"}
               />
             </div>
-            <p className="mt-0.5 truncate font-mono text-[11px] text-[var(--ib-text-secondary)]">
+            <p className="truncate font-mono text-[11px] leading-4 text-[var(--ib-text-secondary)]">
               {session === "closed" ? "Last print " : ""}
               {formatMarketDateTime(asOf, { seconds: true })}
               {universeCoverage ? ` · ${universeCoverage}` : ""}
@@ -133,24 +129,23 @@ export function SessionControlStrip({
         <div
           ref={healthRef}
           className={cn(
-            "relative flex min-h-11 items-center gap-2.5 px-3 py-1.5",
+            "relative flex min-h-10 items-center gap-2 px-3 py-1.5",
             unhealthyCount
               ? "bg-[color-mix(in_oklab,var(--state-warning)_6%,transparent)]"
               : null,
           )}
         >
-          <span
+          <Activity
+            aria-hidden="true"
             className={cn(
-              "grid size-7 shrink-0 place-items-center rounded-[4px] bg-[var(--ib-surface-2)]",
+              "size-3.5 shrink-0",
               unhealthyCount
                 ? "text-[var(--state-warning)]"
                 : "text-[var(--ib-text-secondary)]",
             )}
-          >
-            <Activity aria-hidden="true" className="size-3.5" />
-          </span>
+          />
           <div className="min-w-0">
-            <p className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
+            <p className="font-mono text-[9px] uppercase tracking-[0.1em] text-[var(--ib-text-muted)]">
               Provider health
             </p>
             <button
@@ -158,7 +153,7 @@ export function SessionControlStrip({
               aria-expanded={healthOpen}
               aria-haspopup="dialog"
               onClick={() => setHealthOpen((open) => !open)}
-              className="mt-0.5 inline-flex min-h-8 max-sm:min-h-11 items-center gap-1 text-left text-[12px] text-[var(--ib-text-primary)] hover:text-[var(--ib-maroon-300)]"
+              className="inline-flex min-h-8 max-sm:min-h-11 items-center gap-1 text-left text-[12px] leading-4 text-[var(--ib-text-primary)] hover:text-[var(--ib-maroon-300)]"
             >
               <span
                 className={cn(
@@ -191,15 +186,13 @@ export function SessionControlStrip({
           ) : null}
         </div>
 
-        <div className="flex min-h-11 items-center gap-2.5 px-3 py-1.5">
-          <span className="grid size-7 shrink-0 place-items-center rounded-[4px] bg-[var(--ib-surface-2)] text-[var(--ib-maroon-300)]">
-            <CalendarClock aria-hidden="true" className="size-3.5" />
-          </span>
+        <div className="flex min-h-10 items-center gap-2 px-3 py-1.5">
+          <CalendarClock aria-hidden="true" className="size-3.5 shrink-0 text-[var(--ib-maroon-300)]" />
           <div className="min-w-0">
-            <p className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
+            <p className="font-mono text-[9px] uppercase tracking-[0.1em] text-[var(--ib-text-muted)]">
               Next scheduled brief
             </p>
-            <p className="mt-0.5 text-[12px] font-medium text-[var(--ib-text-primary)]">
+            <p className="truncate text-[12px] font-medium leading-4 text-[var(--ib-text-primary)]">
               {nextEditionLabel(new Date(asOf))}
             </p>
           </div>

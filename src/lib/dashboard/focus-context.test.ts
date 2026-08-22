@@ -120,6 +120,9 @@ describe("buildFocusContext", () => {
     expect(focus?.relatedTickers).toContain("AMD");
     expect(focus?.membership.some((row) => row.kind === "theme")).toBe(true);
     expect(focus?.membership.some((row) => row.kind === "watchlist")).toBe(true);
+    expect(focus?.changeFromOpenPercent).toBe(1);
+    expect(focus?.change1wPercent).toBe(3);
+    expect(focus?.volume).toBe(1);
   });
 
   it("marks in-book from the blotter digest when coverage lags", () => {
@@ -154,6 +157,8 @@ describe("buildFocusContext", () => {
       },
     });
     expect(focus?.inBook).toBe(true);
+    expect(focus?.bookSide).toBe("long");
+    expect(focus?.bookDayPercent).toBe(1);
   });
 
   it("returns null for a blank ticker", () => {

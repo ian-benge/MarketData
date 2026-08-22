@@ -21,9 +21,8 @@ export default async function PositionsPage() {
     return (
       <div className="min-w-0 space-y-4">
         <PageHeader
-          eyebrow="Portfolio monitor"
+          compact
           title="Positions"
-          description="Per-user books with live marks, exposure, and P&L."
         />
         <StatePanel
           kind="unavailable"

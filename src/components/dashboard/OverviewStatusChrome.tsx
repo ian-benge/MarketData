@@ -3,6 +3,7 @@
 import { type ComponentProps } from "react";
 import { AlertTriangle, ChevronRight, ShieldAlert } from "lucide-react";
 import { AttentionStrip } from "@/components/dashboard/AttentionStrip";
+import { OverviewJumpRail } from "@/components/dashboard/OverviewJumpRail";
 import {
   dataTrustKind,
   sessionCompactLabel,
@@ -95,6 +96,7 @@ export function OverviewStatusChrome({
           onSelectSymbol={onSelectSymbol}
         />
       </div>
+      <OverviewJumpRail />
     </div>
   );
 }

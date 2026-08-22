@@ -50,9 +50,6 @@ test.describe("positions visual", () => {
     const chart = page.getByRole("img", { name: /cumulative book P&L/i });
     await expect(chart).toBeVisible();
     await expect(
-      page.getByRole("group", { name: "Chart P&L timeframe" }),
-    ).toBeVisible();
-    await expect(
       page.getByRole("list", { name: "P&L chart legend" }),
     ).toBeVisible();
     await expectNoPageHorizontalOverflow(page);
@@ -64,9 +61,14 @@ test.describe("positions visual", () => {
     await page.screenshot({
       path: "tmp/positions-pnl-chart.png",
     });
-    await page.getByRole("group", { name: "Chart P&L timeframe" }).getByRole("button", { name: "Max", exact: true }).click();
+    await page.getByRole("group", { name: "P&L timeframe" }).getByRole("button", { name: "1M", exact: true }).click();
     await expect(
-      page.getByRole("group", { name: "Chart P&L timeframe" }).getByRole("button", { name: "Max", exact: true }),
+      page.getByRole("group", { name: "P&L timeframe" }).getByRole("button", { name: "1M", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await expect(chart).toBeVisible();
+    await page.getByRole("group", { name: "P&L timeframe" }).getByRole("button", { name: "Max", exact: true }).click();
+    await expect(
+      page.getByRole("group", { name: "P&L timeframe" }).getByRole("button", { name: "Max", exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
     await expect(chart).toBeVisible();
     await page.screenshot({
@@ -100,6 +102,8 @@ test.describe("positions visual", () => {
     await expect(page.getByText("Option BP")).toHaveCount(0);
     await expect(page.getByText("4× account value")).toHaveCount(0);
     await expect(page.getByText("Total P&L (with fees)")).toBeVisible();
+    await expect(page.getByText("Net vs premium (not TWR)")).toBeVisible();
+    await expect(page.getByText(/5,?906/)).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Recent closes" })).toBeVisible();
     await expect(page.getByText("MSFT  2 Feb 26  430 C")).toBeVisible();
     await expect(page.getByText("No open positions on the book")).toHaveCount(0);

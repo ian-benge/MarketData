@@ -14,7 +14,7 @@ test.beforeAll(async () => {
   await mkdir(outputDir, { recursive: true });
 });
 
-test("command center composes chart, book, movers, and catalysts", async ({
+test("command center composes pulse, book, movers, and catalysts", async ({
   page,
 }) => {
   test.setTimeout(90_000);
@@ -26,7 +26,8 @@ test("command center composes chart, book, movers, and catalysts", async ({
   await expect(page.getByRole("region", { name: "Attention" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Book impact" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Desk intelligence" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Primary market chart" })).toBeVisible();
+  await expect(page.getByText("Pulse history", { exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Watchlists, themes, and tape" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Name in focus" })).toBeVisible();
   await expect(page.getByRole("region", { name: "Material movers" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Earnings risk" })).toBeVisible();

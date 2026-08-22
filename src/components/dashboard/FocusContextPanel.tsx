@@ -8,11 +8,35 @@ import { WhyMovingBadge } from "@/components/news/WhyMovingBadge";
 import type { FocusContext } from "@/lib/dashboard/focus-context";
 import { cn } from "@/lib/utils/cn";
 import {
+  formatCompactCurrency,
   formatPrice,
   formatRelativeVolume,
+  formatSignedCurrency,
   formatSignedPercent,
+  formatVolume,
   marketToneClass,
 } from "@/lib/utils/format";
+
+function Metric({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: string;
+}) {
+  return (
+    <div className="min-w-0 rounded-[4px] border border-[var(--ib-border-subtle)] bg-[var(--ib-surface-inset)] px-2 py-1">
+      <p className="font-mono text-[9px] uppercase tracking-[0.08em] text-[var(--ib-text-muted)]">
+        {label}
+      </p>
+      <p className={cn("mt-0.5 truncate font-mono text-[11px] tabular-nums text-[var(--ib-text-primary)]", tone)}>
+        {value}
+      </p>
+    </div>
+  );
+}
 
 export function FocusContextPanel({
   focus,
@@ -24,6 +48,8 @@ export function FocusContextPanel({
   if (!focus) {
     return (
       <Panel
+        id="name-in-focus"
+        className="scroll-mt-[11.5rem]"
         title="Name in focus"
         description="Select a ticker from the tape, movers, or coverage to inspect why it is moving."
       >
@@ -37,9 +63,11 @@ export function FocusContextPanel({
 
   return (
     <Panel
+      id="name-in-focus"
+      className="scroll-mt-[11.5rem]"
       title="Name in focus"
-      description="Deterministic quote and attribution first. Desk narrative is grounded in the same evidence pack."
-      bodyClassName="space-y-3 p-3"
+      description="Quote and attribution first. Desk narrative stays grounded in the same evidence."
+      bodyClassName="space-y-2.5 p-3"
       actions={
         <div className="flex flex-wrap justify-end gap-1.5">
           <Link
@@ -79,10 +107,10 @@ export function FocusContextPanel({
           ) : null}
         </div>
         <div className="text-right">
-          <p className="font-mono text-[16px] text-[var(--ib-text-primary)]">
+          <p className="font-mono text-[16px] tabular-nums text-[var(--ib-text-primary)]">
             {formatPrice(focus.last, focus.ticker)}
           </p>
-          <p className={cn("font-mono text-[12px]", marketToneClass(focus.changePercent))}>
+          <p className={cn("font-mono text-[12px] tabular-nums", marketToneClass(focus.changePercent))}>
             {formatSignedPercent(focus.changePercent)}
             <span className="ml-2 text-[10px] text-[var(--ib-text-muted)]">
               {formatRelativeVolume(focus.relativeVolume)} rvol
@@ -91,8 +119,51 @@ export function FocusContextPanel({
         </div>
       </div>
 
+      <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
+        <Metric
+          label="Open %"
+          value={formatSignedPercent(focus.changeFromOpenPercent)}
+          tone={marketToneClass(focus.changeFromOpenPercent)}
+        />
+        <Metric
+          label="1w"
+          value={formatSignedPercent(focus.change1wPercent)}
+          tone={marketToneClass(focus.change1wPercent)}
+        />
+        <Metric label="Volume" value={formatVolume(focus.volume)} />
+        <Metric label="Mkt cap" value={formatCompactCurrency(focus.marketCap)} />
+        <Metric
+          label="Premkt"
+          value={formatSignedPercent(focus.preMarketChangePercent)}
+          tone={marketToneClass(focus.preMarketChangePercent)}
+        />
+        <Metric
+          label="AH"
+          value={formatSignedPercent(focus.afterHoursChangePercent)}
+          tone={marketToneClass(focus.afterHoursChangePercent)}
+        />
+      </div>
+
+      {focus.dayHigh != null || focus.dayLow != null ? (
+        <p className="font-mono text-[10px] text-[var(--ib-text-muted)]">
+          Session range {formatPrice(focus.dayLow, focus.ticker)} –{" "}
+          {formatPrice(focus.dayHigh, focus.ticker)}
+        </p>
+      ) : null}
+
       <div className="flex flex-wrap items-center gap-1.5">
-        {focus.inBook ? <Badge tone="warn">In book</Badge> : null}
+        {focus.inBook ? (
+          <Badge tone="warn">
+            In book{focus.bookSide ? ` · ${focus.bookSide}` : ""}
+          </Badge>
+        ) : null}
+        {focus.inBook && focus.bookDayPercent != null ? (
+          <span className={cn("font-mono text-[11px] tabular-nums", marketToneClass(focus.bookDayPnl))}>
+            {formatSignedCurrency(focus.bookDayPnl, { compact: true })}{" "}
+            {formatSignedPercent(focus.bookDayPercent)}
+          </span>
+        ) : null}
+        {focus.bookUnexplained ? <Badge tone="warn">Unexplained</Badge> : null}
         <WhyMovingBadge explanation={focus.explanation} href={whyHref} />
       </div>
 

@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { MoreHorizontal, Plus } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { ClientMarketTime } from "@/components/ui/ClientMarketTime";
+import { ChipToggle } from "@/components/ui/ChipToggle";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { StaleBanner } from "@/components/ui/StaleBanner";
@@ -24,6 +25,7 @@ import { PositionsBookTabs } from "@/components/positions/PositionsBookTabs";
 import { PositionsTable } from "@/components/positions/PositionsTable";
 import { PositionsPrivacyProvider } from "@/components/positions/privacy-context";
 import { PositionsValuePrivacyToggle } from "@/components/positions/PositionsPrivacy";
+import { PositionsTrustStrip } from "@/components/positions/PositionsTrustStrip";
 import { TradeEmailsToggle } from "@/components/positions/TradeEmailsToggle";
 import { BookRiskPanel } from "@/components/intel/BookRiskPanel";
 import {
@@ -31,7 +33,8 @@ import {
   toPositionRecord,
 } from "@/lib/positions/assemble";
 import { applyCloseToBook, PositionCloseError } from "@/lib/positions/close";
-import { mergePolledSnapshot, positionsCoverageCopy } from "@/lib/positions/coverage";
+import { mergePolledSnapshot } from "@/lib/positions/coverage";
+import { chicagoDateKey } from "@/lib/market-data/bars-window";
 import { buildPositionActivity } from "@/lib/positions/math";
 import { UNASSIGNED_OWNER_ID, snapshotBelongsToView } from "@/lib/positions/owners";
 import type {
@@ -41,7 +44,8 @@ import type {
 } from "@/lib/positions/types";
 import type { BrokerageSnapshot } from "@/lib/brokerage/types";
 import { formatQuantity } from "@/lib/utils/format";
-import { displayPositionTicker } from "@/lib/positions/option-symbol";
+import { displayPositionTicker, positionUnderlying } from "@/lib/positions/option-symbol";
+import { cn } from "@/lib/utils/cn";
 
 const POLL_MS = 15_000;
 const CLOSED_REFRESH_MS = 10 * 60 * 1000;
@@ -99,6 +103,12 @@ export function PositionsWorkspace({
   const [confirmBrokerageAdd, setConfirmBrokerageAdd] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [showFillTape, setShowFillTape] = useState(false);
+  const [closedScope, setClosedScope] = useState<"auto" | "today" | "all">(
+    "auto",
+  );
+  const [viewBusy, setViewBusy] = useState(false);
+  const [pollError, setPollError] = useState<string | null>(null);
+  const moreRef = useRef<HTMLDivElement>(null);
   const [submitting, setSubmitting] = useState(false);
   const [closing, setClosing] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
@@ -227,12 +237,37 @@ export function PositionsWorkspace({
     () => buildPositionActivity([...openRows, ...closedRows]),
     [closedRows, openRows],
   );
+  const openRiskTickers = useMemo(() => {
+    const symbols = new Set<string>();
+    for (const row of displaySnapshot.positions) {
+      if (row.status !== "open") continue;
+      const ticker = row.ticker.trim().toUpperCase();
+      if (ticker) symbols.add(ticker);
+      const underlying = positionUnderlying(row.ticker);
+      if (underlying) symbols.add(underlying);
+    }
+    return [...symbols];
+  }, [displaySnapshot.positions]);
+
+  function inspectLot(id: string) {
+    setSelectedId(id);
+    window.requestAnimationFrame(() => {
+      document.getElementById(`position-row-${id}`)?.scrollIntoView({
+        block: "nearest",
+        behavior: "smooth",
+      });
+    });
+  }
 
   async function loadNamedBook(ownerId: string, requestedBookId?: string) {
     viewedOwnerRef.current = ownerId;
     setSelectedId(null);
+    setViewBusy(true);
+    setPollError(null);
+    setClosedScope("auto");
     const preferred =
       requestedBookId || lastBookByOwner[ownerId] || undefined;
+    try {
     if (demo && preferred && sessionBooks[preferred]) {
       const nextBook = sessionBooks[preferred]!;
       setBook(nextBook);
@@ -287,6 +322,9 @@ export function PositionsWorkspace({
     rememberLots(resolved.bookId || next.ownerId, nextLots);
     if (sessionAccountValues[resolved.bookId] === undefined) {
       rememberAccountValue(resolved.bookId, resolved.accountValue);
+    }
+    } finally {
+      setViewBusy(false);
     }
   }
 
@@ -444,6 +482,7 @@ export function PositionsWorkspace({
           !cancelled &&
           snapshotBelongsToView(next, viewedOwnerRef.current)
         ) {
+          setPollError(null);
           setSnapshot({
             ...next,
             books: mergeOwnerBooks(next.books, next.ownerId || snapshot.ownerId),
@@ -451,7 +490,9 @@ export function PositionsWorkspace({
           });
         }
       } catch {
-        /* keep last valid snapshot */
+        if (!cancelled) {
+          setPollError("Live marks did not refresh. Showing last good snapshot.");
+        }
       }
     }
     const timeout = window.setTimeout(pull, 2_000);
@@ -481,18 +522,26 @@ export function PositionsWorkspace({
         const response = await fetch(`/api/positions?${params}`, {
           cache: "no-store",
         });
-        if (!response.ok || cancelled) return;
+        if (!response.ok || cancelled) {
+          if (!response.ok && !cancelled) {
+            setPollError("Live marks did not refresh. Showing last good snapshot.");
+          }
+          return;
+        }
         const next = (await response.json()) as PositionsSnapshot;
         if (cancelled || !snapshotBelongsToView(next, viewedOwnerRef.current)) {
           return;
         }
         const merged = mergePolledSnapshot(snapshotRef.current, next);
+        setPollError(null);
         setSnapshot(merged);
         if (!merged.ownerLocked) {
           rememberLots(merged.bookId || merged.ownerId, recordsFromSnapshot(merged));
         }
       } catch {
-        /* keep last valid snapshot */
+        if (!cancelled) {
+          setPollError("Live marks did not refresh. Showing last good snapshot.");
+        }
       }
     }
     const timeout = window.setTimeout(pull, 2_000);
@@ -530,7 +579,7 @@ export function PositionsWorkspace({
           rememberLots(next.bookId || next.ownerId, recordsFromSnapshot(next));
         }
       } catch {
-        /* keep last valid snapshot */
+        /* keep last valid closed lots */
       }
     }
     function onVisible() {
@@ -546,6 +595,41 @@ export function PositionsWorkspace({
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [demo, snapshot.bookId, snapshot.ownerId, snapshot.ownerLocked, snapshot.persistence]);
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    function onPointer(event: MouseEvent) {
+      if (!moreRef.current?.contains(event.target as Node)) setMoreOpen(false);
+    }
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setMoreOpen(false);
+    }
+    window.addEventListener("mousedown", onPointer);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", onPointer);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [moreOpen]);
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key !== "/") return;
+      const target = event.target;
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        (target instanceof HTMLElement && target.isContentEditable)
+      ) {
+        return;
+      }
+      event.preventDefault();
+      document.getElementById("pos-filter")?.focus();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   async function handleCreate(values: PositionFormValues) {
     setSubmitting(true);
@@ -1002,9 +1086,22 @@ export function PositionsWorkspace({
     displaySnapshot.summary.closedCount === 0;
   const sameDayRoundTrips =
     flatBook && (displaySnapshot.summary.closedAverageHoldingDays ?? 0) < 1;
-  const coverage = positionsCoverageCopy(displaySnapshot);
-  const primaryRows = flatBook ? closedRows : openRows;
+  const chicagoToday = chicagoDateKey(displaySnapshot.asOf);
+  const todayClosedRows = closedRows.filter(
+    (row) => (row.closeDate ?? row.closedAt ?? "").slice(0, 10) === chicagoToday,
+  );
+  const showTodayCloses =
+    flatBook &&
+    (closedScope === "today" ||
+      (closedScope === "auto" && todayClosedRows.length > 0));
+  const visibleClosed = showTodayCloses ? todayClosedRows : closedRows;
+  const primaryRows = flatBook ? visibleClosed : openRows;
   const secondaryClosed = flatBook ? [] : closedRows;
+  const lastSyncAt = (viewerBrokerage ?? snapshot.brokerage)?.connections
+    .map((row) => row.lastSyncAt)
+    .filter(Boolean)
+    .sort()
+    .at(-1);
 
   if (snapshot.persistence === "unavailable" && !snapshot.usingFixtures) {
     return (
@@ -1023,6 +1120,7 @@ export function PositionsWorkspace({
     <PositionsPrivacyProvider>
     <div className="min-w-0 space-y-3">
       <PageHeader
+        compact
         title="Positions"
         className="mb-2"
         actions={
@@ -1095,7 +1193,7 @@ export function PositionsWorkspace({
                 Add position
               </Button>
             ) : snapshot.ownerId === snapshot.viewerId && snapshot.canEdit && snaptradeBook ? (
-              <div className="relative">
+              <div className="relative" ref={moreRef}>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -1138,26 +1236,23 @@ export function PositionsWorkspace({
       />
 
       {!unassignedLocked ? (
-      <div className="flex flex-wrap items-center gap-2 text-[11px] text-[var(--ib-text-muted)]">
-        {snapshot.usingFixtures ? <Badge tone="mock">Mock data</Badge> : null}
-        {snapshot.licenseWarning ? (
-          <Badge tone="warn">License</Badge>
-        ) : null}
-        <span className="font-mono">
-          {coverage.label}
-          {coverage.detail ? ` · ${coverage.detail}` : ""}
-          {snapshot.marketSession ? ` · ${snapshot.marketSession}` : ""}
-          {" · as of "}
-          <ClientMarketTime value={snapshot.asOf} seconds />
-        </span>
-        {activeOwner && !activeOwner.isViewer ? (
-          <span>Viewing {activeOwner.displayName}</span>
-        ) : null}
-      </div>
+        <PositionsTrustStrip
+          snapshot={displaySnapshot}
+          pollError={pollError}
+          lastSyncAt={lastSyncAt}
+          viewingName={
+            activeOwner && !activeOwner.isViewer
+              ? activeOwner.displayName
+              : null
+          }
+        />
       ) : null}
 
       {snapshot.owners.length > 0 ? (
-        <div className="sticky top-12 z-20 -mx-3 space-y-1.5 border-b border-[var(--ib-border-subtle)] bg-[var(--ib-canvas)] px-3 py-1.5 lg:top-11">
+        <div
+          id={`positions-owner-${snapshot.ownerId}`}
+          className="sticky top-12 z-20 -mx-3 space-y-1.5 border-b border-[var(--ib-border-subtle)] bg-[var(--ib-canvas)] px-3 py-1.5 lg:top-11"
+        >
           <PositionsOwnerTabs
             owners={snapshot.owners}
             ownerId={snapshot.ownerId}
@@ -1180,7 +1275,7 @@ export function PositionsWorkspace({
               books={snapshot.books}
               bookId={snapshot.bookId}
               canEdit={snapshot.canEdit}
-              busy={bookBusy}
+              busy={bookBusy || viewBusy}
               onSelect={(id) => {
                 void loadNamedBook(snapshot.ownerId, id).catch(
                   (error: unknown) => {
@@ -1250,9 +1345,19 @@ export function PositionsWorkspace({
         />
       ) : null}
 
-      <div className="flex min-w-0 flex-col gap-3">
+      <div
+        id={`positions-book-${snapshot.bookId}`}
+        className={cn(
+          "flex min-w-0 flex-col gap-3",
+          (viewBusy || bookBusy) && "pointer-events-none opacity-60",
+        )}
+        aria-busy={viewBusy || bookBusy}
+      >
+        {viewBusy || bookBusy ? (
+          <span className="sr-only">Loading book</span>
+        ) : null}
         {snapshot.ownerLocked ? null : (
-          <div className="order-1 min-w-0">
+          <div className="min-w-0">
             <PositionsMetricsStrip
               snapshot={displaySnapshot}
               onAccountValueChange={
@@ -1266,16 +1371,8 @@ export function PositionsWorkspace({
             />
           </div>
         )}
-        <div className="order-1 min-w-0">
-          <BookRiskPanel />
-        </div>
-        {snapshot.ownerLocked ? null : (
-          <div className="order-3 min-w-0 lg:order-2">
-            <PositionsAttribution snapshot={displaySnapshot} />
-          </div>
-        )}
 
-        <div className="order-2 min-w-0 space-y-3 lg:order-3">
+        <div className="min-w-0 space-y-3">
           <Panel
             title={flatBook ? "Recent closes" : "Position blotter"}
             description={
@@ -1286,9 +1383,21 @@ export function PositionsWorkspace({
                   : "Open lots with live marks. Brokerage lots stay in their linked book. Click a row for the lot blotter."
             }
             actions={
-              <Badge tone="neutral">
-                {flatBook ? `${closedRows.length} closed` : `${openRows.length} shown`}
-              </Badge>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {!snapshot.ownerLocked && !flatBook && openRows.length > 0 ? (
+                  <Link
+                    href="/scanner?book=1"
+                    className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--ib-maroon-300)] hover:underline"
+                  >
+                    Book in scanner
+                  </Link>
+                ) : null}
+                <Badge tone="neutral">
+                  {flatBook
+                    ? `${visibleClosed.length} closed`
+                    : `${openRows.length} shown`}
+                </Badge>
+              </div>
             }
             bodyClassName="p-0"
           >
@@ -1303,11 +1412,31 @@ export function PositionsWorkspace({
                 <input
                   id="pos-filter"
                   className="field-control"
-                  placeholder="Filter ticker, strategy, notes"
+                  placeholder="Filter ticker, strategy, notes  (/)"
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                 />
               </div>
+              {flatBook ? (
+                <div
+                  role="group"
+                  aria-label="Closed lot range"
+                  className="flex gap-1"
+                >
+                  <ChipToggle
+                    pressed={showTodayCloses}
+                    onClick={() => setClosedScope("today")}
+                  >
+                    Today
+                  </ChipToggle>
+                  <ChipToggle
+                    pressed={!showTodayCloses}
+                    onClick={() => setClosedScope("all")}
+                  >
+                    All history
+                  </ChipToggle>
+                </div>
+              ) : null}
               <div>
                 <label htmlFor="pos-side" className="sr-only">
                   Side
@@ -1385,12 +1514,27 @@ export function PositionsWorkspace({
                 groupFills={flatBook}
                 emptyMessage={
                   flatBook
-                    ? "No closed lots match the current filters."
+                    ? showTodayCloses
+                      ? "No closes today."
+                      : "No closed lots match the current filters."
                     : "No open lots match the current filters."
                 }
               />
             )}
           </Panel>
+
+          {!snapshot.ownerLocked &&
+          displaySnapshot.summary.openCount > 0 ? (
+            <BookRiskPanel openTickers={openRiskTickers} />
+          ) : null}
+          {snapshot.ownerLocked ? null : (
+            <PositionsAttribution
+              key={snapshot.bookId}
+              snapshot={displaySnapshot}
+              defaultOpen={!flatBook}
+              onInspect={inspectLot}
+            />
+          )}
 
           {snapshot.ownerLocked || flatBook ? null : (
             <>

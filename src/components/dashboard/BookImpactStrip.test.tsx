@@ -58,6 +58,19 @@ describe("BookImpactStrip", () => {
     expect(screen.getByRole("link", { name: "Open Positions" })).toBeTruthy();
   });
 
+  it("surfaces unexplained names outside the contributor cap", () => {
+    render(
+      <BookImpactStrip
+        book={{
+          ...book,
+          unexplainedTickers: ["AMD", "SMCI"],
+        }}
+      />,
+    );
+    expect(screen.getByText("SMCI")).toBeTruthy();
+    expect(screen.getByText(/2 unexplained/)).toBeTruthy();
+  });
+
   it("redacts P&L when the owner book is locked", () => {
     render(
       <BookImpactStrip

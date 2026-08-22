@@ -1,6 +1,7 @@
 import { nanoid } from "nanoid";
 import { AiOrchestration } from "@/lib/ai/orchestration";
 import { fixturesEnabled } from "@/lib/api/http";
+import { hasAnyAiCredentials } from "@/lib/desk-intel/models";
 import { reportEmailDisabled } from "@/lib/email/policy";
 import { loadFirmRecipients } from "@/lib/email/recipients";
 import { getEnv, type Env } from "@/lib/env";
@@ -44,11 +45,7 @@ export function createReportJobStore(): ReportJobStore {
 }
 
 export function hasLiveAiKeys(env: Env = getEnv()): boolean {
-  return Boolean(
-    env.OPENAI_API_KEY ||
-      env.ANTHROPIC_API_KEY ||
-      env.GOOGLE_GENERATIVE_AI_API_KEY,
-  );
+  return hasAnyAiCredentials(env);
 }
 
 export function shouldUseMockAi(

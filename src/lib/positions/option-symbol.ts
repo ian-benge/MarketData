@@ -88,6 +88,11 @@ export function displayPositionTicker(ticker: string): string {
   return parsed ? formatOccOptionSymbol(parsed) : ticker;
 }
 
+/** Equity root for research links — OCC underlying, otherwise the ticker. */
+export function positionUnderlying(ticker: string): string {
+  return parseOccOptionSymbol(ticker)?.underlying ?? ticker.trim().toUpperCase();
+}
+
 export function optionIdentityKey(ticker: string): string | null {
   const parsed = parseOccOptionSymbol(ticker);
   if (!parsed) return null;
